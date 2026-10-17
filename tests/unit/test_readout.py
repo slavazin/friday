@@ -380,7 +380,7 @@ def test_hook_transfer_reads_tags_from_the_vocabulary_and_untagged_held_out_requ
     h = readings(untagged, SPEC).hook_transfer
     assert h.population is None and h.requests_fired == ()
     assert h.untagged == tuple(r.id for r in reqs)
-    assert any("Hook transfer: unread (6 held-out requests untagged)" == x for x in lines(readings(untagged, SPEC)))
+    assert ("Hook transfer: unread (6 held-out requests untagged)" in lines(readings(untagged, SPEC)))
     no_vocab = dataclasses.replace(untagged, tags=None)
     assert readings(no_vocab, SPEC).hook_transfer.population is None
     tagged = make_stores(journal=_admitted_canvas_journal(), requests=reqs, tagged=False)
