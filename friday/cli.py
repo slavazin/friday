@@ -223,20 +223,20 @@ class PassEnvFactory:
             models = dict(self.role_models)
             client.bind(models)
             book = PromptBook(repo / spec.paths.prompts)
-            browser = PlaywrightBrowser(spec.eval.action_timeout_ms, spec.eval.load_timeout_ms)
+            browser = PlaywrightBrowser(spec.eval.action_timeout_ms, spec.eval.load_timeout_ms, telemetry=tel)
             rubric = ModelRubric.from_spec(spec, client, ask_json, Rejected, model=models["rubric"],
-                                           prompts=book.root, cache=FileResponseCache(root / CACHE_DIR / "rubric"),
+                                           prompts=book.root, telemetry=tel, cache=FileResponseCache(root / CACHE_DIR / "rubric"),
                                            spend=spend)
             evaluator = with_optional(Evaluator, browser=browser, rubric=rubric,
                                       quality=NodeQualityProbe.from_spec(spec, repo), **evaluator_settings(spec),
                                       telemetry=tel)
             artifacts = root / spec.paths.artifacts
-            judge = Judge(client, book, spec.lens.flag_p, spec.judge.max_observations, spec.judge.quote_reasks)
+            judge = Judge(client, book, spec.lens.flag_p, spec.judge.max_observations, spec.judge.quote_reasks, tel)
             yield PassEnv(
                 worker=Worker(client, book), book=book, browser=browser, evaluate=evaluator.run,
                 judge=DraftRecordingJudge(judge, artifacts), passes=SqlitePassStore(conn),
                 judge_store=SqliteJudgeStore(conn), artifacts=artifacts, settings=PassSettings.from_spec(spec),
-                transport_errors=(TransportFailure,),
+                transport_errors=(TransportFailure,), telemetry=tel,
             )
         finally:
             if browser is not None:

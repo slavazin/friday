@@ -88,10 +88,10 @@ class World:
         client = ScriptedClient(replies())
         return PassEnv(
             worker=Worker(client, BOOK), book=BOOK, browser=FileBrowser(), evaluate=scripted_eval,
-            judge=DraftRecordingJudge(ProcessJudge(client, BOOK, 0.5, 3, 1), self.tmp / "artifacts"),
+            judge=DraftRecordingJudge(ProcessJudge(client, BOOK, 0.5, 3, 1, self.telemetry), self.tmp / "artifacts"),
             passes=self.stores.passes, judge_store=self.stores.judge, artifacts=self.tmp / "artifacts",
             settings=PassSettings.from_spec(self.spec), transport_errors=(TransportFailure,),
-            missing_ids=page_ids_missing,
+            missing_ids=page_ids_missing, telemetry=self.telemetry,
         )
 
     def build_close(self) -> RoundClose:
@@ -103,7 +103,8 @@ class World:
         return build_round_close(
             self.spec, journal=self.journal, ledger=s.ledger, events=s.events, judge_store=s.judge, pools=s.pools,
             passes=s.passes, observations=s.observations, lens_set=self.lens_set, spend=s.spend, pooling=pooling,
-            nominator=nominator, minter=None, renderer=RENDERER, bar=build_mechanics(self.spec).bar)
+            nominator=nominator, minter=None, renderer=RENDERER, bar=build_mechanics(self.spec).bar,
+            telemetry=self.telemetry)
 
     def runner(self, coordinator=True) -> Runner:
         @contextmanager
@@ -175,7 +176,6 @@ def test_a_restart_recovers_observations_journaled_by_passes_that_never_reported
     real_run_round = runner_mod.pipeline.run_round
 
     def run_then_die(*a, **k):
-        k.pop("telemetry", None)                                 # the real step does not take it yet (S18)
         real_run_round(*a, **k)                                  # passes finished and wrote their rows
         raise RuntimeError("parent died before reading the outcomes")
 

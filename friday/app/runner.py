@@ -32,7 +32,7 @@ from friday.app import pipeline
 from friday.app.goals import tag_held_out, tag_round
 from friday.app.ledger import pair_deltas
 from friday.app.notes import append_free, approx_tokens, notes_text
-from friday.app.readout import ReadoutStores, held_out_ids, readings
+from friday.app.readout import ReadoutStores, held_out_ids
 from friday.app.request_text import regime_of
 from friday.app.request_text import request_text as compose_request_text
 from friday.app.round_close import CloseSummary, RoundClose
@@ -412,7 +412,8 @@ class Runner:
         if untagged:
             if len(untagged) != len(requests):
                 raise ValueError(f"round {n} is partly tagged; untagged: {untagged}")
-            _, new = tag_round(self.tagger, self.goals, self.vocabulary, n, self.spec.stream.max_new_tags)
+            _, new = tag_round(self.tagger, self.goals, self.vocabulary, n, self.spec.stream.max_new_tags,
+                               telemetry=tel)
             tel.event("round.tags", requests=len(requests), new_tags=[g.tag for g in new])
             requests = list(self.goals.round(n))
         return requests
@@ -464,7 +465,8 @@ class Runner:
         parallel, reruns = pipeline.round_limits(self.spec)
         with tel.span("round.passes", passes=len(tasks)):
             result = with_optional(pipeline.run_round, n, plan.plans, tasks, self.env_factory, parallel=parallel,
-                                   reruns=reruns, in_process=self.in_process, telemetry=tel)
+                                   reruns=reruns, in_process=self.in_process, telemetry=tel,
+                                   pass_timeout_s=pipeline.pass_timeout(self.spec))
         reruns_run = [o.pass_.id for o in result.outcomes if pipeline.RERUN_SUFFIX in o.pass_.id]
         counts = {
             "scored": sum(o.report is not None for o in result.outcomes),
@@ -548,13 +550,13 @@ class Runner:
         last = closed[-1].summary.round
         held = list(self.goals.held_out())
         if any(self.vocabulary.tags_of(r.id) is None for r in held):
-            tag_held_out(self.tagger, self.goals, self.vocabulary, last)
+            tag_held_out(self.tagger, self.goals, self.vocabulary, last, telemetry=self.telemetry)
             held = list(self.goals.held_out())
         regime = Regime(self.spec.readout.regime)
         decisions = list(self.journal.decisions())
         rank = pipeline.composition_rank(decisions, self.stores.ledger, self.spec)
         by_id = {d.id: d for d in decisions}
-        notes = notes_text(self.notes_path, self.spec.notes.max_tokens)
+        notes = notes_text(self.notes_path, self.spec.notes.max_tokens, self.spec.notes.chars_per_token)
         round_ = last + 1
         tasks = []
         for req in sorted(held, key=lambda r: r.id):
@@ -611,15 +613,15 @@ class Runner:
     def composed_tokens(self) -> dict[str, int]:
         """Tokens composed into each readout pass's worker prompt (decision payloads, notes text)."""
         held = held_out_ids(self.goals)
-        notes = notes_text(self.notes_path, self.spec.notes.max_tokens)
+        notes = notes_text(self.notes_path, self.spec.notes.max_tokens, self.spec.notes.chars_per_token)
         by_id = {d.id: d for d in self.journal.decisions()}
         out = {}
         for p in self.stores.passes.passes():
             if p.category not in held:
                 continue
-            n = sum(approx_tokens(by_id[i].payload) for i in p.composition.decision_ids)
+            n = sum(approx_tokens(by_id[i].payload, self.spec.notes.chars_per_token) for i in p.composition.decision_ids)
             if p.composition.notes and notes:
-                n += approx_tokens(notes)
+                n += approx_tokens(notes, self.spec.notes.chars_per_token)
             out[p.id] = n
         return out
 
@@ -629,8 +631,8 @@ class Runner:
                              self.composed_tokens(), self.vocabulary)
 
     def readout_lines(self) -> list[str]:
-        from friday.app.readout import lines
-        return lines(readings(self.readout_stores(), self.spec))
+        from friday.app.readout import lines, run_readout
+        return lines(run_readout(self.readout_stores(), self.spec, telemetry=self.telemetry))
 
     def write_export(self) -> Path:
         """Writes export.json under the run root from the stores as they stand."""
