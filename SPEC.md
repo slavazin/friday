@@ -80,7 +80,36 @@ the cost-per-decision reading and the pin record.
 
 ---
 
-## 2. Vocabulary
+## 2. Language
+
+Friday's text is part of its machinery. Prompts steer every model, payloads
+are the memory, lenses are the judge's eyes, status-flip commits are the
+Journal's public history, and the readout is the claim the hackathon judges
+score. This section sets the rules for the words on each of those surfaces.
+It adapts type-gce's `corpus/LANGUAGE.md` (laws L1–L3, claim language, lens
+language) to one run and one demo. Rules that reach a prompt freeze with the
+prompts before round 1 (§ 5). The rest are corrected in place, and git holds
+the amendments.
+
+### What it blocks
+
+Four failures, none of which throws an error in a one-day build:
+
+1. **Term drift.** Code, prompts and the demo give one concept three names,
+   until the pooling call, the judge and the timeline disagree about what a
+   pass is. Countermeasure: the vocabulary, and one home per fact.
+2. **Leakage.** A word in a prompt hands the worker or the lens call the
+   label (a check, the loss, the regime, the arm). This voids a pair or a
+   lens value, and nothing reports it. Countermeasure: blinding.
+3. **Unusable memory.** A payload a weak worker cannot act on with only the
+   payload in front of it: hedged, generic, keyed on its own conclusion, or
+   citing ids the worker cannot look up. It uses up gate pairs and expires.
+   Countermeasure: payload language.
+4. **Claim drift.** A pitch line, readout row or commit message says more
+   than the reading behind it, and Technicality (40 %) is scored from those
+   words. Countermeasure: claim language.
+
+### Vocabulary
 
 One term per concept; no synonyms in code, prompts or prose. A concept with no
 term is added here first, then used. "GCE" cites `gce/GCE-DOCTRINE-V2.md` (in
@@ -153,6 +182,232 @@ type-gce) by section.
 | **held-out set (V)**      | The categories never built during training, read once at the close                                                                                                                                                         | type-gce ADR-031                                |
 | **readout**               | The single close scoring of `empty`, `notes` and `journal` on V                                                                                                                                                            | § 12                                            |
 | **run spec**              | `run.yml`: every constant, pin and seed, committed before round 1                                                                                                                                                          | § 14                                            |
+
+### Surfaces: who writes, who reads
+
+Each surface is written for its reader, and the reader holds only what is
+listed here. The rule column names the subsection that governs it.
+
+| Surface                                           | Writer                               | Reader                                     | Reader holds                                          | Rules                       |
+| ------------------------------------------------- | ------------------------------------ | ------------------------------------------ | ----------------------------------------------------- | --------------------------- |
+| baseline instructions, `prompts/`                 | a human, before round 1              | each model                                 | its own input, nothing of the run                     | blinding, L3                |
+| payload                                           | nominator                            | weak worker                                | the request and the composition; never the warrant    | payload language            |
+| lens (angle and counterfactual)                   | a human (baseline), the lens minter  | judge, lens call                           | the request, composed payloads, the artifact source   | lens language, blinding     |
+| observation (shape, direction, quote)             | judge, report call                   | pooling call, nominator                    | the shapes already pooled under one lens              | observation language        |
+| pool shape, direction label                       | pooling call                         | the next pooling calls, nominator, timeline | the labels already minted                             | observation language        |
+| warrant figures, status-flip commit, timeline row | the runner (rendered)                | a hackathon judge reading `git log`        | the public repository, never the run                  | rendered text               |
+| round plan, ping                                  | coordinator                          | the human, the demo                        | the plan and the round's results                      | claim language              |
+| readout, demo page, pitch, README                 | humans                               | hackathon judges                           | three minutes, no spec                                | claim language, demo words  |
+| code prose, test titles                           | builders and their coding agents     | the next teammate                          | the code                                              | code prose                  |
+
+### Priority under the clock
+
+**Do:** apply the rules strictly in tier order. **Tier 1** covers what freezes
+before round 1: `prompts/`, the baseline lenses, the payload and lens rules
+the nominator and minter prompts carry, and the blinding list. Read it in the
+11:45–12:30 block, before the bank freezes (§ 13); a defect there costs the
+whole run. **Tier 2** covers the public surfaces (readout, demo page, pitch,
+README, commit templates), read in the 15:15–16:15 block. **Tier 3** is code
+comments and scratch files, done when time allows.
+**Don't:** spend build time polishing tier 3. And don't skip the read of a
+tier-1 surface because the clock is short: reading a prompt takes minutes,
+and a leak voids the run.
+
+### The three laws, narrowed
+
+**L1: write for the reader who holds only its input.**
+**Do:** write each model-facing text to be true and actionable for a model
+that reads one prompt and nothing else of the run. A payload never says "as
+seen in earlier builds" or "per O-0112". A lens never says "as the checks
+show". Journal files and commit messages are read by someone in a public
+repository who never saw the run, so they state what stands and the evidence
+for it.
+**Don't:** strip evidence to make text timeless. The warrant keeps its
+observation ids, its You.com citations and its Ledger figures. They are
+there for the human reader; the worker never sees the warrant.
+
+**L2: one home per fact; the figure comes from its home.**
+**Do:** state each fact once, in the home whose lifecycle matches it:
+`run.yml` for constants, pins and seeds; the Ledger (`ledger_deltas` in
+`friday.db`) for every e-process wealth, pair count and mean delta;
+`artifacts/<pass_id>/eval.json` for a pass's loss; a decision's front matter
+for its status; `lenses/L-NN.md` for a lens's status. Every other surface
+points to the home or is rendered from it (§ 14 already makes this spec's
+defaults pointers to `run.yml`).
+**Don't:** retype a figure into a slide, a commit or the README from memory.
+Render it, or copy it digit for digit from the JSON export. And don't build a
+check for a premise no code can run: the design premises of § 16 stay
+premises with falsifiers.
+
+**L3: every directive ships its overshoot.**
+**Do:** pair each directive in this spec and in `prompts/` with the opposite
+error it must not be pushed into (the spec's **Do / Don't** form). For a lens
+the counterfactual is the pair.
+**Don't:** pad a payload with its own Don't. The payload's overshoot belongs
+in its hook's `not_this`, which costs the worker no words. And don't write a
+vacuous pair ("don't overdo it"): a counter-directive names a failure that a
+reviewer can point to in a draft.
+
+### Blinding
+
+The run is valid only while certain readers never see certain things
+(§§ 6, 8, 10), and words are how they leak. The blinding list covers the
+**template text** of each prompt: the instructions, the headings and the
+scaffolding the runner wraps around inputs.
+
+| Reader                 | No prompt template it receives names                                                                                                          | Why                                                                                    |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| worker                 | checks or check ids, loss, score (as a grade), eval, judge, regime, `R1`/`R2`, drift, candidate, exposure, ablation, pair, arm, test (of itself) | the two workers of a pair may differ only by the exposure; a worker told it is graded is a different worker |
+| judge, lens call       | the eval report, the rubric, checks, loss, regime, drift, pass or fail                                                                        | lens value measures foresight from the artifact (§ 6)                                  |
+| judge, report call     | regime, drift                                                                                                                                 | the detector and the lens loop find the shift from loss alone (§ 10)                   |
+| nominator, lens minter | regime, drift, the arm                                                                                                                        | a payload or lens keyed on the regime is aimed at the run, not at the work             |
+
+**Do:** render a candidate under test in the composition exactly as an
+admitted decision is rendered: the same heading ("Team decisions",
+Appendix A), the same form, no status. The drift constraint reaches every
+reader only as request text and is never labelled as a change.
+**Don't:** apply the list to request text or artifact source. `#score` is a
+contract id and "score" is a word in game requests. The list reads only the
+templates the build writes.
+
+### Payload language
+
+The reader is the weak worker, which holds the request and the composition
+and nothing of the pool, the warrant or the Ledger.
+
+**Do:** write one imperative directive, with at most one reason clause,
+within the 60-word bound (§ 2, payload). Name the mechanism: the API, event,
+element or order of operations. A worker that never saw the defect must be
+able to apply it. Make it apply to every request the hook fires on, and
+state any condition the tags cannot express as the first clause ("When the
+app draws on a canvas, …").
+**Don't:** hedge ("consider", "try to", "where possible"). A weak worker
+skips a hedge, and the gate then measures a payload nobody applied. Don't
+restate Appendix A: a payload with no headroom expires (§ 7). Don't cite
+anything the worker cannot look up: `O-`, `P-`, `D-` or `L-` ids, "earlier
+builds", the judge, a check. And don't overshoot the mechanism rule into an
+implementation. One call or one line of code fits in 60 words; a code block
+does not.
+
+| Draft                                                          | Fails on                                    | Payload                                                                                              |
+| -------------------------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| "Consider making keyboard controls work better."               | hedge; names no mechanism                   | "Bind `keydown` on `window`, not on the canvas, and call `canvas.focus()` when the game starts."     |
+| "As observed in O-0112, timers drift."                         | an id the worker cannot look up; states the conclusion | "Drive countdowns from `Date.now()` differences, never from counting `setInterval` ticks."          |
+| "Make sure every id from the request is present."              | restates Appendix A                         | none: the pool earns no decision                                                                     |
+| "In the pomodoro app, put `#start` above the fold."            | names one category and one contract id      | "Place every requested control within the first 800 px of height; put explanatory text below them." |
+
+### Lens language
+
+The reader is the judge's lens call, which holds the request, the composed
+payloads and the artifact source, and no part of the eval.
+
+**Do:** ship each lens as one angle and its counterfactual. Stipulate the
+defect ("Which requirement does the code not implement?", never "Does the
+code implement every requirement?"). A question asked as a possibility is
+answered "no" by default. Phrase it so the answer has to quote the source.
+Keep to one angle per lens: observations pool by lens id, so two angles in
+one lens mix two pools.
+**Don't:** write a vacuous counterfactual ("…or is it fine?"). Don't hand
+the lens its answer ("Confirm the timer uses `Date.now()`"): that is a
+payload dressed as a lens. Don't name the eval, a check or the loss
+(blinding). The lens minter's prompt carries this subsection verbatim,
+copied in before round 1.
+
+### Observation and pool language
+
+**Do:** write an observation's **shape** as the defect presents in source,
+in terms general across requests that share the trait: "keyboard handler
+bound to an element that never takes focus", not "the snake game ignores
+arrows". Write its **direction** as one act that would have lowered loss, in
+payload words ("bind handlers on `window`"). Its **quote** is verbatim
+(enforced, § 6). Pool shapes are short noun phrases and direction labels
+short imperative phrases. Once a label is minted, the pooling call reuses it.
+**Don't:** let labels paraphrase each other. Two labels for one act split a
+pool's count and starve the recurrence bar. A shape naming one category
+drafts a payload whose reach is one category.
+
+### Rendered text: warrant, commit, timeline
+
+**Do:** have the runner render every figure in a warrant, a status-flip
+commit message and a timeline row from the Ledger and `run.yml`, one
+template per flip. For example (figures illustrative):
+
+```
+D-0007 candidate → admitted: W 6.3 ≥ 5, n 9 pairs, mean d 0.17, Q change upper bound 0.8 ≤ 2.0
+D-0004 suspect → retired: 3 confirmation pairs, mean d −0.12 (80 % upper bound −0.03); successor D-0011
+L-09 minted lens clears its floor: AUC 0.71 over 48 passes, floor 0.64
+```
+
+**Don't:** hand-write a status-flip commit, or add adjectives to one
+("strong", "clearly"). The figure carries the strength.
+
+### Claim language: readout, demo, pitch
+
+The reader is a hackathon judge with three minutes and no spec.
+
+**Do:** tie each claim to its reading (R1–R4, § 12) and its population
+("over 6 held-out categories × 4 reps"). State each effect with its interval
+or p; a difference inside its interval is **unresolved**. Show every
+pre-registered reading, the failed ones included, because a judge reads a
+missing reading as a success. Count with one estimator per figure across
+slides, the readout and the README.
+**Don't:** hedge out of range ("seems to learn"). Hedged words cannot be
+false, so they mislead as surely as an overclaim does. Narrow the
+population and keep the verb.
+
+| Pitch word                                   | Earned by                                                  | When unearned, say                                                     |
+| -------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------- |
+| "improves", "Version N+1"                    | R1 at p ≤ 0.1                                              | the mean difference and its p, called unresolved at 6 categories       |
+| "leaner than shared notes"                   | R2's interval not below 0, beside tokens composed per pass | the interval and the token ratio as read                               |
+| "forgets what went stale"                    | R3's counts ≥ 1, beside `c` and `α · c`                    | how many decisions the detector moved to `suspect`, and that none retired |
+| "the judge learns what to look at"           | R4 ≥ 1                                                     | that no minted lens cleared its floor                                  |
+| "you can walk away from it"                  | the pings and steers counted in the recorded run           | the counts                                                             |
+| "no human labels"                            | true by construction: the eval is the label (§ 3)          | —                                                                      |
+
+"Self-improving" in the title names the project. The claim slide uses the
+readings.
+
+### Demo words
+
+**Do:** on the demo page and in the pitch, use the vocabulary's terms and
+gloss each in plain words the first time it appears ("a pass: one worker
+building one app once").
+**Don't:** coin a friendlier synonym for the UI ("lesson", "memory item",
+"rule"). The audience then cannot match the timeline to the git log.
+"Team decisions" (Appendix A) is the one worker-facing phrase, and it keeps
+the term.
+
+### Code prose
+
+**Do:** name identifiers with the vocabulary's terms (`Pass`, `Pool`,
+`Decision`, `LedgerDelta`), never `Job`, `Memory` or `Rule` for these. A
+docstring says what its function returns or writes. A test title names the
+property its assertions check.
+**Don't:** trace the body in a comment, or hold a commit for comment polish
+(tier 3).
+
+### Checks
+
+Cheap checks fit for a hackathon, each reading presence or shape, never
+quality:
+
+- **quote substring:** in place (§ 6).
+- **blinding:** a test renders each role's prompt template for a sample pass
+  and greps it for that role's list. It reads templates only, never request
+  text or artifacts.
+- **candidate indistinguishable:** a test renders one composition with a
+  decision as a candidate and one with it admitted, and asserts the worker's
+  prompt text is equal.
+- **payload at drafting:** over 60 words, a blinding word, or an `O-`, `P-`,
+  `D-` or `L-` id gets one re-ask, then `no-decision`. These are bound, leak
+  and reference failures. A hedge word is recorded on the decision as a
+  reading and never refused, because form is not what admission judges.
+- **rendered commits:** by construction, since `journal.flip` writes the
+  commit from the Ledger.
+
+None of these checks whether a payload is right, a lens is useful or a pitch
+line overclaims. That stays review judgment: tier 1 at the 13:30 dry run,
+tier 2 in the 15:15 demo block.
 
 ---
 
