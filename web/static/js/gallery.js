@@ -20,11 +20,12 @@ function frozenApp(passId, title, cls = "app-frame") {
   const hint = h("div", { class: "play-hint" }, "▶ hover to play");
   const wrap = h("div", { class: "frozen" }, img, hint);
   let tries = 0;
-  img.onerror = () => {            // not rendered yet: show the placeholder and look again shortly
+  const retry = () => {            // not rendered yet: show the placeholder and look again shortly
     wrap.classList.add("no-poster");
     if (++tries <= 60) setTimeout(() => { img.src = `/posters/${encodeURIComponent(passId)}?t=${tries}`; }, 5000);
   };
-  img.onload = () => wrap.classList.remove("no-poster");
+  img.onerror = retry;
+  img.onload = () => (img.naturalWidth <= 1 ? retry() : wrap.classList.remove("no-poster"));   // 1x1: pending
   img.dataset.src = `/posters/${encodeURIComponent(passId)}`;
   let playT = null, freezeT = null, frame = null;
   const play = () => {
@@ -109,10 +110,10 @@ export class GalleryPage {
     const shown = this.doc.passes.filter((p) => p.artifact_path
       && (!f.cell || this.cells.get(p.id) === f.cell) && (!f.arm || p.arm === f.arm)
       && (!f.round || this._roundLabel(p) === f.round));
-    // newest round first (readout last), then request and arm, so the latest builds lead the page
-    const rank = (p) => (p.readout ? -1 : p.round);
-    shown.sort((a, b) => rank(b) - rank(a) || (a.category < b.category ? -1 : a.category > b.category ? 1 : 0)
-      || (a.arm < b.arm ? -1 : a.arm > b.arm ? 1 : 0) || (a.pair_slot ?? 9) - (b.pair_slot ?? 9));
+    // by request id (G-NNN, then the held-out H-NN), then round, then arm and pair slot
+    const cmp = (x, y) => (x < y ? -1 : x > y ? 1 : 0);
+    shown.sort((a, b) => cmp(a.category, b.category) || a.round - b.round || cmp(a.arm, b.arm)
+      || (a.pair_slot ?? 9) - (b.pair_slot ?? 9) || cmp(a.id, b.id));
     this.shown = shown;
     this.count.textContent = `showing ${shown.length} apps`;
     this.io?.disconnect();

@@ -99,9 +99,14 @@ def test_gallery_shows_every_built_app_sandboxed_with_its_how_to_and_decisions(p
     open_tab(page, served.url, "gallery")
     built = [p for p in DOC["passes"] if p["artifact_path"]]
     assert page.inner_text("#page-gallery .page-head").count(f"showing {len(built)} apps") == 1
-    frames = page.query_selector_all("#page-gallery iframe")
-    assert len(frames) == len(built)
-    assert all(f.get_attribute("sandbox") == "allow-scripts" for f in frames)
+    # every app shows frozen (a poster, no live iframe) until hovered for PLAY_AFTER_MS; then it runs sandboxed
+    assert len(page.query_selector_all("#page-gallery .app-card .frozen")) == len(built)
+    assert page.query_selector_all("#page-gallery .app-card iframe") == []
+    first = page.query_selector("#page-gallery .app-card .frozen")
+    first.hover()
+    page.wait_for_selector("#page-gallery .app-card .frozen iframe", timeout=3000)
+    frames = page.query_selector_all("#page-gallery .app-card iframe")
+    assert len(frames) == 1 and frames[0].get_attribute("sandbox") == "allow-scripts"
     p = next(x for x in built if x["how_to_summary"] and x["exposed"])
     card = f"#page-gallery .app-card[data-pass='{p['id']}']"
     assert p["how_to_summary"] in page.inner_text(card)
@@ -129,8 +134,9 @@ def test_gallery_shows_every_built_app_sandboxed_with_its_how_to_and_decisions(p
 
 def test_a_built_app_cannot_reach_the_page_its_api_or_the_network(page, served):
     open_tab(page, served.url, "gallery")
-    pid = page.eval_on_selector(".app-card", "e => e.dataset.pass")   # the first card shown: frames load lazily
-    page.wait_for_function(f"() => document.querySelector(\".app-card[data-pass='{pid}'] iframe\").src !== ''")
+    pid = page.eval_on_selector(".app-card", "e => e.dataset.pass")   # the first card shown
+    page.hover(f".app-card[data-pass='{pid}'] .frozen")             # hovering plays it in its sandboxed frame
+    page.wait_for_selector(f".app-card[data-pass='{pid}'] iframe", timeout=3000)
     frame = None
     for _ in range(100):
         frame = next((f for f in page.frames if f.url.endswith(f"/apps/{pid}")), None)

@@ -117,8 +117,9 @@ def create_app(spec: RunSpec, db_path: str | Path, export_path: str | Path, arti
     def built_ids() -> list[str]:
         return [p["id"] for p in export.doc()["passes"] if p.get("artifact_path")]
 
-    # newest passes first: the gallery leads with the latest round
-    posters = Posters(Path(export_path).parent / "posters", artifacts, lambda: built_ids()[::-1])
+    # in the gallery's order (request id, then round), so the top of the page fills in first
+    posters = Posters(Path(export_path).parent / "posters", artifacts,
+                      lambda: sorted(built_ids(), key=lambda i: (i.split("-", 1)[1], i)))
     if render_posters:
         posters.start()
 
@@ -209,13 +210,16 @@ def create_app(spec: RunSpec, db_path: str | Path, export_path: str | Path, arti
         if pass_id not in set(built_ids()):
             raise HTTPException(404, "unknown pass")
         path = posters.path(pass_id)
-        if not path.is_file():
-            raise HTTPException(404, "no poster yet")
+        if not path.is_file():           # not rendered yet: a 1x1 placeholder, so the page logs no failed load
+            return Response(PENDING_GIF, media_type="image/gif", headers={"X-Poster": "pending"})
         return FileResponse(path, media_type="image/jpeg")
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app
 
+
+# A transparent 1x1 GIF: the poster route's answer for an app whose still is not rendered yet.
+PENDING_GIF = bytes.fromhex("47494638396101000100800000000000ffffff21f90401000000002c00000000010001000002024401003b")
 
 REPO_SPEC = WEB.parent / "run.yml"
 EXPORT_FILE = "export.json"           # the runner writes it under the run root
