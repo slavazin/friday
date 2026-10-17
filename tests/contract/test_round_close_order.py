@@ -484,3 +484,67 @@ def test_build_round_close_with_a_minter_and_no_residual_source_raises(tmp_path)
             SPEC, journal=w.journal, ledger=w.ledger, events=w.events, judge_store=w.judge, pools=w.pools,
             passes=w.passes, observations=w.obs, lens_set=w.lens_set, spend=w.spend, pooling=w.pooling,
             nominator=w.nominator, minter=minter, renderer=RENDERER)
+
+
+def _fail_journal_flip_once(w):
+    real = w.journal.flip
+
+    def fail_once(flip, message):
+        w.journal.flip = real
+        raise RuntimeError("git commit failed")
+
+    w.journal.flip = fail_once
+
+
+def test_rerun_after_a_steer_flip_reached_the_event_log_but_the_journal_write_failed_writes_the_journal_once(
+        tmp_path):
+    w = World(tmp_path)
+    seed_status(w.journal, "D-0001", DecisionStatus.ADMITTED)
+    w.events.append_steer(Steer("D-0001", "retire", "demo retire", 2))
+    _fail_journal_flip_once(w)
+    with pytest.raises(RuntimeError):
+        w.close.close(2, {})
+    assert w.journal.get("D-0001").status is DecisionStatus.ADMITTED and len(w.events.flips()) == 1
+    w.close.close(2, {})
+    assert [(f.subject_id, f.old, f.new, f.cause) for f in w.events.flips()] == [
+        ("D-0001", "admitted", "retired", FlipCause.STEER_RETIRE)]
+    assert w.journal.get("D-0001").status is DecisionStatus.RETIRED
+    assert w.journal.commits == ['D-0001 admitted → retired: steer, "demo retire"']
+    assert w.events.pending_steers() == []
+
+
+def test_gate_flip_whose_journal_write_failed_is_not_appended_to_the_event_log_again_on_the_rerun(tmp_path):
+    w = World(tmp_path)
+    w.journal.draft(dec("D-0001", DecisionStatus.CANDIDATE))
+    w.deltas("D-0001", DeltaKind.EXPOSURE, 1, [0.3, 0.25, 0.35, 0.3, 0.3, 0.3])
+    _fail_journal_flip_once(w)
+    with pytest.raises(RuntimeError):
+        w.close.close(1, {})
+    w.close.close(1, {})
+    assert [(f.subject_id, f.old, f.new, f.round) for f in w.events.flips()] == [
+        ("D-0001", "candidate", "admitted", 1)]
+    assert w.journal.get("D-0001").status is DecisionStatus.ADMITTED and len(w.journal.commits) == 1
+
+
+def test_assignment_to_a_merge_survivor_is_validated_against_its_post_merge_label_union(tmp_path):
+    w = World(tmp_path)
+    w.pools.put_pool(Pool("P-0001", "L-03", "a", ("x",)))
+    w.pools.put_pool(Pool("P-0002", "L-03", "b", ("y",)))
+    w.pooling.assign = lambda lens_id, pools, new: PoolingResult(
+        (Assignment(new[0].id, "P-0001", "y"),), (), (("P-0001", "P-0002"),))
+    w.close.close(1, obs_drafts(w.add_passes(1, 1), shape="b", label="y"))
+    pools = {p.id: p for p in w.pools.pools()}
+    assert pools["P-0001"].direction_labels == ("x", "y") and pools["P-0002"].merged_into == "P-0001"
+    (o,) = w.obs.observations()
+    assert o.pool_id == "P-0001" and o.direction_label == "y"
+
+
+def test_assignment_label_outside_the_post_merge_union_still_raises_before_any_write(tmp_path):
+    w = World(tmp_path)
+    w.pools.put_pool(Pool("P-0001", "L-03", "a", ("x",)))
+    w.pools.put_pool(Pool("P-0002", "L-03", "b", ("y",)))
+    w.pooling.assign = lambda lens_id, pools, new: PoolingResult(
+        (Assignment(new[0].id, "P-0001", "z"),), (), (("P-0001", "P-0002"),))
+    with pytest.raises(ValueError, match="label 'z'"):
+        w.close.close(1, obs_drafts(w.add_passes(1, 1), shape="b", label="z"))
+    assert {p.id: p.direction_labels for p in w.pools.pools()} == {"P-0001": ("x",), "P-0002": ("y",)}

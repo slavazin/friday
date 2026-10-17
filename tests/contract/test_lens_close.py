@@ -200,3 +200,43 @@ def test_minter_proposing_above_mint_max_raises(tmp_path):
     w.add(2, SPEC.lens.window, {"L-01": lambda loss, rng: 0.4 * loss})
     with pytest.raises(ValueError, match="mint_max"):
         w.lens_close().close(2)
+
+
+def test_rerunning_a_minting_close_mints_no_second_set_of_lenses(tmp_path):
+    prop = LensProposal("Which control is off-screen at 375 px?", "Which is not?")
+    w = World(tmp_path, minter_replies=[[prop], [prop]])
+    w.add(2, SPEC.lens.window, {"L-01": lambda loss, rng: 0.4 * loss})
+    first = w.lens_close().close(2)
+    rerun = w.lens_close().close(2)          # the close of round 2 re-run after a later step raised
+    assert [x.id for x in first.minted] == ["L-09"] and [x.id for x in rerun.minted] == ["L-09"]
+    assert len(w.minter_calls) == 1
+    assert [x.id for x in w.lens_set.lenses() if x.minted_round == 2] == ["L-09"]
+
+
+def test_pass_whose_lens_call_was_dropped_never_enters_the_residual_view(tmp_path):
+    w = World(tmp_path)
+    w.add(1, 56, {"L-01": lambda loss, rng: 0.5 + 0.5 * loss})        # L-01 flags every answered pass
+    dropped = w.add(2, 8, {}, seed=3, prefix="dropped")                # no lens answers: the call was dropped
+    window, _ = w.lens_close().window_at(2)
+    assert not {p.pass_id for p in window} & set(dropped)
+    res = w.lens_close().close(2)
+    assert res.curation.residual == () and w.minter_calls == []
+
+
+def test_lens_flip_whose_lens_file_write_failed_is_not_appended_to_the_event_log_again_on_the_rerun(tmp_path):
+    w = World(tmp_path)
+    w.add(1, SPEC.lens.window, PREDICTIVE)
+    w.lens_close().close(1)
+    real = w.lens_set.flip
+
+    def fail_once(flip, message):
+        w.lens_set.flip = real
+        raise RuntimeError("git commit failed")
+
+    w.lens_set.flip = fail_once
+    with pytest.raises(RuntimeError):
+        w.lens_close().close(3)
+    w.lens_close().close(3)
+    assert [(f.subject_id, f.new) for f in w.events.flips()] == [("L-02", "retired")]
+    assert next(x for x in w.lens_set.lenses() if x.id == "L-02").status is LensStatus.RETIRED
+    assert len([c for c in w.vcs.commits if c[1].startswith("L-02 ")]) == 1

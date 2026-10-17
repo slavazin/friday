@@ -15,6 +15,7 @@ from typing import Any
 
 from friday.algorithms.lens_curation import CurationParams, CurationResult, WindowPass, cap_evictions, curate
 from friday.app.render import FlipRenderer
+from friday.app.steer import landed_flip
 from friday.domain.events import StatusFlip
 from friday.domain.ids import IdMinter
 from friday.domain.lifecycle import LIVE_LENS, FlipCause, check_lens_flip
@@ -66,6 +67,8 @@ class LensClose:
         the answers of the model that answered the latest answered pass are read, and a pass answered only by
         another model is left out of the returned window. Kept as unanswered, it would enter the residual view
         (SPEC § 6 step 4) as a pass no kept lens flagged, though another model's lenses may have flagged it.
+        A pass with no lens answers at all (its lens call was dropped after the re-ask, SPEC § 6) is left out
+        too: its `p` is unread, not below 0.5.
         """
         rows = []
         for p in self.passes.passes():
@@ -82,14 +85,10 @@ class LensClose:
         if answers:
             model = max(answers, key=lambda a: order[a.pass_id]).judge_model
         by_pass: dict[str, dict[str, float]] = {p.id: {} for p, _ in rows}
-        other = set()
         for a in answers:
             if a.judge_model == model:
                 by_pass[a.pass_id][a.lens_id] = a.p
-            else:
-                other.add(a.pass_id)
-        return [WindowPass(p.id, loss, by_pass[p.id]) for p, loss in rows
-                if by_pass[p.id] or p.id not in other], model
+        return [WindowPass(p.id, loss, by_pass[p.id]) for p, loss in rows if by_pass[p.id]], model
 
     def _curate(self, lenses: Sequence[Lens], round_: int, strikes: Mapping[str, int]) -> CurationResult:
         window, _ = self.window_at(round_)
@@ -130,8 +129,12 @@ class LensClose:
         """Validates, renders, appends to the event log, then writes the lens file and its commit."""
         check_lens_flip(lens.status, new, cause)
         flip = StatusFlip(lens.id, lens.status.value, new.value, cause, round_, dict(evidence), tuple(successors))
+        landed = landed_flip(self.events, flip)        # a re-run after the lens-file write failed
+        if landed is not None:
+            flip = landed
         message = self.renderer.render("lens", flip, self.constants)
-        self.events.append_flip(flip)
+        if landed is None:
+            self.events.append_flip(flip)
         self.lens_set.flip(flip, message)
         return flip
 
@@ -155,7 +158,12 @@ class LensClose:
             lenses[lf.lens_id] = replace(lenses[lf.lens_id], status=lf.new)   # a later flip reads the new status
 
         minted: list[Lens] = []
-        if self.minter is not None and self.mint_every > 0 and round_ % self.mint_every == 0 \
+        # A lens minted at `round_` means this close already minted (a re-run after a later step failed): the
+        # minter is not called again, so no second set of lenses is minted.
+        already = [x for x in self.lens_set.lenses() if x.minted_round == round_]
+        if already:
+            minted = already
+        elif self.minter is not None and self.mint_every > 0 and round_ % self.mint_every == 0 \
                 and len(result.residual) >= self.residual_min_passes:
             flips_, minted = self._mint(round_, result, window)
             flips.extend(flips_)

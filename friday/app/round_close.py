@@ -17,7 +17,7 @@ from friday.algorithms.halt import HaltReason, RoundSummary, halt_reason
 from friday.algorithms.recurrence import RecurrenceBar, expired, nomination_queue
 from friday.app.lens_close import LensClose, LensCloseResult, ResidualSource
 from friday.app.render import FlipRenderer
-from friday.app.steer import SteerResult, apply_steers
+from friday.app.steer import SteerResult, apply_steers, landed_flip
 from friday.app.wiring import build_mechanics, flip_constants
 from friday.config import RunSpec
 from friday.domain.events import Ping, StatusFlip
@@ -82,8 +82,14 @@ class DecisionClose:
               evidence: Mapping[str, Any], successors: Sequence[str] = ()) -> Decision:
         check_decision_flip(d.status, new, cause)
         flip = StatusFlip(d.id, d.status.value, new.value, cause, round_, dict(evidence), tuple(successors))
+        landed = landed_flip(self.events, flip)
+        if landed is not None:
+            # A close re-run after the event landed and the Journal write failed: write the projection of the
+            # landed event, without appending it a second time.
+            flip = landed
         message = self.renderer.render("decision", flip, self.constants)
-        self.events.append_flip(flip)
+        if landed is None:
+            self.events.append_flip(flip)
         return self.journal.flip(flip, message)
 
     def flip(self, d: Decision, new: DecisionStatus, cause: FlipCause, round_: int,
@@ -368,19 +374,8 @@ class RoundClose:
             if not 1 <= len(np.direction_labels) <= self.params.max_direction_labels:
                 raise ValueError(f"pooling for {lens_id}: new pool {np.key} needs 1 to "
                                  f"{self.params.max_direction_labels} direction labels")
-        for a in result.assignments:
-            if a.pool_ref.startswith(NEW_POOL):
-                np = new_keys.get(a.pool_ref[len(NEW_POOL):])
-                if np is None:
-                    raise ValueError(f"pooling for {lens_id}: {a.pool_ref} names no new pool")
-                labels = np.direction_labels
-            else:
-                if a.pool_ref not in by_id:
-                    raise ValueError(f"pooling for {lens_id}: {a.pool_ref} is not a pool of this lens")
-                labels = by_id[a.pool_ref].direction_labels
-            if a.direction_label not in labels:
-                raise ValueError(f"pooling for {lens_id}: label {a.direction_label!r} is not one of {labels}")
         seen: set[str] = set()
+        merged_labels: dict[str, tuple[str, ...]] = {}      # survivor -> its post-merge label union
         for keep, gone in result.merges:
             for pid in (keep, gone):
                 if pid not in by_id or by_id[pid].status is not PoolStatus.OPEN:
@@ -394,6 +389,20 @@ class RoundClose:
             if len(union) > self.params.max_direction_labels:
                 raise ValueError(f"pooling for {lens_id}: merging {gone} into {keep} gives {len(union)} direction "
                                  f"labels, above pool.max_direction_labels {self.params.max_direction_labels}")
+            merged_labels[keep] = merged_labels[gone] = union   # an observation assigned to `gone` moves to `keep`
+
+        for a in result.assignments:
+            if a.pool_ref.startswith(NEW_POOL):
+                np = new_keys.get(a.pool_ref[len(NEW_POOL):])
+                if np is None:
+                    raise ValueError(f"pooling for {lens_id}: {a.pool_ref} names no new pool")
+                labels = np.direction_labels
+            else:
+                if a.pool_ref not in by_id:
+                    raise ValueError(f"pooling for {lens_id}: {a.pool_ref} is not a pool of this lens")
+                labels = merged_labels.get(a.pool_ref, by_id[a.pool_ref].direction_labels)
+            if a.direction_label not in labels:
+                raise ValueError(f"pooling for {lens_id}: label {a.direction_label!r} is not one of {labels}")
 
         referenced = {a.pool_ref[len(NEW_POOL):] for a in result.assignments if a.pool_ref.startswith(NEW_POOL)}
         minter = IdMinter.resume("pool", [p.id for p in self.pool_store.pools()])
@@ -412,8 +421,7 @@ class RoundClose:
         for keep, gone in result.merges:
             # The surviving pool takes the union of both pools' labels, so every moved observation keeps a label
             # of its pool (SPEC § 7).
-            self.pool_store.put_pool(replace(by_id[keep], direction_labels=_label_union(
-                by_id[keep].direction_labels, by_id[gone].direction_labels)))
+            self.pool_store.put_pool(replace(by_id[keep], direction_labels=merged_labels[keep]))
             self.pool_store.put_pool(replace(by_id[gone], status=PoolStatus.MERGED, merged_into=keep))
             for o in self.observations.observations():
                 if o.pool_id == gone and o.status is ObservationStatus.OPEN:
