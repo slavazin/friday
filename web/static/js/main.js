@@ -41,6 +41,10 @@ async function loadExport() {
   } catch {
     cells = new Map();   // the gallery then reads "cell unread"
   }
+  try {                  // the grid file names every request's cell, spans or not (the live run's spans carry none)
+    const byRequest = await getJSON("/api/cells");
+    if (doc) for (const p of doc.passes) if (!cells.has(p.id) && byRequest[p.category]) cells.set(p.id, byRequest[p.category]);
+  } catch { /* no grid file: cells stay as read from the spans */ }
 }
 
 function needsExport(el) {

@@ -155,7 +155,8 @@ button.chip:hover { border-color: var(--accent); }
 .frame-wrap.small { height: 150px; }
 .app-frame { width: 200%; height: 200%; border: 0; transform: scale(.5); transform-origin: 0 0; background: #111; }
 .app-card figcaption { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 4px; }
-.app-meta { display: flex; align-items: center; gap: 8px; }
+.app-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.app-meta .expand { margin-left: auto; }
 .app-id { font-weight: 750; }
 .loss-chip { margin-left: auto; font-weight: 750; color: var(--loss-color); font-variant-numeric: tabular-nums; font-size: 15px; }
 .caption { margin: 2px 0; font-size: 14.5px; color: #d5d9e3; }

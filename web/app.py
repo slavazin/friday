@@ -133,6 +133,16 @@ def create_app(spec: RunSpec, db_path: str | Path, export_path: str | Path, arti
     def get_export() -> JSONResponse:
         return JSONResponse(export.doc())
 
+    @app.get("/api/cells")
+    def get_cells() -> dict[str, str]:
+        """Request id -> "family / mode" from the goal minter's grid file (generator-side; the UI is no agent of
+        the loop, so it may show the cell). Empty when the grid file is absent (the fixtures)."""
+        path = WEB.parent / Path(spec.stream.path).parent / "cells.json"
+        if not path.is_file():
+            return {}
+        grid = json.loads(path.read_text()).get("requests", {})
+        return {rid: " / ".join(cell) for rid, cell in grid.items() if isinstance(cell, list)}
+
     @app.get("/api/config")
     def get_config() -> dict[str, Any]:
         return {"live_poll_ms": spec.telemetry.live_poll_ms, "alpha": spec.gate.alpha,

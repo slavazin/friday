@@ -69,6 +69,11 @@ export class GalleryPage {
     const shown = this.doc.passes.filter((p) => p.artifact_path
       && (!f.cell || this.cells.get(p.id) === f.cell) && (!f.arm || p.arm === f.arm)
       && (!f.round || this._roundLabel(p) === f.round));
+    // newest round first (readout last), then request and arm, so the latest builds lead the page
+    const rank = (p) => (p.readout ? -1 : p.round);
+    shown.sort((a, b) => rank(b) - rank(a) || (a.category < b.category ? -1 : a.category > b.category ? 1 : 0)
+      || (a.arm < b.arm ? -1 : a.arm > b.arm ? 1 : 0) || (a.pair_slot ?? 9) - (b.pair_slot ?? 9));
+    this.shown = shown;
     this.count.textContent = `showing ${shown.length} apps`;
     this.io?.disconnect();
     if (!shown.length) {
@@ -94,10 +99,22 @@ export class GalleryPage {
       h("div", { class: "frame-wrap" }, appFrame(p.id, `app built by pass ${p.id}`)),
       h("figcaption", {},
         h("div", { class: "app-meta" }, h("span", { class: "app-id" }, p.category), armChip(p.arm),
-          h("span", { class: "muted" }, this._roundLabel(p)), loss),
+          p.pair_slot != null ? h("span", { class: "muted", title: "the two journal-arm passes of a pair differ "
+            + "only by the decision under test" }, p.pair_slot === 0 ? "A" : "B") : null,
+          h("span", { class: "muted" }, this._roundLabel(p)), loss,
+          h("button", { class: "btn small expand", type: "button", title: "open full screen in Stage; ←/→ browse",
+            onclick: () => this.expand(p.id) }, "Expand ⤢")),
         h("div", { class: "muted small" }, this.cells.get(p.id) ?? "cell unread"),
         caption,
         chips.length ? h("div", { class: "chips" }, chips) : h("div", { class: "chips muted small" }, "no decision composed")));
+  }
+
+  // Stage, full screen, on pass `id`, with the gallery's current list (from `id` on, then the rest) as the deck.
+  expand(id) {
+    const ids = (this.shown ?? []).map((p) => p.id);
+    const at = Math.max(0, ids.indexOf(id));
+    const deck = [...ids.slice(at), ...ids.slice(0, at)];
+    location.assign(`/stage?deck=${encodeURIComponent(deck.join(","))}`);
   }
 
   // The passes decision `id` changed: each pair it was exposed or ablated in, with its partner and the
