@@ -95,5 +95,5 @@ readout read only the evidence stores. The demo page and the timing fit (CARRY_F
 | `goals.mint` | span | one minted request; `cell`, `attempts`, `check_regenerations`, `refused` |
 | `goals.tag` | span | one round's tagging; `requests`, `new_tags` |
 | `readout` | span | the readout runner; `passes`, `reps` |
-| `readout.reading` | event | `reading` (R1–R4 …), `population`, `estimate`, `interval`, `p`, `verdict` |
+| `readout.reading` | event | `reading` (R1–R4 …), `population`, `estimate`, `lower_bound`, `claim_above`, `p`, `verdict` |
 | `critic.pass` | span | under `run = critic`; `requests_made`, `requests_honored` |

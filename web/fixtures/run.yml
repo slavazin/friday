@@ -119,7 +119,7 @@ pool:
   recurrence_min_observations: 3
   recurrence_min_rounds: 2
   recurrence_min_requests: 2
-  fast_track_share: 0.6667
+  fast_track_share: 0.666
   fast_track_min_requests: 3
   max_direction_labels: 2
 lens:
