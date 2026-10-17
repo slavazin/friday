@@ -118,14 +118,16 @@ The work slices to finish it, in order, are in [CARRY_FORWARD.md](CARRY_FORWARD.
 | Worker composition, HTML extraction, repair message | built, tested |
 | Judge answer validation, JSON re-ask loop | built, tested |
 | Round close, decision steps: gate, detector, supersede, refused-pool block | built, tested |
-| Round close orchestrator: steers, lens curation flips, pooling, nomination, expiry, in order | not written |
+| Round close orchestrator: steers, lens curation flips, pooling, nomination, expiry, in order | built, tested (`app/round_close.py`, `app/lens_close.py`, `app/steer.py`) |
 | SQLite stores for passes, evals, lens answers, fires, observations, pools (the schema exists) | not written; in-memory only |
-| Pass pipeline: compose, build with repair, eval, judge, store, `pair_deltas` | not written |
+| Pass pipeline: compose, build with repair, eval, judge, store, `pair_deltas` | built, tested on scripted clients (`app/pipeline.py`); a pass runs in its own process |
 | Response and rubric cache by content hash | not written |
 | Nominator, pooling call, lens minter, goal minter, tagger | interfaces only (`NotImplementedError`) |
 | Probe suite, how-to check and its repair chain, A from P, H and C | not written (SPEC § 5) |
 | Goal source (`goals/` loader), regime viewports in the Evaluator | not written |
 | Fast-track in the recurrence bar | not written (SPEC § 7) |
+| Readout readings and the demo export | built, tested (`app/readout.py`, `app/export.py`, `docs/export-schema.md`) |
+| Telemetry log: spans, metrics, events; span tree and time table | seam built, tested (`ports/telemetry.py`, `adapters/telemetry.py`, `docs/telemetry.md`); not yet wired into the steps (S18) |
 | Critic run (`run-critic.yml`, critic role, revision turn) | not written; optional (SPEC § 17) |
 | Prompts for judge, nominator, pooling, minters, tagger, rubric, critic | not written (tier 1, before the goal stream freezes) |
 | Quality probe (ESLint, axe-core), rubric adapter, You.com adapter | not written |

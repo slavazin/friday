@@ -35,8 +35,12 @@ The next two blocks of SPEC § 13 build those. The 3-round dry run is due at 14:
 | Check DSL validator and interpreter; Playwright adapter | DSL tested on a fake page; the adapter has never run against a browser |
 | Worker composition, HTML extraction, repair turn; judge answer validation; JSON repair and re-ask | contract tests, including blinding and candidate indistinguishability |
 | Spec revision: goal stream, probe suite, how-to, fast-track, gate α 0.3, phone drift, critic run | SPEC §§ 2, 4, 5, 7, 8, 10, 12–14, 16, 17, Appendices A and B |
+| S7 pass pipeline | merged; pairs differ only by the exposure, repair prompts included; crashed passes recorded with no eval |
+| S10 round close | merged; phases run in SPEC § 9 order; a re-run of a close writes nothing twice |
+| S14 readout and export | merged; `docs/export-schema.md` lists every field |
+| Telemetry seam | `docs/telemetry.md` catalogues every row; wiring is S18 |
 
-The test run is 170 passed, plus 1 live test that is skipped without the key, and ruff is clean.
+The test run is 320 passed, plus 1 live test that is skipped without the key, and ruff is clean.
 
 Run them with:
 
@@ -366,3 +370,9 @@ SPEC § 2 claim language. Then record the video, make the repository public, and
 | The knob test can miss a knob whose name matches an unrelated attribute | `tests/architecture/test_knobs.py` | any |
 | Pass processes each launch their own Chromium; a shared browser server (`npx playwright run-server`, `chromium.connect`) gives one browser many isolated contexts | `adapters/playwright_browser.py` | after the s1-eval merge |
 | `SignFlipExact` enumerates at most 20 values | `stats/significance.py` | S14 if V grows |
+| A hung pass is bounded only by an unset `pass_timeout_s`; notes use a module constant for chars per token | `app/pipeline.py`, `app/notes.py`; knobs `run.pass_timeout_s`, `notes.chars_per_token` | S18 |
+| A crashed pass's reason lives only in `artifacts/<id>/pass.json`; tokens composed per pass are not stored, so R2 reads unread | `Pass.failed`, `Pass.composed_tokens` (additive, after S6 merges) | S18 |
+| Report-call observations are held in memory until the close; a runner restart before the close loses them | `app/pipeline.py` | S11 |
+| The export's wiring must pass the tag vocabulary, or hook transfer reads unread | `app/export.py` callers | S11 |
+| R1 is pre-registered on p alone while SPEC § 2 reads a difference inside its interval as unresolved; R2's verdict adds token conditions | SPEC §§ 2, 12 | ruling before S13 |
+| A lens mint is not in the event log; a partly applied mint reads as complete on a close re-run | `app/lens_close.py` | S11 |
