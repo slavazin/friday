@@ -107,3 +107,19 @@ def test_two_writers_on_one_database_interleave_without_loss(tmp_path):
         th.join()
     reader = SqliteTelemetry(connect_telemetry(path, busy_timeout_ms=5000), Scope("main"))
     assert len(reader.rows(run="main")) == 50 and len(reader.rows(run="critic")) == 50
+
+
+def test_time_table_and_span_tree_read_durations_and_failures():
+    from friday.app.telemetry_report import span_tree, step_times, time_table
+
+    log = MemoryTelemetry(Scope("main"), clock=Clock())
+    p = log.scoped(round=1, pass_id="p1")
+    with p.span("pass"), p.span("eval.probe"):
+        pass
+    with pytest.raises(RuntimeError), p.span("pass"):
+        raise RuntimeError("x")
+    t = step_times(log.spans(round=1))
+    assert t["pass"]["count"] == 2 and t["pass"]["failed"] == 1 and t["eval.probe"]["median_s"] == 1.0
+    tree = span_tree(log, run="main", round_=1)
+    assert "  eval.probe  1.00s" in tree and "[failed: RuntimeError: x]" in tree
+    assert time_table(log, run="main", round_=1).splitlines()[0].startswith("step")
