@@ -1,0 +1,9 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Network</title></head>
+<body>
+<p id="out">waiting</p>
+<script>
+  fetch('https://example.com/x').then(() => { document.getElementById('out').textContent = 'reached'; })
+    .catch(() => { document.getElementById('out').textContent = 'blocked'; });
+</script>
+</body></html>

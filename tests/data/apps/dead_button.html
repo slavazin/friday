@@ -1,0 +1,11 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Dead button</title></head>
+<body>
+<p>Count: <span id="count">0</span></p>
+<button id="inc">Add one</button>
+<script type="application/json" id="how-to-data">
+{"summary": "A counter.", "controls": [
+  {"id": "#inc", "does": "adds one", "action": {"click": "#inc"}, "effect": {"text_changed": "#count"}}
+]}
+</script>
+</body></html>

@@ -1,0 +1,21 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Controls</title></head>
+<body>
+<input id="name" type="text"><p>Hello <span id="greet"></span></p>
+<input id="silent" type="text">
+<select id="pick"><option>a</option><option>b</option></select><span id="picked">a</span>
+<label><input id="flag" type="checkbox"> flag</label><span id="flagged">off</span>
+<canvas id="c" width="40" height="40" tabindex="0"></canvas>
+<div><button>Unnamed</button></div>
+<button id="hidden" style="display:none">Hidden</button>
+<script>
+  const $ = (i) => document.getElementById(i);
+  $('name').addEventListener('input', (e) => { $('greet').textContent = e.target.value; });
+  $('pick').addEventListener('change', (e) => { $('picked').textContent = e.target.value; });
+  $('flag').addEventListener('change', (e) => { $('flagged').textContent = e.target.checked ? 'on' : 'off'; });
+  const ctx = $('c').getContext('2d');
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowUp') { ctx.fillStyle = '#f00'; ctx.fillRect(0, 0, 40, 40); }
+  });
+</script>
+</body></html>
