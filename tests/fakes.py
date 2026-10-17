@@ -47,6 +47,8 @@ class FakeDom:
     kinds: dict[str, ControlKind] = field(default_factory=dict)  # selector -> kind, for controls()
     on_choose: dict[str, Callable[[FakeDom], None]] = field(default_factory=dict)
     scripts: dict[str, object] = field(default_factory=dict)      # source -> scripted result
+    on_type: dict[str, Callable[[FakeDom], None]] = field(default_factory=dict)
+    ticking: set[str] = field(default_factory=set)        # text elements that change with no input (a timer)
 
 
 class FakePage:
@@ -63,6 +65,7 @@ class FakePage:
 
     def type(self, selector: str, text: str) -> None:
         self.dom.texts[selector] = text
+        self.dom.on_type.get(selector, lambda d: None)(self.dom)
 
     def key(self, name: str, times: int = 1) -> None:
         for _ in range(times):
@@ -77,6 +80,8 @@ class FakePage:
     def wait(self, ms: int) -> None:
         for c in self.dom.animated:
             self.dom.canvas[c] += 1
+        for t in self.dom.ticking:
+            self.dom.texts[t] = self.dom.texts.get(t, "") + "."
 
     def exists(self, selector: str) -> bool:
         return selector in self.dom.texts or selector in self.dom.canvas
@@ -103,7 +108,9 @@ class FakePage:
         return [Control(sel, kind, sel if sel.startswith("#") else None) for sel, kind in self.dom.kinds.items()]
 
     def snapshot(self) -> str:
-        return repr((sorted(self.dom.texts.items()), sorted(self.dom.canvas.items()), sorted(self.dom.visible)))
+        """Like the adapter: a text field's own typed value is the input, not visible state."""
+        texts = sorted((k, v) for k, v in self.dom.texts.items() if self.dom.kinds.get(k) is not ControlKind.TEXT)
+        return repr((texts, sorted(self.dom.canvas.items()), sorted(self.dom.visible)))
 
     def run_script(self, source: str) -> object:
         return self.dom.scripts.get(source)

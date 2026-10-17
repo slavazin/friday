@@ -39,14 +39,22 @@ def extract_html(text: str) -> str | None:
 
 
 def repair_message(book: PromptBook, console_errors: Sequence[str], missing_ids: Sequence[str]) -> Message:
-    """The self-repair turn: the artifact's own console errors and missing contract ids, never the checks."""
+    """The self-repair turn: the artifact's own console errors and missing contract ids, never the checks.
+
+    `missing_ids` may carry '#' or not (`friday.eval.probe.missing_contract_ids` gives them with '#').
+    """
     body = book.text("worker/repair.md").strip()
-    lines = [f"- console error: {e}" for e in console_errors] + [f"- missing element id: #{i}" for i in missing_ids]
+    lines = [f"- console error: {e}" for e in console_errors]
+    lines += [f"- missing element id: #{i.lstrip('#')}" for i in missing_ids]
     return Message("user", body + "\n" + "\n".join(lines))
 
 
 def missing_contract_ids(html: str, contract: Mapping[str, str]) -> list[str]:
-    """Contract ids (without '#') that no element in `html` carries."""
+    """Contract ids (without '#') that no element in `html`'s source carries.
+
+    Superseded for the self-repair turn by `friday.eval.probe.missing_contract_ids`, which reads the loaded
+    page through `Page.exists` (ids a script creates count as present). Kept for source-only readers.
+    """
     present = set(re.findall(r"""\bid\s*=\s*["']([^"']+)["']""", html))
     return [i.lstrip("#") for i in contract if i.lstrip("#") not in present]
 
