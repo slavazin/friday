@@ -163,7 +163,8 @@ button.chip:hover { border-color: var(--accent); }
 .caption.unread { color: var(--muted); font-style: italic; }
 .chips { display: flex; gap: 5px; flex-wrap: wrap; }
 .drawer { flex: 0 0 440px; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; animation: cardin .25s ease; }
-.drawer-head { display: flex; justify-content: space-between; align-items: flex-start; }
+.drawer-head { display: flex; justify-content: space-between; align-items: flex-start; position: sticky; top: -14px;
+  z-index: 2; background: var(--panel); margin: -14px -16px 8px; padding: 14px 16px 8px; border-bottom: 1px solid var(--line); }
 .payload { font-size: 16px; background: var(--panel-2); border-left: 3px solid var(--accent); padding: 8px 12px; border-radius: 6px; margin: 8px 0; }
 .pair { border-top: 1px solid var(--line); padding: 10px 0; }
 .pair-head { display: flex; gap: 10px; align-items: center; margin-bottom: 6px; font-weight: 650; }

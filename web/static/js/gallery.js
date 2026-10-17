@@ -153,6 +153,16 @@ export class GalleryPage {
         d.not_this.length ? ` · not on ${d.not_this.join(", ")}` : ""),
       h("h3", {}, "Passes it changed"), ...body);
     this.drawer.hidden = false;
+    this.drawer.scrollTop = 0;
+    if (!this._dismiss) {     // Esc, or a click in the gallery outside the drawer, closes it
+      this._dismiss = (e) => {
+        if (this.drawer.hidden) return;
+        if (e.type === "keydown" ? e.key === "Escape"
+          : !this.drawer.contains(e.target) && !e.target.closest?.(".chip.dec")) this.closeDrawer();
+      };
+      document.addEventListener("keydown", this._dismiss);
+      this.root.addEventListener("click", this._dismiss);
+    }
     markFirst(this.drawer);
     lazyLoad(this.drawer, this.drawer);
   }
