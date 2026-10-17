@@ -21,7 +21,7 @@ from friday.eval.dsl import run_check
 from friday.ports.browser import Browser, QualityProbe
 from friday.ports.scoring import Rubric
 
-BROWSER_FAILURES = (TimeoutError, ConnectionError)
+BROWSER_FAILURES = probe.BROWSER_FAILURES   # TimeoutError, ConnectionError
 
 
 @dataclass
@@ -53,7 +53,8 @@ class Evaluator:
     def _screenshot(self, open_page, tag: str, read_axe: bool) -> tuple[bytes | None, list[str], int | None]:
         """One plain load: its console errors, its screenshot and its axe count; no screenshot when it fails.
 
-        The axe call runs outside the scored failure: an error there is the quality probe's, and it raises.
+        A browser failure during the axe read (the page hangs or crashes) is recorded in the errors and leaves
+        axe unread (None: the next viewport reads it); any other error there is the quality probe's and raises.
         """
         with ExitStack() as stack:
             try:
@@ -64,7 +65,12 @@ class Evaluator:
                 # Every check has already failed on load; the rubric's floor is the true reading of a page
                 # nothing renders on. Recorded in console_errors so the report call sees why.
                 return None, [f"load failed{tag}: {type(e).__name__}: {e}"], None
-            return shot, errors, self.quality.axe_violations(page) if read_axe else None
+            if not read_axe:
+                return shot, errors, None
+            try:
+                return shot, errors, self.quality.axe_violations(page)
+            except BROWSER_FAILURES as e:  # a page that hangs or crashes under axe is a browser failure, scored
+                return shot, [*errors, f"axe read failed{tag}: {type(e).__name__}: {e}"], None
 
     def run(self, pass_: Pass, request: Request, regime: Regime, request_text: str) -> EvalReport:
         """Scores one pass's artifact under `regime`. `request_text` is the text the worker read."""

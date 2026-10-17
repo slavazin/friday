@@ -1,11 +1,13 @@
-"""Playwright implementation of the Browser port. Every request other than the artifact's own file is aborted,
-and Chromium sends all other traffic (WebSockets, which request routing does not see) to a proxy address that
-refuses connections: the artifact is untrusted generated code and must load nothing (SPEC § 5).
+"""Playwright implementation of the Browser port. Every request other than the artifact's own file is aborted;
+Chromium sends all other TCP traffic (WebSockets, which request routing does not see) to a proxy address that
+refuses connections; WebRTC may use no UDP that bypasses that proxy, and its constructors are removed from every
+frame before the artifact runs: the artifact is untrusted generated code and must load nothing (SPEC § 5).
 
 Every call into the page is bounded by a timeout, so a page whose main thread hangs fails that call instead of
-blocking the eval. A Playwright failure inside `PlaywrightBrowser.page` leaves it as the builtin
-`TimeoutError` (the page did not answer in time) or `ConnectionError` (the page failed: a load error, a crash),
-so callers can score a browser failure without importing Playwright, and every other exception still raises.
+blocking the eval. Every Playwright failure, in a page method or while `PlaywrightBrowser.page` is open, raises
+as the builtin `TimeoutError` (the page did not answer in time) or `ConnectionError` (the page failed: a load
+error, a crash), so callers can score a browser failure without importing Playwright, and every other exception
+still raises.
 """
 
 from __future__ import annotations
@@ -13,8 +15,9 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -22,12 +25,31 @@ from friday.domain.types import Control, ControlKind
 
 
 def _wrapped(js: str) -> str:
-    """`js` as a function whose result is always truthy ({v: value}), for `wait_for_function`.
+    """`js` as a function whose result is a JSON string ('{"v": value}', always truthy), for `wait_for_function`.
 
     In-page reads go through `wait_for_function` (bounded), never `evaluate` (unbounded), so a page whose main
-    thread hangs (an infinite loop started by a click) times out instead of blocking the eval forever.
+    thread hangs (an infinite loop started by a click) times out instead of blocking the eval forever. The
+    result is a primitive, so Playwright holds its value with the handle: reading and disposing the handle make
+    no further call into the page, which may have hung since the predicate returned. Residue: a hang that
+    starts within the few milliseconds between the predicate returning and `wait_for_function` itself
+    returning (a `setTimeout(loop, 0)` queued by the predicate) still blocks that call, past its timeout.
     """
-    return "(arg) => ({ v: (" + js + ")(arg) })"
+    return "(arg) => JSON.stringify({ v: (" + js + ")(arg) })"
+
+
+def _translated(fn: Callable) -> Callable:
+    """`fn` with a Playwright timeout raised as TimeoutError and any other Playwright error as ConnectionError."""
+    @wraps(fn)
+    def call(*args: Any, **kwargs: Any) -> Any:
+        from playwright.sync_api import Error
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+        try:
+            return fn(*args, **kwargs)
+        except PlaywrightTimeout as e:
+            raise TimeoutError(str(e)) from e
+        except Error as e:
+            raise ConnectionError(str(e)) from e
+    return call
 
 
 _CONTROLS_JS = """() => {
@@ -83,12 +105,25 @@ _CONTROLS_JS = """() => {
   return out;
 }"""
 
-# The visible state: text of visible nodes (editable fields excluded: what is typed into a field is the
-# input, not its effect), values of fields the user does not edit directly (readonly or disabled), each
-# element's visibility, and each canvas's pixels.
+# The visible state, node by node: {key: value}. Text of visible text nodes (editable fields excluded: what is
+# typed into a field is the input, not its effect), values of fields the user does not edit directly (readonly
+# or disabled), each element's visibility, and each canvas's pixels. A key names its node by its element path.
 _SNAPSHOT_JS = """() => {
   const vis = (e) => e.checkVisibility ? e.checkVisibility() : e.getClientRects().length > 0;
-  const texts = [];
+  const all = Array.from(document.body ? document.body.querySelectorAll('*') : []);
+  const idCount = {};
+  for (const e of all) { if (e.id) idCount[e.id] = (idCount[e.id] || 0) + 1; }
+  const keys = new Map();
+  const path = (e) => {
+    if (keys.has(e)) return keys.get(e);
+    let k;
+    if (e === document.body || !e.parentElement) k = 'body';
+    else if (e.id && idCount[e.id] === 1) k = '#' + e.id;
+    else k = path(e.parentElement) + '>' + (Array.prototype.indexOf.call(e.parentElement.children, e) + 1);
+    keys.set(e, k);
+    return k;
+  };
+  const out = {};
   if (document.body) {
     const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
     for (let n = w.nextNode(); n; n = w.nextNode()) {
@@ -96,17 +131,18 @@ _SNAPSHOT_JS = """() => {
       if (!p || ['SCRIPT', 'STYLE', 'TEXTAREA', 'NOSCRIPT', 'TEMPLATE'].includes(p.tagName)) continue;
       if (p.isContentEditable || !vis(p)) continue;
       const t = n.textContent.trim();
-      if (t) texts.push(t);
+      if (t) out['t:' + path(p) + '/' + Array.prototype.indexOf.call(p.childNodes, n)] = t;
     }
   }
-  const all = Array.from(document.body ? document.body.querySelectorAll('*') : []);
-  const shown = all.map((e) => vis(e) ? '1' : '0').join('');
-  const fixed = all.filter((e) => (e.tagName === 'INPUT' || e.tagName === 'TEXTAREA') && (e.readOnly || e.disabled))
-                   .map((e) => e.value);
-  const canvases = all.filter((e) => e.tagName === 'CANVAS').map((c) => {
-    try { return c.toDataURL(); } catch (err) { return 'unreadable'; }
-  });
-  return JSON.stringify([texts, shown, fixed, canvases]);
+  for (const e of all) {
+    const k = path(e);
+    out['v:' + k] = vis(e) ? '1' : '0';
+    if ((e.tagName === 'INPUT' || e.tagName === 'TEXTAREA') && (e.readOnly || e.disabled)) out['f:' + k] = e.value;
+    if (e.tagName === 'CANVAS') {
+      try { out['c:' + k] = e.toDataURL(); } catch (err) { out['c:' + k] = 'unreadable'; }
+    }
+  }
+  return out;
 }"""
 
 # Visible as Playwright reads it (rendered, not visibility:hidden, a non-empty box) and inside the viewport.
@@ -121,9 +157,15 @@ _VISIBLE_JS = """(s) => {
 
 _HAS_FOCUS_JS = "() => !!document.activeElement && document.activeElement !== document.body"
 
-_CHANGE_JS = """(s) => {
+# Commits a typed value the way a user leaving the field does: blur fires the browser's own `change` (once),
+# then focus returns to the field unless a handler moved it elsewhere or removed the field.
+_COMMIT_JS = """(s) => {
   const e = document.querySelector(s);
-  if (e) e.dispatchEvent(new Event('change', {bubbles: true}));
+  if (e && document.activeElement === e) {
+    e.blur();
+    const a = document.activeElement;
+    if (e.isConnected && (!a || a === document.body)) e.focus();
+  }
   return true;
 }"""
 
@@ -138,7 +180,7 @@ _SCRIPT_JS = """() => {{
       .then((v) => {{ window[k] = {{ok: true, v: v === undefined ? null : v}}; }},
             (e) => {{ window[k] = {{ok: false, e: String((e && e.stack) || e)}}; }});
   }}
-  return window[k];
+  return window[k] === null ? null : JSON.stringify(window[k]);
 }}"""
 
 _CHOOSE_JS = """(s) => {
@@ -164,27 +206,39 @@ class PlaywrightPage:
 
     def _eval(self, js: str, arg: Any = None) -> Any:
         """`js(arg)` evaluated in the page; raises a timeout instead of hanging on a stuck page."""
-        handle = self._page.wait_for_function(_wrapped(js), arg=arg, timeout=self._t)
+        return json.loads(self._read(_wrapped(js), arg, self._t))["v"]
+
+    def _read(self, js: str, arg: Any, timeout_ms: int, **kw: Any) -> str:
+        """The JSON string `js` returns once truthy, in one bounded call (`_wrapped`)."""
+        handle = self._page.wait_for_function(js, arg=arg, timeout=timeout_ms, **kw)
         try:
-            return handle.json_value()["v"]
+            out = handle.json_value()
         finally:
             handle.dispose()
+        if not isinstance(out, str):
+            raise TypeError(f"in-page read returned {type(out).__name__}, not a JSON string")
+        return out
 
+    @_translated
     def goto(self, query: str) -> None:
         self._errors.clear()
         self._page.goto(self._url + query)
 
+    @_translated
     def click(self, selector: str) -> None:
         self._page.click(selector, timeout=self._t)
 
+    @_translated
     def type(self, selector: str, text: str) -> None:
-        """Clears the field, types `text` key by key (key events fire) and fires `change` on it. The field
-        keeps focus, so a following `key` step reaches it (SPEC § 4: keys go to the focused element)."""
+        """Clears the field, types `text` key by key (key events fire) and commits it: the browser fires
+        `change` once, as on leaving the field. The field then has focus again, so a following `key` step
+        reaches it (SPEC § 4: keys go to the focused element) and no second `change` fires later."""
         loc = self._page.locator(selector).first
         loc.fill("", timeout=self._t)
         loc.press_sequentially(text, timeout=self._t)
-        self._eval(_CHANGE_JS, selector)
+        self._eval(_COMMIT_JS, selector)
 
+    @_translated
     def key(self, name: str, times: int = 1) -> None:
         """Presses `name` on the focused element (the body when nothing has focus), each press bounded by the
         action timeout: `keyboard.press` has no timeout and hangs on a key handler that never returns."""
@@ -192,28 +246,35 @@ class PlaywrightPage:
             target = self._page.locator(":focus" if self._eval(_HAS_FOCUS_JS) else "body").first
             target.press(name, timeout=self._t)
 
+    @_translated
     def focus(self, selector: str) -> None:
         self._page.focus(selector, timeout=self._t)
 
+    @_translated
     def wait(self, ms: int) -> None:
         self._page.wait_for_timeout(ms)
 
+    @_translated
     def exists(self, selector: str) -> bool:
         return bool(self._eval("(s) => document.querySelector(s) !== null", selector))
 
+    @_translated
     def visible(self, selector: str) -> bool:
         """Rendered with a non-empty box that intersects the viewport."""
         return bool(self._eval(_VISIBLE_JS, selector))
 
+    @_translated
     def focused(self, selector: str) -> bool:
         return bool(self._eval(
             "(s) => { const e = document.querySelector(s); return !!e && e === document.activeElement; }", selector))
 
+    @_translated
     def text(self, selector: str) -> str | None:
         return self._eval(
             "(s) => { const e = document.querySelector(s); if (!e) return null;"
             " return ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.tagName) ? e.value : e.innerText; }", selector)
 
+    @_translated
     def canvas_hash(self, selector: str) -> str | None:
         data = self._eval(
             "(s) => { const c = document.querySelector(s);"
@@ -221,22 +282,28 @@ class PlaywrightPage:
             selector)
         return hashlib.sha256(data.encode()).hexdigest() if data else None
 
+    @_translated
     def console_errors(self) -> list[str]:
         return list(self._errors)
 
+    @_translated
     def screenshot(self) -> bytes:
         return self._page.screenshot(full_page=False, timeout=self._t)
 
+    @_translated
     def controls(self) -> list[Control]:
         """Visible, enabled operable elements in document order, each with a selector unique to it."""
         rows = self._eval(_CONTROLS_JS)
         return [Control(r["selector"], ControlKind(r["kind"]), r["id"]) for r in rows]
 
+    @_translated
     def snapshot(self) -> str:
-        """A sha256 of the visible state (what `_SNAPSHOT_JS` collects)."""
+        """The visible state as a JSON object of node key -> sha256 of that node's state (`_SNAPSHOT_JS`)."""
         state = self._eval(_SNAPSHOT_JS)
-        return hashlib.sha256(json.dumps(state).encode()).hexdigest()
+        return json.dumps({k: hashlib.sha256(v.encode()).hexdigest()[:16] for k, v in state.items()},
+                          sort_keys=True)
 
+    @_translated
     def choose(self, selector: str) -> None:
         how = self._eval(_CHOOSE_JS, selector)
         if how == "absent":
@@ -250,16 +317,12 @@ class PlaywrightPage:
         else:
             raise LookupError(f"{selector}: nothing to choose ({how})")
 
+    @_translated
     def run_script(self, source: str) -> object:
         """`source` (an expression, or a function that is called and may be async) evaluated in the page; its
         JSON-able result. Bounded by the script timeout; a script that throws raises RuntimeError."""
         key = json.dumps(f"__friday_script_{uuid.uuid4().hex}")
-        handle = self._page.wait_for_function(_SCRIPT_JS.format(key=key, source=source),
-                                              timeout=self._script_t, polling=50)
-        try:
-            out = handle.json_value()
-        finally:
-            handle.dispose()
+        out = json.loads(self._read(_SCRIPT_JS.format(key=key, source=source), None, self._script_t, polling=50))
         self._eval("(k) => { delete window[k]; return true; }", json.loads(key))
         if not out["ok"]:
             raise RuntimeError(f"eval-side script failed: {out['e']}")
@@ -285,6 +348,14 @@ def _router(artifact_url: str):
 # implicit loopback bypass). `route.abort` covers HTTP(S) and file requests; this covers WebSockets.
 # (`route_web_socket` with `ws.close()` deadlocks the sync API, and without the close it mocks an open socket.)
 _REFUSING_PROXY = ("--proxy-server=127.0.0.1:9", "--proxy-bypass-list=<-loopback>")
+# WebRTC sends UDP (STUN, ICE) that no proxy sees: Chromium may use only proxied WebRTC traffic, and the
+# constructors are gone from every frame before any artifact script runs.
+_NO_UDP = ("--force-webrtc-ip-handling-policy=disable_non_proxied_udp",)
+_NO_WEBRTC_JS = """for (const k of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCDataChannel',
+                       'RTCIceCandidate', 'RTCSessionDescription']) {
+  try { delete window[k]; } catch (e) {}
+  try { Object.defineProperty(window, k, {value: undefined, configurable: false, writable: false}); } catch (e) {}
+}"""
 
 
 class PlaywrightBrowser:
@@ -296,7 +367,7 @@ class PlaywrightBrowser:
         self._action_ms, self._load_ms = action_timeout_ms, load_timeout_ms
         self._pw = sync_playwright().start()
         try:
-            self._browser = self._pw.chromium.launch(headless=headless, args=list(_REFUSING_PROXY))
+            self._browser = self._pw.chromium.launch(headless=headless, args=[*_REFUSING_PROXY, *_NO_UDP])
         except BaseException:
             self._pw.stop()
             raise
@@ -312,6 +383,7 @@ class PlaywrightBrowser:
                                         service_workers="block")
         try:
             url = Path(artifact_path).resolve().as_uri()
+            ctx.add_init_script(_NO_WEBRTC_JS)
             ctx.route("**/*", _router(url))
             ctx.set_default_navigation_timeout(self._load_ms)
             ctx.set_default_timeout(self._action_ms)

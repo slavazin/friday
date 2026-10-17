@@ -285,3 +285,80 @@ def test_other_local_files_are_not_loaded_into_the_artifact(chromium, tmp_path):
         assert len(frames) == 1
         child_text = frames[0].evaluate("() => document.body ? document.body.innerText : ''")
     assert "SECRET" not in child_text
+
+
+# --- second review regressions ------------------------------------------------------------------------
+
+
+def test_a_1hz_clock_makes_no_dead_control_look_responsive_on_any_run(chromium):
+    """Finding: a 1 Hz timer phase-locked with the probe's cycle, so every dead control read responsive."""
+    for _ in range(3):
+        with chromium.page(str(APPS / "clock_1hz.html"), VP) as page:
+            page.goto("?test=1")
+            r = probe.run(page, VP, "P1", (), 12, SETTLE, "abc 123")
+        assert r.controls == 2 and r.responsive_ids == ("#inc",)
+
+
+def test_type_fires_change_once_so_a_following_click_does_not_run_the_handler_again(chromium, tmp_path):
+    """Finding: type() fired a synthetic change while the field kept focus; blur fired a native second one."""
+    from friday.eval.dsl import run_check
+    page_html = tmp_path / "change.html"
+    page_html.write_text('<input id="f" onchange="const li = document.createElement(\'li\'); li.textContent = '
+                         'this.value; document.getElementById(\'l\').appendChild(li)"><button id="dead">Dead</button>'
+                         '<ul id="l"></ul>')
+    with chromium.page(str(page_html), VP) as page:
+        page.type("#f", "milk")
+        assert page.focused("#f")
+        page.click("#dead")
+        page.wait(100)
+        assert page.text("#l") == "milk"
+    with chromium.page(str(page_html), VP) as page:
+        r = probe.run(page, VP, "P1", (), 12, SETTLE, "abc 123")
+    assert r.responsive_ids == ("#f",)
+    check = Check("c", ({"goto": "?test=1"}, {"type": "#f", "text": "milk"}, {"click": "#dead"}, {"wait": 100}),
+                  {"text_matches": "#l", "regex": "^milk$"})
+    assert run_check(lambda: chromium.page(str(page_html), VP), check).passed
+
+
+def test_webrtc_udp_never_reaches_the_network(chromium, tmp_path):
+    """Finding: a STUN request from RTCPeerConnection bypassed the refusing proxy and the route abort."""
+    import socket
+    udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    udp.bind(("127.0.0.1", 0))
+    udp.settimeout(2)
+    port_ = udp.getsockname()[1]
+    stun = f"stun:127.0.0.1:{port_}"
+    page_html = tmp_path / "rtc.html"
+    page_html.write_text(
+        '<p id="s">pending</p><iframe id="f" srcdoc="<p>x</p>"></iframe><script>'
+        "const go = (w) => { const pc = new w.RTCPeerConnection({iceServers: [{urls: '" + stun + "'}]});"
+        " pc.createDataChannel('x'); pc.createOffer().then((o) => pc.setLocalDescription(o)); };"
+        "try { go(window); } catch (e) { document.getElementById('s').textContent = 'no rtc'; }"
+        "window.onload = () => { try { go(document.getElementById('f').contentWindow); } catch (e) {} };"
+        "</script>")
+    try:
+        with chromium.page(str(page_html), VP) as page:
+            page.wait(1500)
+            assert page.text("#s") == "no rtc"
+        with pytest.raises(TimeoutError):
+            udp.recvfrom(2048)
+    finally:
+        udp.close()
+
+
+def test_an_in_page_read_returns_even_when_the_page_hangs_right_after_it(chromium):
+    """Finding: _eval's json_value and dispose were unbounded round trips after the bounded predicate."""
+    t0 = time.monotonic()
+    with chromium.page(str(APPS / "counter.html"), VP) as page:
+        real = page._page.wait_for_function
+
+        def then_hang(*a, **k):     # the page starts hanging after the predicate returned, before the read
+            h = real(*a, **k)
+            time.sleep(0.3)
+            return h
+        page._page.wait_for_function = then_hang
+        assert page._eval("() => { setTimeout(() => { while (true) {} }, 50); return 7; }") == 7
+        page._page.wait_for_function = real
+        with pytest.raises(TimeoutError):
+            page.snapshot()    # the page now hangs: a page method raises the builtin, not a Playwright error
+    assert time.monotonic() - t0 < 30

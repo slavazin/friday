@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -108,9 +109,12 @@ class FakePage:
         return [Control(sel, kind, sel if sel.startswith("#") else None) for sel, kind in self.dom.kinds.items()]
 
     def snapshot(self) -> str:
-        """Like the adapter: a text field's own typed value is the input, not visible state."""
-        texts = sorted((k, v) for k, v in self.dom.texts.items() if self.dom.kinds.get(k) is not ControlKind.TEXT)
-        return repr((texts, sorted(self.dom.canvas.items()), sorted(self.dom.visible)))
+        """Like the adapter: a JSON object of node -> digest; a text field's own typed value is the input,
+        not visible state."""
+        state = {f"t:{k}": v for k, v in self.dom.texts.items() if self.dom.kinds.get(k) is not ControlKind.TEXT}
+        state |= {f"c:{k}": str(v) for k, v in self.dom.canvas.items()}
+        state |= {f"v:{k}": "1" for k in self.dom.visible}
+        return json.dumps(state, sort_keys=True)
 
     def run_script(self, source: str) -> object:
         return self.dom.scripts.get(source)

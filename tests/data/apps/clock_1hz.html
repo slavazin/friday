@@ -1,0 +1,16 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Clock and counter</title></head>
+<body>
+<p>Time: <span id="clock">0</span></p>
+<p>Count: <span id="count">0</span></p>
+<button id="dead">Does nothing</button>
+<button id="inc">Add one</button>
+<script>
+  let t = 0;
+  setInterval(() => { document.getElementById('clock').textContent = String(++t); }, 1000);
+  document.getElementById('inc').onclick = () => {
+    const c = document.getElementById('count');
+    c.textContent = String(Number(c.textContent) + 1);
+  };
+</script>
+</body></html>

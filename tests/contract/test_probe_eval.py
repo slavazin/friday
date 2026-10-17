@@ -255,3 +255,77 @@ def test_a_page_that_fails_the_test_query_reload_reads_unloaded(tmp_path):
     p, req = fixture(tmp_path, HOW_TO)
     rep = make_eval(QueryHangBrowser(counter_dom)).run(p, req, Regime.R1, "a counter")
     assert rep.probes[0].loaded is False and rep.probes[0].P == 0.0
+
+
+# --- second review regressions ------------------------------------------------------------------------
+
+
+class SnapshotRaises(FakePage):
+    def __init__(self, dom, exc):
+        super().__init__(dom)
+        self.exc = exc
+
+    def snapshot(self):
+        raise self.exc
+
+
+def test_a_programming_error_in_snapshot_raises_instead_of_reading_page_stopped_answering():
+    """Finding: _snap's broad except scored a TypeError from snapshot as 'page stopped answering'."""
+    with pytest.raises(TypeError, match="bug in snapshot"):
+        probe.run(SnapshotRaises(counter_dom(), TypeError("bug in snapshot")), VP, "P1", (), 12, 500, "abc")
+    r = probe.run(SnapshotRaises(counter_dom(), TimeoutError("hung")), VP, "P1", (), 12, 500, "abc")
+    assert r.responsive == 0 and any("page stopped answering" in e for e in r.console_errors)
+
+
+def test_a_slow_ticker_seen_in_the_first_watch_is_excluded_from_every_control():
+    """Finding (1 Hz clock): a node the page changes by itself must not make a dead control read responsive."""
+    def make():
+        dom = counter_dom(texts={"#inc": "Add", "#count": "0", "#dead": "", "#clock": "0"},
+                          kinds={"#dead": ControlKind.BUTTON, "#inc": ControlKind.BUTTON})
+        return dom
+    waits = []
+
+    class SlowTick(FakePage):
+        def wait(self, ms):     # the clock ticks once per 1000 ms of waiting
+            waits.append(ms)
+            if sum(waits) // 1000 != (sum(waits) - ms) // 1000:
+                self.dom.texts["#clock"] = str(int(self.dom.texts["#clock"]) + 1)
+    r = probe.run(SlowTick(make()), VP, "P1", (), 12, 500, "abc")
+    assert r.responsive_ids == ("#inc",)
+
+
+class AxeHangPage(FakePage):
+    def run_script(self, source):
+        raise TimeoutError("page hung under axe")
+
+
+class AxeHangBrowser(DomBrowser):
+    """The first viewport's page hangs during the axe read; the second answers."""
+
+    @contextmanager
+    def page(self, artifact_path, viewport):
+        self.opened.append(viewport)
+        yield (AxeHangPage if viewport == (1280, 800) else FakePage)(self.make_dom())
+
+
+class ScriptQuality(Quality):
+    def axe_violations(self, page):
+        page.run_script("axe")
+        return 2
+
+
+def test_a_page_that_hangs_during_the_axe_read_still_gives_a_report(tmp_path):
+    """Finding: a TimeoutError from the page during axe crashed Evaluator.run instead of being scored."""
+    p, req = fixture(tmp_path, HOW_TO)
+    ev = make_eval(AxeHangBrowser(counter_dom))
+    ev.quality = ScriptQuality()
+    rep = ev.run(p, req, Regime.R2, "a counter")
+    assert any(e.startswith("axe read failed@1280x800: TimeoutError") for e in rep.console_errors)
+    assert rep.axe_violations == 2      # read at the next viewport
+
+    class Broken(Quality):
+        def axe_violations(self, page):
+            raise TypeError("bug in the quality probe")
+    ev.quality = Broken()
+    with pytest.raises(TypeError):
+        ev.run(p, req, Regime.R1, "a counter")
