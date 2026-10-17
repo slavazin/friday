@@ -10,6 +10,8 @@ readers:
   nominator: [regime, drift, arm]
   lens_minter: [regime, drift, arm]
   tagger: [regime, drift, arm, loss]
+  # critic/taste.yml (SPEC § 17 Taste) is blinded whole for every reader but the critic: no preference text
+  # reaches another reader's prompt (tests/unit/test_taste.py scans the rendered prompts of a scripted round).
   critic: [check, checks, check id, loss, score, scores, eval, evaluation, judge, regime, R1, R2, drift,
            candidate, exposure, ablation, pair, arm, rubric, probe]
   coordinator: [check, checks, check id, loss, score, scores, regime, R1, R2, drift]

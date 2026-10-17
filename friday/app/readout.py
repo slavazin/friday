@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 from friday.algorithms.readout import paired_reading, per_category_mean_diff
 from friday.config import RunSpec
@@ -526,10 +527,14 @@ def _training_scored(passes: PassStore, held_out: frozenset[str]) -> list[tuple[
 
 def critic_readings(
     main: PassStore, critic: PassStore, honored: Mapping[str, Mapping[str, object]], main_journal: Journal,
-    critic_journal: Journal, held_out: frozenset[str],
+    critic_journal: Journal, held_out: frozenset[str], loss_base: Mapping[str, float] | None = None,
 ) -> CriticReadings:
     """Requests honored per round, the mean loss of each run on the requests both built, and the decisions each
     run admitted. `honored` maps a critic-run pass id to its `requests_honored.json` record.
+
+    With the taste on (SPEC § 17 Taste), `loss_base` maps each scored critic-run pass id to its loss without the
+    taste checks, and the critic side of the comparison reads it, so both runs' losses hold the same checks; a
+    scored pass absent from it raises.
 
     Only training passes count (held-out requests are the main run's readout). Absent data reads unread."""
     crit_rows = _training_scored(critic, held_out)
@@ -550,7 +555,12 @@ def critic_readings(
         main_loss[p.category].append(e.loss)
     crit_loss: dict[str, list[float]] = defaultdict(list)
     for p, e in crit_rows:
-        crit_loss[p.category].append(e.loss)
+        if loss_base is None:
+            crit_loss[p.category].append(e.loss)
+        elif p.id in loss_base:
+            crit_loss[p.category].append(loss_base[p.id])
+        else:
+            raise ValueError(f"{p.id}: scored on the critic run with the taste on, but no loss_base recorded")
     shared = sorted(set(main_loss) & set(crit_loss))
     beside = tuple(LossBeside(c, sum(main_loss[c]) / len(main_loss[c]), sum(crit_loss[c]) / len(crit_loss[c]),
                               len(main_loss[c]), len(crit_loss[c])) for c in shared)
@@ -580,4 +590,152 @@ def critic_lines(r: CriticReadings) -> list[str]:
             for b in r.loss]
     out.append(f"Admitted, main run: {', '.join(i for i, _ in r.admitted_main) or 'none'}")
     out.append(f"Admitted, critic run: {', '.join(i for i, _ in r.admitted_critic) or 'none'}")
+    return out
+
+
+# ---------------------------------------------------------------------------------------------------------
+# The taste readings (SPEC § 17 Taste): per planted quirk, whether the loop learned it and on what evidence
+
+
+@dataclass(frozen=True)
+class QuirkLearned:
+    """One admitted decision whose exposure made the quirk's check pass more often on its exposed slots."""
+
+    decision_id: str
+    admitted_round: int
+    pairs: int                    # in-scope exposure pairs of this decision with both slots read
+    exposed_rate: float           # the quirk check's pass rate on the exposed slots
+    unexposed_rate: float         # and on their partner slots
+    n_at_admission: int           # the decision's exposure deltas in the Ledger up to its admission round
+    n_in_scope: int               # of those, deltas on requests in the quirk's scope
+    rounds_to_admission: int | None   # admission round - the quirk's first in-scope stream round + 1
+
+
+@dataclass(frozen=True)
+class QuirkReading:
+    quirk: str
+    scope: str
+    stream_share: float | None    # in-scope requests / stream requests over the run's rounds
+    in_scope_requests: int
+    in_scope_passes: int          # scored passes on in-scope requests with a taste record
+    first_round: int | None       # the first stream round with an in-scope request
+    learned: tuple[QuirkLearned, ...]   # empty: not learned
+    rate_before: float | None     # the check's pass rate over in-scope passes up to the first admission round
+    rate_after: float | None      # and after it (None when not learned, or no in-scope pass followed)
+
+    @property
+    def is_learned(self) -> bool:
+        return bool(self.learned)
+
+
+@dataclass(frozen=True)
+class TasteReadings:
+    quirks: tuple[QuirkReading, ...]
+    learned: int
+    of: int
+    unread: tuple[str, ...]       # scored in-scope passes with no taste record
+
+
+def _rate(xs: Sequence[bool]) -> float | None:
+    return sum(xs) / len(xs) if xs else None
+
+
+def taste_readings(
+    quirks: Sequence[Any], cells: Mapping[str, tuple[str, str]], stream_rounds: Mapping[str, int],
+    passes: PassStore, records: Mapping[str, Mapping[str, Any]], events: EventLog, ledger: Ledger,
+    held_out: frozenset[str],
+) -> TasteReadings:
+    """The taste table: per quirk (an `app.taste.Quirk`), its scope's share of the stream, the passes in scope,
+    the admitted decisions that taught it, their exposure evidence at admission, the rounds it took, and the
+    quirk check's pass rate before and after.
+
+    A decision taught a quirk when it was admitted by the gate and, over the in-scope exposure pairs of it, the
+    quirk check passed on more exposed slots than unexposed ones. `records` maps a pass id to its `taste.json`.
+    `stream_rounds` maps each stream request id of the run's rounds to its round. A quirk no decision taught reads
+    not learned (no figure); a rate over no pass reads unread."""
+    def check_of(rec: Mapping[str, Any], pass_id: str, quirk: str) -> bool:
+        for r in rec["quirks"]:
+            if r["quirk"] == quirk:
+                return bool(r["passed"])
+        raise ValueError(f"{pass_id}: in scope of {quirk} but its taste record does not read it")
+
+    rows = _training_scored(passes, held_out)
+    admitted: dict[str, int] = {}
+    for f in events.flips():
+        if f.new == DecisionStatus.ADMITTED.value and f.cause == FlipCause.GATE_ADMIT:
+            admitted[f.subject_id] = min(f.round, admitted.get(f.subject_id, f.round))
+    total = len(stream_rounds)
+    out: list[QuirkReading] = []
+    unread: set[str] = set()
+    for q in quirks:
+        scope_ids = {rid for rid in stream_rounds if q.covers(cells[rid])}
+        mine: list[tuple[Pass, bool]] = []
+        for p, _ in rows:
+            if p.category not in scope_ids:
+                continue
+            rec = records.get(p.id)
+            if rec is None:
+                unread.add(p.id)
+                continue
+            mine.append((p, check_of(rec, p.id, q.id)))
+        result = {p.id: ok for p, ok in mine}
+        slots: dict[tuple[int, str], dict[int, list[Pass]]] = defaultdict(lambda: defaultdict(list))
+        for p, _ in mine:
+            if p.arm is Arm.JOURNAL and p.pair_slot is not None:
+                slots[(p.round, p.category)][p.pair_slot].append(p)
+        first = min((stream_rounds[rid] for rid in scope_ids), default=None)
+        learned: list[QuirkLearned] = []
+        for d, a in sorted(admitted.items(), key=lambda x: (x[1], x[0])):
+            exp, une = [], []
+            for by_slot in slots.values():
+                if sorted(by_slot) != [0, 1] or any(len(v) != 1 for v in by_slot.values()):
+                    continue
+                x, y = by_slot[0][0], by_slot[1][0]
+                if (x.composition.exposed == d) == (y.composition.exposed == d):
+                    continue
+                e_, u_ = (x, y) if x.composition.exposed == d else (y, x)
+                exp.append(result[e_.id])
+                une.append(result[u_.id])
+            if not exp or sum(exp) <= sum(une):
+                continue
+            deltas = [x for x in ledger.deltas(d, DeltaKind.EXPOSURE) if x.round <= a]
+            learned.append(QuirkLearned(
+                d, a, len(exp), sum(exp) / len(exp), sum(une) / len(une), len(deltas),
+                sum(x.category in scope_ids for x in deltas), None if first is None else a - first + 1))
+        if learned:
+            at = learned[0].admitted_round
+            before = _rate([ok for p, ok in mine if p.round <= at])
+            after = _rate([ok for p, ok in mine if p.round > at])
+        else:
+            before, after = _rate([ok for _, ok in mine]), None
+        out.append(QuirkReading(q.id, q.scope_text, len(scope_ids) / total if total else None, len(scope_ids),
+                                len(mine), first, tuple(learned), before, after))
+    return TasteReadings(tuple(out), sum(r.is_learned for r in out), len(out), tuple(sorted(unread)))
+
+
+def taste_lines(t: TasteReadings) -> list[str]:
+    """The taste table as printed lines, then the summary line ordered from the densest scope to the sparsest."""
+    out = ["Taste (SPEC § 17): planted quirks the loop learns from the eval alone"]
+    for r in t.quirks:
+        head = (f"  {r.quirk} [{r.scope}]: stream share {_fmt(r.stream_share, 2)} ({r.in_scope_requests} requests), "
+                f"{r.in_scope_passes} passes, check pass rate before {_fmt(r.rate_before, 2)}, "
+                f"after {_fmt(r.rate_after, 2)}")
+        out.append(head)
+        if not r.learned:
+            out.append("    not learned")
+        for x in r.learned:
+            out.append(f"    learned by {x.decision_id} at round {x.admitted_round} "
+                       f"({'unread' if x.rounds_to_admission is None else x.rounds_to_admission} rounds in scope): "
+                       f"n {x.n_at_admission} at admission, {x.n_in_scope} in scope; check passes on "
+                       f"{_fmt(x.exposed_rate, 2)} exposed vs {_fmt(x.unexposed_rate, 2)} unexposed slots "
+                       f"over {x.pairs} pairs")
+    if t.unread:
+        out.append(f"  in-scope passes with no taste record: {', '.join(t.unread)}")
+    dense = sorted(t.quirks, key=lambda r: (-(r.stream_share or 0.0), r.quirk))
+    by_density = ", ".join(
+        f"{r.quirk} ({_fmt(r.stream_share, 2)}) "
+        + (f"n {r.learned[0].n_at_admission} in {r.learned[0].rounds_to_admission} rounds" if r.learned
+           else "not learned")
+        for r in dense)
+    out.append(f"learned {t.learned} of {t.of} quirks; n at admission by density: {by_density}")
     return out

@@ -298,6 +298,7 @@ class PassEnv:
     telemetry: Telemetry          # the process's one log, shared with the client, evaluator, judge and browser
     missing_ids: Callable[[Page, Collection[str]], list[str]] = page_missing_ids
     critic: Any = None            # roles.critic.Critic on the critic run (SPEC § 17); None: no critic turn
+    taste: Any = None             # app.taste.Taste on the critic run (SPEC § 17 Taste); None: no planted quirks
 
 
 @dataclass(frozen=True)
@@ -488,18 +489,23 @@ def _run_pass(task: PassTask, env: PassEnv) -> PassOutcome:
     results: list[ChatResult] = []
     base = Pass(task.pass_id, task.round_, task.request.id, task.arm, "", task.composition, task.regime,
                 pair_slot=task.slot, composed_tokens=tokens)
+    if env.taste is not None and env.critic is None:
+        raise ValueError("the taste is read on the critic run only: a PassEnv with a taste needs a critic")
+    quirks = env.taste.in_scope(task.request.id) if env.taste is not None else ()
+    eval_request = env.taste.scoped_request(task.request, task.regime, quirks) if quirks else task.request
     try:
         try:
             html, repaired, extracted = _turns(env, task, messages, artifact, results)
             reaction: Criticism | None = None
             if env.critic is not None:
-                html, reaction = _critic_turns(env, task, messages, artifact, html, results)
+                html, reaction = _critic_turns(env, task, messages, artifact, html, results,
+                                               tuple(q.preference for q in quirks))
             size = len(html.encode())
             oversize = size > env.settings.max_artifact_bytes
             t.metric("pass.artifact_bytes", size, "bytes", oversize=oversize)
             pass_ = dataclasses.replace(base, worker=results[0].model, artifact_path=str(artifact),
                                         repaired=repaired)
-            report = env.evaluate(pass_, task.request, task.regime, task.request_text)
+            report = env.evaluate(pass_, eval_request, task.regime, task.request_text)
         except env.transport_errors as e:
             failed = dataclasses.replace(
                 base, worker=results[0].model if results else "",
@@ -517,6 +523,14 @@ def _run_pass(task: PassTask, env: PassEnv) -> PassOutcome:
         (out_dir / "pass.json").write_text(json.dumps(_meta(task, results, failed=f"{type(e).__name__}: {e}"),
                                                       indent=1))
         raise
+    if env.taste is not None:
+        taste = env.taste.reading(report, quirks)
+        (out_dir / TASTE_FILE).write_text(json.dumps({
+            "quirks": [dataclasses.asdict(r) for r in taste.quirks], "loss": taste.loss,
+            "loss_base": taste.loss_base, "C_base": taste.C_base}, indent=1))
+        t.metric("pass.loss_base", taste.loss_base, "score", quirks=len(quirks))
+        for r in taste.quirks:
+            t.metric("pass.quirk_check", r.rate, "share", quirk=r.quirk, passed=r.passed)
     if reaction is not None:
         honored = requests_honored(html, report, reaction.requests)
         (out_dir / HONORED_FILE).write_text(json.dumps(honored, indent=1))
@@ -546,6 +560,7 @@ def _run_pass(task: PassTask, env: PassEnv) -> PassOutcome:
 
 CRITIC_FILE = "critic.json"          # artifacts/<pass_id>/: the critic's reply and the revision's outcome
 HONORED_FILE = "requests_honored.json"
+TASTE_FILE = "taste.json"            # the in-scope quirks' check results and loss_base (app.taste.TASTE_FILE)
 BUILT_FILE = "built.html"            # the artifact as built, before the revision replaced it
 SCREENSHOT_FILE = "critic.png"
 
@@ -564,13 +579,14 @@ def _critic_screenshot(env: PassEnv, artifact: Path) -> bytes | None:
 
 
 def _critic_turns(env: PassEnv, task: PassTask, messages: Sequence[Message], artifact: Path, html: str,
-                  results: list[ChatResult]) -> tuple[str, Criticism]:
+                  results: list[ChatResult], habits: Sequence[str] = ()) -> tuple[str, Criticism]:
     """The critic call on this pass's own artifact, then the worker's one revision turn.
 
     The critic reads the request text, the built source (its how-to inside) and a screenshot taken after load;
-    no eval has run yet, so no reading of it exists to leak. The revised file replaces `index.html` (the built
-    one is kept as `built.html`); a revision reply with no document leaves the built file in place. Returns the
-    HTML now in `index.html` and the critic's reply. Writes `critic.json`.
+    no eval has run yet, so no reading of it exists to leak. `habits` are the manager's quirks in scope for the
+    request (SPEC § 17 Taste), in the user's words; the critic alone reads them. The revised file replaces
+    `index.html` (the built one is kept as `built.html`); a revision reply with no document leaves the built file
+    in place. Returns the HTML now in `index.html` and the critic's reply. Writes `critic.json`.
     """
     t = env.telemetry
     out_dir = artifact.parent
@@ -578,8 +594,8 @@ def _critic_turns(env: PassEnv, task: PassTask, messages: Sequence[Message], art
     shot = _critic_screenshot(env, artifact)
     if shot is not None:
         (out_dir / SCREENSHOT_FILE).write_bytes(shot)
-    with t.span("pass.critic", screenshot=shot is not None) as span:
-        reply = env.critic.criticise(task.request_text, html, shot, tag=f"{task.pass_id}:critic")
+    with t.span("pass.critic", screenshot=shot is not None, habits=len(habits)) as span:
+        reply = env.critic.criticise(task.request_text, html, shot, tag=f"{task.pass_id}:critic", habits=habits)
         results.extend(reply.results)
         last = reply.results[-1]
         span.set(model=last.model, requests=len(reply.criticism.requests),
