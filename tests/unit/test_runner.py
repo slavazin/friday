@@ -308,3 +308,23 @@ def test_wiring_reads_every_evaluator_and_loss_figure_from_the_spec():
     assert (s["test_query"], s["probe_max_controls"], s["settle_ms"], s["sample_text"]) == (
         SPEC.eval.test_query, SPEC.probe.max_controls, SPEC.probe.settle_ms, SPEC.probe.sample_text)
     assert (s["how_to_max_controls"], s["repair_penalty"]) == (SPEC.how_to.max_controls, SPEC.how_to.repair_penalty)
+
+
+def test_readout_pass_spans_carry_the_held_out_requests_cell_and_none_without_one(tmp_path):
+    import dataclasses as dc
+    w = World(tmp_path, coordinator_replies=[plan_reply()])
+    reqs = [dc.replace(r, cell=("canvas game", "keyboard-driven")) if r.id == "H-0001" else r
+            for r in w.goals.requests]
+    w.goals = MemoryGoalSource(reqs)
+    r = w.runner()
+    r.run(stop_after=1)
+    r.readout()
+    spans = [s for s in w.telemetry.spans(name_prefix="pass") if s.name == "pass" and s.attrs.get("readout")]
+    assert spans and all(s.attrs["cell"] == ["canvas game", "keyboard-driven"] for s in spans)
+    # A request with no cell records None, never an empty or made-up cell.
+    w2 = World(tmp_path / "b", coordinator_replies=[plan_reply()])
+    r2 = w2.runner()
+    r2.run(stop_after=1)
+    r2.readout()
+    spans2 = [s for s in w2.telemetry.spans(name_prefix="pass") if s.name == "pass" and s.attrs.get("readout")]
+    assert spans2 and all(s.attrs["cell"] is None for s in spans2)

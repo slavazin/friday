@@ -270,7 +270,8 @@ def run_readout_pass(task: ReadoutTask, env: pipeline.PassEnv) -> Pass:
     c = task.composition
     with pipeline.narrowed(env.telemetry, round_=task.round_, pass_id=task.pass_id) as t, \
             t.span("pass", request_id=task.request.id, arm=task.arm.value, regime=task.regime.value,
-                   readout=True, composed=list(c.decision_ids), notes=c.notes) as span:
+                   readout=True, composed=list(c.decision_ids), notes=c.notes,
+                   cell=list(task.request.cell) if task.request.cell else None) as span:
         pass_ = _run_readout_pass(task, env)
         span.set(worker_model=pass_.worker)
         if pass_.transport_failed:
