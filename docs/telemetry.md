@@ -36,6 +36,10 @@ readout read only the evidence stores. The demo page and the timing fit (CARRY_F
 | `round.concurrency` | metric (count) | peak passes in flight |
 | `round.spend` | metric (usd) | spend in this round, by `role` |
 | `round.ping` | event | `reason` |
+| `round.tags` | span | tagging the round's requests at round start; `requests`, `new_tags` |
+| `round.coordinator` | span | the coordinator's turns; `turns`, `tools` |
+| `round.settled` | event | the round's Ledger rows and observations written before the close; `deltas`, `observations` |
+| `round.observations_unread` | metric (count) | passes whose report-call observations could not be read back |
 
 ## Pass
 
