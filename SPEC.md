@@ -1267,8 +1267,8 @@ each pass mimics a developer working under a manager: build, critic, revision.
   part of the exposure's effect, so the pair still differs only by the
   exposure.
 - **Store.** Its own Journal, Ledger and lens set, started empty, under
-  `run-critic.yml` (which overrides `paths.*`, `run.rounds` and `critic.*`
-  only). Same seed, same goal stream.
+  `run-critic.yml` (which overrides `paths.*`, `run.rounds`, `critic.*` and the
+  three tempo knobs below only). Same seed, same goal stream.
 
 **Readings** (descriptive; the pre-registered R1–R4 belong to the main run):
 requests honored per round; mean loss against the main run's on the same
@@ -1288,8 +1288,23 @@ one and reaches them in more rounds. The taste reading reports, per quirk, the s
 in-scope passes, the admitted decisions whose exposed slots pass the quirk check more often than their
 partners, `n` at admission (all and in scope), rounds to admission and the check's pass rate before and
 after; a quirk with no such decision reads "not learned". The critic's voicing is part of each pass, in both
-slots of a pair, so it narrows the exposure's effect on a quirk rather than creating one. Each pass records
-`loss_base`, its loss with the taste checks left out of C, and the comparison with the main run reads it.
+slots of a pair, so it narrows the exposure's effect on a quirk rather than creating one. Taste is its own
+component of A on the critic run: A = (1 - `critic.taste_weight`) * A_main + `critic.taste_weight` * T, where
+A_main is § 5's mix of P, H and C with C over the request's own checks only, and T is the share of in-scope
+quirk check results passed. A taste check counts in T alone, never in C as well. With no quirk in scope T
+reads unread and A = A_main (never T = 0). At `taste_weight` 0.35 and `eval.w_a` 0.75 a missed quirk, alone
+in scope, moves the pass loss by about 0.26. Each pass records `loss_base`, its loss with A = A_main, and the
+comparison with the main run reads it.
+**Tempo.** The critic run's readings are descriptive, so its tempo knobs are tuned for decisions that show
+within its 4 rounds: `pool.recurrence_min_rounds` 1 and `pool.fast_track_min_requests` 2 (a pool seen on
+two distinct requests in round 1 is nominated at the round 1 close) and `gate.in_flight` 4 (four candidates
+under test at once). Speed comes only from earlier nomination, more evidence per round and the larger
+effect taste carries; the gate's bar is the main run's (`gate.alpha`, `n_min`, `n_max`, the betting
+strategy), and the overlay loader refuses any other key. Each status step of a decision (drafted,
+admitted, rejected, retired) writes a `decision.turnaround` telemetry event with the rounds and wall
+seconds since its pool's first observation; `friday critic-readout` reads those events alone and prints,
+per decision and per quirk, the first observation, nomination and admission rounds, `n` at admission and
+the wall minutes of each step, and exports them in `critic_export.json`.
 **Concurrency.** The critic run may overlap the main run once the main run's
 round 1 has closed cleanly. While both run, the critic run takes
 `critic.max_parallel_passes` (6) of the machine's pass slots, and the main

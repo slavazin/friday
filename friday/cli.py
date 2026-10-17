@@ -216,7 +216,7 @@ class PassEnvFactory:
         from friday.adapters.sqlite.stores import SqliteSpendLog, connect
         from friday.adapters.telemetry import open_run_telemetry
         from friday.app.pipeline import PassEnv, PassSettings
-        from friday.app.runner import DraftRecordingJudge
+        from friday.app.runner import DraftRecordingJudge, critic_taste_weight
         from friday.app.taste import build_taste
         from friday.app.wiring import build_mechanics, evaluator_settings, with_optional
         from friday.eval.evaluate import Evaluator
@@ -257,7 +257,8 @@ class PassEnvFactory:
                 transport_errors=(TransportFailure,), telemetry=tel,
                 critic=Critic(client, book, spec.critic.max_requests, spec.json.reasks)
                 if self.scope == CRITIC_RUN else None,
-                taste=build_taste(repo, spec, build_mechanics(spec).loss) if self.scope == CRITIC_RUN else None,
+                taste=build_taste(repo, spec, build_mechanics(spec).loss, critic_taste_weight(self.spec_path))
+                if self.scope == CRITIC_RUN else None,
             )
         finally:
             if browser is not None:
@@ -347,7 +348,7 @@ def build_runner(args: argparse.Namespace, *, live: bool = True):
     from friday.app.render import FlipRenderer
     from friday.app.request_text import request_text
     from friday.app.round_close import build_round_close
-    from friday.app.runner import Runner, Stores, base_spec_path, run_scope
+    from friday.app.runner import Runner, Stores, base_spec_path, critic_taste_weight, run_scope
     from friday.app.wiring import build_mechanics, with_optional
     from friday.roles.coordinator import Coordinator
     from friday.roles.lens_minter import LensMinter
@@ -385,7 +386,7 @@ def build_runner(args: argparse.Namespace, *, live: bool = True):
     if critic_run:                                   # the taste reads every request's cell: refuse a gap up front
         from friday.app.taste import build_taste
 
-        taste = build_taste(repo, spec, build_mechanics(spec).loss)
+        taste = build_taste(repo, spec, build_mechanics(spec).loss, critic_taste_weight(args.spec))
         for n in range(1, spec.run.rounds + 1):
             for r in goals.round(n):
                 taste.in_scope(r.id)
@@ -552,9 +553,12 @@ def _critic_readout(args: argparse.Namespace) -> int:
 
     from friday.adapters.goals_json import JsonGoalSource
     from friday.adapters.sqlite.process import open_run_stores
+    from friday.adapters.telemetry import SqliteTelemetry, connect_telemetry
     from friday.app.pipeline import HONORED_FILE, TASTE_FILE
     from friday.app.readout import critic_lines, critic_readings, taste_lines, taste_readings
     from friday.app.taste import TASTE_PATH, load_cells, load_quirks
+    from friday.app.tempo import TURNAROUND, quirk_turnaround, turnaround_lines, turnaround_readings
+    from friday.ports.telemetry import Scope
 
     main_spec, critic_spec = load_spec(args.main_spec), load_spec(args.critic_spec)
     main_root, critic_root = Path(args.main_root).resolve(), Path(args.critic_root).resolve()
@@ -601,11 +605,20 @@ def _critic_readout(args: argparse.Namespace) -> int:
                            critic_stores.ledger, held)
         for line in taste_lines(t):
             print(line)
+    reader = SqliteTelemetry(connect_telemetry(critic_root / critic_spec.paths.db,
+                                               busy_timeout_ms=critic_spec.telemetry.busy_timeout_ms),
+                             Scope(CRITIC_RUN))
+    turns = turnaround_readings(reader.rows(kind="event", name_prefix=TURNAROUND, run=CRITIC_RUN))
+    taught = {} if t is None else {x.quirk: (x.learned[0].decision_id if x.learned else None) for x in t.quirks}
+    for line in turnaround_lines(turns, taught):
+        print(line)
     out = critic_root / CRITIC_EXPORT
     out.write_text(json.dumps({"main_root": str(main_root), "critic_root": str(critic_root),
                                "main_spec_hash": main_spec.spec_hash, "critic_spec_hash": critic_spec.spec_hash,
                                **dataclasses.asdict(r),
-                               "taste": None if t is None else dataclasses.asdict(t)}, indent=1) + "\n")
+                               "taste": None if t is None else dataclasses.asdict(t),
+                               "turnaround": {"decisions": [dataclasses.asdict(x) for x in turns],
+                                              "quirks": quirk_turnaround(turns, taught)}}, indent=1) + "\n")
     print(f"wrote {out}")
     return 0
 

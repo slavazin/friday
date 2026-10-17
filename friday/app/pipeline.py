@@ -518,17 +518,21 @@ def _run_pass(task: PassTask, env: PassEnv) -> PassOutcome:
             return PassOutcome(failed, None, transport_error=f"{type(e).__name__}: {e}")
         if report.pass_id != pass_.id:
             raise ValueError(f"eval of {report.pass_id} returned for {pass_.id}")
+        taste = None
+        if env.taste is not None:          # taste is its own component of A; the judge reads the re-scored report
+            report, taste = env.taste.scored(report, quirks)
         verdict = _judge(env, task, pass_, html, report) if task.arm is Arm.JOURNAL else _Judged((), None, (), [])
     except Exception as e:  # noqa: BLE001 - records the reason in pass.json and re-raises; nothing is defaulted
         (out_dir / "pass.json").write_text(json.dumps(_meta(task, results, failed=f"{type(e).__name__}: {e}"),
                                                       indent=1))
         raise
-    if env.taste is not None:
-        taste = env.taste.reading(report, quirks)
+    if taste is not None:
         (out_dir / TASTE_FILE).write_text(json.dumps({
             "quirks": [dataclasses.asdict(r) for r in taste.quirks], "loss": taste.loss,
-            "loss_base": taste.loss_base, "C_base": taste.C_base}, indent=1))
+            "loss_base": taste.loss_base, "C_base": taste.C_base, "T": taste.T, "A_main": taste.A_main,
+            "A": taste.A, "taste_weight": env.taste.weight}, indent=1))
         t.metric("pass.loss_base", taste.loss_base, "score", quirks=len(quirks))
+        t.metric("pass.T", taste.T, "share", quirks=len(quirks))
         for r in taste.quirks:
             t.metric("pass.quirk_check", r.rate, "share", quirk=r.quirk, passed=r.passed)
     if reaction is not None:

@@ -13,6 +13,7 @@ from friday.adapters.memory import MemoryEventLog, MemoryLedger, MemoryPassStore
 from friday.algorithms.language import blinding_hits
 from friday.app import pipeline
 from friday.app.readout import critic_readings, taste_lines, taste_readings
+from friday.app.runner import critic_taste_weight
 from friday.app.taste import TASTE_PATH, Taste, load_cells, load_quirks
 from friday.app.wiring import build_mechanics
 from friday.domain.events import StatusFlip
@@ -43,6 +44,7 @@ S = SPEC.stream
 QUIRKS = load_quirks(ROOT / TASTE_PATH, S.families, S.modes, SPEC.eval.max_wait_ms)
 BY_ID = {q.id: q for q in QUIRKS}
 LOSS = build_mechanics(SPEC).loss
+W = critic_taste_weight(ROOT / "run-critic.yml")
 CRITIC_ROUNDS = 4                                       # run-critic.yml run.rounds
 CELLS = {"Q-0001": ("canvas game", "keyboard-driven"), "Q-0002": ("timer or tracker", "click or tap")}
 
@@ -145,7 +147,7 @@ def taste_round(tmp_path, monkeypatch):
     ev = CheckEval()
     e = pass_env(tmp_path, client, evaluate=ev)
     e.critic = Critic(client, BOOK, SPEC.critic.max_requests, SPEC.json.reasks)
-    e.taste = Taste(QUIRKS, CELLS, LOSS)
+    e.taste = Taste(QUIRKS, CELLS, LOSS, W)
     result = pipeline.run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=0, in_process=True,
                                 telemetry=TEL)
     assert result.crashed == {}
@@ -210,30 +212,83 @@ def test_no_quirk_text_reaches_the_build_prompt_the_judge_the_pooling_call_the_n
         clean(_texts(messages), "tagger")
 
 
-def test_loss_base_is_the_loss_with_the_taste_checks_out_of_c(tmp_path, monkeypatch):
+def test_taste_is_its_own_component_of_a_and_loss_base_leaves_it_out(tmp_path, monkeypatch):
     _, tasks, _, ev, _, result = taste_round(tmp_path, monkeypatch)
     for out in result.outcomes:
         rep = out.report
         rec = json.loads((tmp_path / "artifacts" / out.pass_.id / pipeline.TASTE_FILE).read_text())
         taste_ids = {q.check.id for q in QUIRKS}
         own = [r.passed for r in rep.checks if r.check_id.split("@")[0] not in taste_ids]
+        mine = [r.passed for r in rep.checks if r.check_id.split("@")[0] in taste_ids]
+        assert mine                                          # the eval still lists each taste check
         c_base = sum(own) / len(own)
-        assert rec["loss"] == rep.loss
-        assert rec["loss_base"] == pytest.approx(LOSS.loss(LOSS.a_mix(rep.P, rep.H, c_base), rep.R))
-        assert rec["C_base"] == pytest.approx(c_base)
-        assert rec["loss_base"] != rec["loss"]               # no artifact here builds any taste: C differs
-    assert TEL.rows(name_prefix="pass.loss_base")
+        a_main = LOSS.a_mix(rep.P, rep.H, c_base)
+        t = sum(mine) / len(mine)
+        assert pytest.approx(c_base) == rep.C                # the taste checks are out of C: counted in T alone
+        assert pytest.approx((1 - W) * a_main + W * t) == rep.A
+        assert rec["loss"] == rep.loss == pytest.approx(LOSS.loss(rep.A, rep.R))
+        assert rec["loss_base"] == pytest.approx(LOSS.loss(a_main, rep.R))
+        assert rec["C_base"] == pytest.approx(c_base) and rec["T"] == pytest.approx(t)
+        assert rec["loss_base"] != rec["loss"]               # no artifact here builds any taste: T is 0
+        stored = json.loads((tmp_path / "artifacts" / out.pass_.id / "eval.json").read_text())
+        assert stored["loss"] == rep.loss and stored["C"] == rep.C   # the store and the gate read the same loss
+    assert TEL.rows(name_prefix="pass.loss_base") and TEL.rows(name_prefix="pass.T")
+
+
+def _one_pass(tmp_path, monkeypatch, revision: str, taste: Taste, request_id: str = "Q-0002"):
+    scripted_judge(monkeypatch, JudgeLog([], []))
+    _, _, _, _, _, tasks = two_request_round(tmp_path)
+    task = next(t for t in tasks if t.request.id == request_id)
+
+    def answer(messages) -> str:
+        if is_critic(messages):
+            return json.dumps({"criticism": "Fine.", "requests": []})
+        return revision if is_revision(messages) else html_for(messages)
+
+    e = pass_env(tmp_path, ScriptedClient([answer] * 20), evaluate=CheckEval())
+    e.critic = Critic(e.worker.client, BOOK, SPEC.critic.max_requests, SPEC.json.reasks)
+    e.taste = taste
+    out = pipeline.run_pass(task, e)
+    return out, json.loads((tmp_path / "artifacts" / task.pass_id / pipeline.TASTE_FILE).read_text())
+
+
+def test_a_missed_quirk_moves_the_pass_loss_by_about_a_quarter(tmp_path, monkeypatch):
+    titled = REVISED.replace("<body>", '<body><h1 id="app-title">Tally</h1>')
+    met, met_rec = _one_pass(tmp_path / "met", monkeypatch, titled, Taste(QUIRKS, CELLS, LOSS, W))
+    missed, missed_rec = _one_pass(tmp_path / "missed", monkeypatch, REVISED, Taste(QUIRKS, CELLS, LOSS, W))
+    assert [r["quirk"] for r in met_rec["quirks"]] == ["app-title"]            # Q-0002: the one quirk in scope
+    assert (met_rec["T"], missed_rec["T"]) == (1.0, 0.0)
+    assert met.report.C == missed.report.C                                     # C reads the request's own checks
+    assert met_rec["loss_base"] == pytest.approx(missed_rec["loss_base"])
+    moved = missed.report.loss - met.report.loss
+    assert moved == pytest.approx(SPEC.eval.w_a * W) and abs(moved - 0.25) < 0.02
+
+
+def test_t_reads_unread_when_no_quirk_is_in_scope_and_a_is_then_a_main(tmp_path, monkeypatch):
+    scoped = tuple(q for q in QUIRKS if q.scope[0] != "any")                   # Q-0002's cell: none in scope
+    out, rec = _one_pass(tmp_path, monkeypatch, REVISED, Taste(scoped, CELLS, LOSS, W))
+    assert rec["quirks"] == [] and rec["T"] is None                            # unread, never 0
+    assert rec["A"] == rec["A_main"] == pytest.approx(out.report.A)
+    assert out.report.loss == rec["loss_base"] == pytest.approx(LOSS.loss(out.report.A, out.report.R))
+    t_rows = [r for r in TEL.rows(name_prefix="pass.T") if r.scope.pass_id == out.pass_.id]
+    assert t_rows and t_rows[-1].value is None
+
+
+def test_a_taste_weight_outside_the_open_unit_interval_is_refused():
+    for w in (0.0, 1.0, -0.1):
+        with pytest.raises(ValueError, match="taste_weight"):
+            Taste(QUIRKS, CELLS, LOSS, w)
 
 
 def test_a_taste_without_a_critic_and_a_request_with_no_cell_are_refused(tmp_path, monkeypatch):
     scripted_judge(monkeypatch, JudgeLog([], []))
     _, _, _, _, _, tasks = two_request_round(tmp_path)
     e = pass_env(tmp_path, ScriptedClient([voicing] * 50), evaluate=CheckEval())
-    e.taste = Taste(QUIRKS, CELLS, LOSS)
+    e.taste = Taste(QUIRKS, CELLS, LOSS, W)
     with pytest.raises(ValueError, match="critic"):
         pipeline.run_pass(tasks[0], e)
     with pytest.raises(KeyError):
-        Taste(QUIRKS, {}, LOSS).in_scope("Q-0001")
+        Taste(QUIRKS, {}, LOSS, W).in_scope("Q-0001")
 
 
 def test_loss_base_refuses_a_c_the_report_did_not_compute():
@@ -241,11 +296,11 @@ def test_loss_base_refuses_a_c_the_report_did_not_compute():
     rep = EvalReport("p", Regime.R1, (CheckResult("c1@1280x800", True), CheckResult("c16@1280x800", False)), (),
                      0.5, 0.5, (3, 3, 3), 1, 0.5, P=0.5, H=0.5, C=0.9)
     with pytest.raises(ValueError, match="re-read"):
-        Taste(QUIRKS, CELLS, LOSS).reading(rep, q)
+        Taste(QUIRKS, CELLS, LOSS, W).reading(rep, q)
     only_taste = EvalReport("p", Regime.R1, (CheckResult("c16@1280x800", False),), (), 0.5, 0.5, (3, 3, 3), 1, 0.5,
                             C=0.0)
     with pytest.raises(ValueError, match="own"):
-        Taste(QUIRKS, CELLS, LOSS).reading(only_taste, q)
+        Taste(QUIRKS, CELLS, LOSS, W).reading(only_taste, q)
 
 
 # --- the taste readings ------------------------------------------------------------------------------------

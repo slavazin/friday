@@ -17,6 +17,7 @@ import dataclasses
 import hashlib
 import json
 import multiprocessing
+import time
 import traceback
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
@@ -31,7 +32,7 @@ from friday.algorithms.exposure import PairKind
 from friday.algorithms.gate import select_in_flight
 from friday.algorithms.halt import RoundSummary
 from friday.app import export as export_doc
-from friday.app import pipeline
+from friday.app import pipeline, tempo
 from friday.app.goals import tag_held_out, tag_round
 from friday.app.ledger import pair_deltas
 from friday.app.notes import append_free, approx_tokens, notes_text
@@ -75,8 +76,14 @@ from friday.roles.worker import render_composition
 
 MAIN_RUN = "main"                     # SPEC § 17: the telemetry scopes of the two runs
 CRITIC_RUN = "critic"
-# What an overlay spec (`extends:`) may override (SPEC § 17 Store): paths.*, run.rounds and critic.* only
-OVERLAY_SECTIONS = {"paths": None, "run": {"rounds"}, "critic": None}
+# What an overlay spec (`extends:`) may override (SPEC § 17 Store, Tempo): paths.*, run.rounds, critic.* and the
+# critic run's tempo knobs (pool.recurrence_min_rounds, pool.fast_track_min_requests, gate.in_flight) only. Never
+# gate.alpha, gate.n_min, gate.n_max, gate.betting or the eval weights: the gate's bar is the main run's.
+OVERLAY_SECTIONS = {"paths": None, "run": {"rounds"}, "critic": None,
+                    "pool": {"recurrence_min_rounds", "fast_track_min_requests"}, "gate": {"in_flight"}}
+# Keys only an overlay holds (run.yml has no slot for them): read by `overlay_knobs`, kept out of the RunSpec.
+# Pending a config seam (seam request: CriticSection.taste_weight).
+OVERLAY_ONLY = {"critic": {"taste_weight"}}
 
 DRAFTS_FILE = "observations.json"     # artifacts/<pass_id>/: the report call's drafts, written as the pass ends
 NOTES_FILE = "notes.md"               # the notes arm's shared file under the run root (no paths.notes knob yet)
@@ -104,11 +111,38 @@ def base_spec_path(path: str | Path) -> Path | None:
     return None if over is None else Path(path).resolve().parent / str(over["extends"])
 
 
+def overlay_knobs(path: str | Path) -> dict[str, Any]:
+    """The overlay-only knobs of the spec at `path` as "section.key" -> value (empty for a whole spec); raises
+    ConfigError for a critic.taste_weight outside (0, 1)."""
+    over = _overlay(Path(path))
+    out: dict[str, Any] = {}
+    if over is None:
+        return out
+    for section, keys in OVERLAY_ONLY.items():
+        raw = over.get(section)
+        for key in sorted(keys & set(raw or {})):
+            out[f"{section}.{key}"] = raw[key]
+    w = out.get("critic.taste_weight")
+    if w is not None and (isinstance(w, bool) or not isinstance(w, int | float) or not 0.0 < float(w) < 1.0):
+        raise ConfigError(f"{Path(path).name}: critic.taste_weight must lie in (0, 1); got {w!r}")
+    return out
+
+
+def critic_taste_weight(path: str | Path) -> float:
+    """critic.taste_weight of the critic overlay at `path`; ConfigError when it holds none (no default)."""
+    w = overlay_knobs(path).get("critic.taste_weight")
+    if w is None:
+        raise ConfigError(f"{Path(path).name}: the critic run needs critic.taste_weight")
+    return float(w)
+
+
 def load_run_spec(path: str | Path) -> RunSpec:
     """The RunSpec at `path`. An overlay (`extends: run.yml`) is merged over the spec it extends; it may set only
-    paths.*, run.rounds and critic.* (ConfigError otherwise). On the critic run the run's spend cap and pass slots
-    are its own: `run.spend_cap_usd` reads `critic.spend_cap_usd`, `run.max_parallel_passes` reads
-    `critic.max_parallel_passes` (SPEC § 17 Concurrency, Don't)."""
+    paths.*, run.rounds, critic.*, pool.recurrence_min_rounds, pool.fast_track_min_requests and gate.in_flight
+    (ConfigError otherwise); critic.taste_weight is read by `critic_taste_weight`, outside the RunSpec.
+    On the critic run the run's spend cap and pass slots are its own: `run.spend_cap_usd` reads
+    `critic.spend_cap_usd`, `run.max_parallel_passes` reads `critic.max_parallel_passes` (SPEC § 17
+    Concurrency, Don't)."""
     path = Path(path)
     over = _overlay(path)
     if over is None:
@@ -122,6 +156,7 @@ def load_run_spec(path: str | Path) -> RunSpec:
             continue
         if key not in OVERLAY_SECTIONS or not isinstance(value, dict):
             raise ConfigError(f"{path.name}: an overlay may override only {sorted(OVERLAY_SECTIONS)}; got {key}")
+        value = {k: v for k, v in value.items() if k not in OVERLAY_ONLY.get(key, set())}
         allowed = OVERLAY_SECTIONS[key]
         if allowed is not None and set(value) - allowed:
             raise ConfigError(f"{path.name}: {key} may override only {sorted(allowed)}; got {sorted(set(value))}")
@@ -129,6 +164,7 @@ def load_run_spec(path: str | Path) -> RunSpec:
         if unknown:
             raise ConfigError(f"{path.name}: {key} has unknown keys {sorted(unknown)}")
         merged[key] = {**merged[key], **value}
+    overlay_knobs(path)                                   # validates the overlay-only knobs
     if scope == CRITIC_RUN:
         merged["run"] = {**merged["run"], "spend_cap_usd": merged["critic"]["spend_cap_usd"],
                          "max_parallel_passes": merged["critic"]["max_parallel_passes"]}
@@ -614,10 +650,29 @@ class Runner:
         mine = [o for o in self.stores.observations.observations() if o.round == n and o.pass_id in arm_of]
         append_free(self.notes_path, mine, arm_of)
         self.close_log.record(summary.summary, None if summary.halt is None else summary.halt.value)
+        if self.telemetry.scope.run == CRITIC_RUN:
+            self._turnaround(n, summary, tel)
         for ping in summary.pings:
             self._ping(tel, ping.reason)
         self.say(f"round {n} closed: {len(summary.flips)} flips, {len(summary.nominations)} drafted, "
                  f"{len(summary.observations)} observations, spend ${self.stores.spend.total_usd():.2f}")
+
+    def _turnaround(self, n: int, summary: CloseSummary, tel: Telemetry) -> None:
+        """One `decision.turnaround` event per status step this close took (SPEC § 17 Tempo)."""
+        reader = getattr(self.telemetry, "rows", None)
+
+        def observed_at(pass_ids: Sequence[str]) -> float | None:
+            if reader is None:
+                return None
+            ats = [r.at for pid in pass_ids for r in reader(kind="event", name_prefix=tempo.PASS_OUTCOME,
+                                                            pass_id=pid)]
+            return min(ats, default=None)
+
+        ids = {*summary.nominations, *(f.subject_id for f in summary.flips if f.subject_id.startswith("D-"))}
+        pool_of = {d: self.journal.get(d).pool_id for d in ids}
+        for attrs in tempo.turnaround_events(n, summary.flips, summary.nominations, pool_of,
+                                             self.stores.observations.observations(), observed_at, time.time()):
+            tel.event(tempo.TURNAROUND, **attrs)
 
     # -- steer ---------------------------------------------------------------------------------------------
 
