@@ -1,0 +1,19 @@
+{
+ "request": "A 25-minute focus countdown. #start begins it, #time shows mm:ss, #reset stops it and returns it to 25:00.",
+ "composed": {
+  "D-0001": "Drive countdowns from `Date.now()` differences, never from counting `setInterval` ticks."
+ },
+ "report": "Acceptance checks (1 of 2 pass):\n- reset-returns: fail at step: click #start; wait 2000; click #reset: #time is 24:58, expected 25:00\n- start-counts: pass\n\nProbe results:\n- at 1280x800: loaded yes; console errors 0; controls operated 2; responsive 2; silent 0\n\nHow-to controls:\n- at 1280x800: repair rung 1 (strict); declared controls 2; invalid entries 0\n  - how-to-1: pass\n  - how-to-2: fail at step: after click #reset: text of #time unchanged\n  uncovered contract ids: none\n\nSilent controls (responsive, not declared in the how-to): 0\n\nConsole errors: none\n\nQuality reading Q: 0 (ESLint errors 0, axe violations 0)\nRubric scores: 4, 5, 4",
+ "replies": [
+  {
+   "tag": "judge:lens:smoke",
+   "model": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B",
+   "text": "{\n  \"lenses\": [\n    {\n      \"id\": \"L-01\",\n      \"p\": 1.0,\n      \"quote\": \"document.getElementById('reset').addEventListener('click', () => {\\n  clearInterval(timer);\\n  show();\\n});\"\n    },\n    {\n      \"id\": \"L-02\",\n      \"p\": 0.0,\n      \"quote\": \"\"\n    },\n    {\n      \"id\": \"L-03\",\n      \"p\": 0.0,\n      \"quote\": \"\"\n    },\n    {\n      \"id\": \"L-04\",\n      \"p\": 1.0,\n      \"quote\": \"document.getElementById('reset').addEventListener('click', () => {\\n  clearInterval(timer);\\n  show();\\n});\"\n    },\n    {\n      \"id\": \"L-05\",\n      \"p\": 0.0,\n      \"quote\": \"\"\n    },\n    {\n      \"id\": \"L-06\",\n      \"p\": 1.0,\n      \"quote\": \"timer = setInterval(() => { left -= 1; show(); }, 1000);\"\n    },\n    {\n      \"id\": \"L-07\",\n      \"p\": 0.0,\n      \"quote\": \"\"\n    },\n    {\n      \"id\": \"L-08\",\n      \"p\": 0.0,\n      \"quote\": \"\"\n    }\n  ]\n}"
+  },
+  {
+   "tag": "judge:report:smoke",
+   "model": "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B",
+   "text": "{\"observations\": [{\"lens_id\": \"L-06\", \"shape\": \"countdown driven by decrementing a counter on each setInterval tick\", \"direction\": \"Drive countdowns from Date.now() differences\", \"quote\": \"timer = setInterval(() => { left -= 1; show(); }, 1000);\"}], \"dispositions\": {\"D-0001\": {\"disposition\": \"contradicted\", \"quote\": \"timer = setInterval(() => { left -= 1; show(); }, 1000);\"}}}"
+  }
+ ]
+}
