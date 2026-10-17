@@ -81,6 +81,10 @@ The listing carries per-model prices, so cost is computed from it. A live struct
   8` (passes queue for the judge across processes) and `transport.backoff_cap_s` 30 -> 60. Round 1's records
   stand as written; its spec hash differs from rounds 2-7's.
 
+- **Main run cut to 5 rounds after round 3 (15:47).** Judge 429s persisted under the concurrency cap (a per-minute
+  limit, not concurrency), so rounds took about 12 minutes. `run.rounds` 7 -> 5, drift still at round 4, so rounds
+  4-5 are the R2 regime. Rounds 1-3 stand as written.
+
 ## Open questions
 
 1. **Coordinator tool calling.** `/v1/models` does not tag `openai/gpt-oss-120b` with tool calling. Verify
