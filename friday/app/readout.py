@@ -41,6 +41,7 @@ IMPROVES = "improves"
 UNRESOLVED = "unresolved"
 UNEARNED = "unearned"
 LEANER = "leaner than shared notes"
+NOT_WORSE = "not shown worse than shared notes"
 FORGETS = "forgets what went stale"
 JUDGE_LEARNS = "the judge learns what to look at"
 
@@ -382,11 +383,15 @@ def readings(stores: ReadoutStores, spec: RunSpec) -> Readout:
     tokens = {arm.value: _tokens(by_arm.get(arm, []), stores.composed_tokens) for arm in Arm}
 
     def r2_verdict(r) -> str:
-        # Non-inferiority (SPEC § 12): earned when the lower bound lies above -readout.r2_margin. Tokens composed
-        # per pass are reported beside the reading and never enter the verdict.
+        # Non-inferiority (SPEC § 12): "not shown worse" is earned when the lower bound lies above
+        # -readout.r2_margin. "Leaner" is a token claim on top of it: earned only when both arms' tokens composed
+        # per pass are read and the journal arm's mean is the lower; otherwise the reading stays "not shown worse".
         if r.lower_bound is None:
             return UNRESOLVED
-        return LEANER if r.lower_bound > -spec.readout.r2_margin else UNEARNED
+        if r.lower_bound <= -spec.readout.r2_margin:
+            return UNEARNED
+        t_j, t_n = tokens[Arm.JOURNAL.value].mean, tokens[Arm.NOTES.value].mean
+        return LEANER if t_j is not None and t_n is not None and t_j < t_n else NOT_WORSE
 
     r1 = _paired("R1", Arm.EMPTY, loss_rows, held_ids, spec, r1_verdict, 0.0)
     r2 = _paired("R2", Arm.NOTES, loss_rows, held_ids, spec, r2_verdict, -spec.readout.r2_margin)

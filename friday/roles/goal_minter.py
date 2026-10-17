@@ -26,8 +26,46 @@ ROLE = "goal_minter"
 
 CONTRACT_ID = re.compile(r"^#[A-Za-z][A-Za-z0-9_-]*$")
 SELECTOR_ID = re.compile(r"#([A-Za-z][A-Za-z0-9_-]*)")
-SELECTOR_STEPS = ("click", "type", "focus")
+SELECTOR_STEPS = ("click", "type", "focus", "drag")
 ELEMENT_KINDS = ("button", "input", "textarea", "select", "checkbox", "canvas", "display")
+
+
+def _step_verbs(check: Check) -> set[str]:
+    return {k for s in check.steps for k in s if k in ("goto", "click", "type", "key", "focus", "drag", "wait")}
+
+
+# How a check operates the app by each interaction mode (SPEC § 4 The grid): a draft for a mode carries at least
+# one check that operates it this way, so a mode cell is not minted as another mode's app. The keys are the
+# run.yml `stream.modes` levels; a level missing here is refused at the draft, never read as "any".
+MODE_CHECKS: dict[str, tuple[str, Callable[[Check], bool]]] = {
+    "click or tap": ("a click step and no key or type step",
+                     lambda c: "click" in _step_verbs(c) and not _step_verbs(c) & {"key", "type"}),
+    "keyboard-driven": ("a key step", lambda c: "key" in _step_verbs(c)),
+    "drag or pointer": ("a drag step", lambda c: "drag" in _step_verbs(c)),
+    "typing": ("a type step", lambda c: "type" in _step_verbs(c)),
+    "real-time": ("a wait step before a text_changed or canvas_changed expectation",
+                  lambda c: "wait" in _step_verbs(c) and bool({"text_changed", "canvas_changed"} & set(c.expect))),
+}
+
+
+def operates_by(check: Check, mode: str) -> bool:
+    """True when `check` operates the app by `mode` (MODE_CHECKS); raises ValueError on an unknown mode."""
+    if mode not in MODE_CHECKS:
+        raise ValueError(f"interaction mode {mode!r} has no check rule in MODE_CHECKS")
+    return MODE_CHECKS[mode][1](check)
+
+
+def check_mode(checks: Sequence[Check], mode: str) -> None:
+    """Raises Rejected when no check operates the app by `mode`, or when a click-or-tap app is typed into or
+    keyed. No-op for an empty mode (a grid without the mode axis)."""
+    if not mode:
+        return
+    if not any(operates_by(c, mode) for c in checks):
+        raise Rejected(f"the person operates this app by {mode}: at least one check needs {MODE_CHECKS[mode][0]}")
+    if mode == "click or tap":
+        keyed = [c.id for c in checks if _step_verbs(c) & {"key", "type"}]
+        if keyed:
+            raise Rejected(f"{keyed}: this app is operated by click or tap only; its checks hold no key or type step")
 
 
 class MintFailed(RuntimeError):
@@ -179,19 +217,108 @@ def grid_cells(p: MintParams) -> tuple[tuple[Cell, ...], tuple[Cell, ...]]:
     return drawn[0], drawn[1]
 
 
-def _assign_modes(positions: Sequence[tuple[Any, ...]], family: str, train: Sequence[Cell],
+def mode_targets(n: int, modes: Sequence[str], seed: int) -> dict[str, int]:
+    """Per-mode counts for `n` positions: even, the remainder going to modes in a seeded order (the same order in
+    every regime, so two regimes of equal size get identical mode counts)."""
+    order = sorted(modes, key=lambda m: (derive(seed, "mode-remainder", m).random(), m))
+    base, extra = divmod(n, len(modes))
+    return {m: base + (1 if i < extra else 0) for i, m in enumerate(order)}
+
+
+def _max_flow(rows: Mapping[str, int], cols: Mapping[str, int], edges: Mapping[Cell, int]) -> dict[Cell, int]:
+    """An integer flow from row supplies to column demands over `edges` (cell -> capacity); the flow found by
+    shortest augmenting paths, explored in sorted order (deterministic). May fall short of the supplies."""
+    flow: dict[Cell, int] = dict.fromkeys(edges, 0)
+    r_left, c_left = dict(rows), dict(cols)
+    by_row: dict[str, list[str]] = {}
+    by_col: dict[str, list[str]] = {}
+    for f, m in sorted(edges):
+        by_row.setdefault(f, []).append(m)
+        by_col.setdefault(m, []).append(f)
+    while True:
+        # BFS over (row -> col by residual capacity, col -> row by existing flow)
+        starts = [f for f in sorted(r_left) if r_left[f] > 0]
+        parent: dict[tuple[str, str], tuple[str, str] | None] = {("r", f): None for f in starts}
+        queue = [("r", f) for f in starts]
+        end = None
+        while queue and end is None:
+            side, name = queue.pop(0)
+            if side == "r":
+                for m in by_row.get(name, []):
+                    if flow[(name, m)] < edges[(name, m)] and ("c", m) not in parent:
+                        parent[("c", m)] = (side, name)
+                        if c_left.get(m, 0) > 0:
+                            end = ("c", m)
+                            break
+                        queue.append(("c", m))
+            else:
+                for f in by_col.get(name, []):
+                    if flow[(f, name)] > 0 and ("r", f) not in parent:
+                        parent[("r", f)] = (side, name)
+                        queue.append(("r", f))
+        if end is None:
+            return flow
+        node: tuple[str, str] = end
+        while parent[node] is not None:
+            prev = parent[node]
+            assert prev is not None
+            if node[0] == "c":
+                flow[(prev[1], node[1])] += 1
+            else:
+                flow[(node[1], prev[1])] -= 1
+            node = prev
+        r_left[node[1]] -= 1
+        c_left[end[1]] -= 1
+
+
+def allocate_cells(family_counts: Mapping[str, int], train: Sequence[Cell],
+                   targets: Mapping[str, int]) -> dict[Cell, int]:
+    """Counts per training cell whose row sums are `family_counts` and column sums are `targets` (SPEC § 4
+    Mixes: the mode axis stays even). Each family is spread over its training modes in proportion (a fitted
+    table rounded to floor or ceiling per cell). Raises ValueError when the grid admits no such table."""
+    cells = sorted(c for c in train if family_counts.get(c[0], 0) > 0 and c[1] in targets)
+    if sum(family_counts.values()) != sum(targets.values()):
+        raise ValueError("family counts and mode targets differ in total")
+    x = {c: 1.0 for c in cells}
+    for _ in range(500):                                     # iterative proportional fitting
+        for f, n in family_counts.items():
+            row = sum(v for (ff, _), v in x.items() if ff == f)
+            for c in x:
+                if c[0] == f and row > 0:
+                    x[c] *= n / row
+        for m, n in targets.items():
+            col = sum(v for (_, mm), v in x.items() if mm == m)
+            for c in x:
+                if c[1] == m and col > 0:
+                    x[c] *= n / col
+    base = {c: int(v + 1e-9) for c, v in x.items()}
+    rows = {f: n - sum(v for (ff, _), v in base.items() if ff == f) for f, n in family_counts.items()}
+    cols = {m: n - sum(v for (_, mm), v in base.items() if mm == m) for m, n in targets.items()}
+    if any(v < 0 for v in (*rows.values(), *cols.values())):
+        raise ValueError("the fitted table overshoots a margin")
+    need = sum(rows.values())
+    flow = _max_flow(rows, cols, dict.fromkeys(cells, 1))
+    if sum(flow.values()) < need:                            # rounding beyond the ceiling: any feasible table
+        flow = _max_flow(rows, cols, dict.fromkeys(cells, need))
+    if sum(flow.values()) < need:
+        raise ValueError(f"no allocation of families {dict(family_counts)} over the training cells keeps the "
+                         f"mode counts at {dict(targets)}")
+    return {c: base[c] + flow[c] for c in cells if base[c] + flow[c] > 0}
+
+
+def _assign_modes(positions: Sequence[tuple[Any, ...]], family: str, counts: Mapping[Cell, int],
                   seed: int) -> dict[tuple[Any, ...], str]:
-    """Modes for one family's `positions`, evenly over the modes whose cell with `family` is a training cell."""
-    modes = sorted(m for f, m in train if f == family)
-    if not modes:
-        raise ValueError(f"family {family!r} has no training cell")
+    """Modes for one family's `positions` in the per-cell `counts`, placed by a seeded key per position."""
+    modes = sorted(m for f, m in counts if f == family)
+    if sum(counts[(family, m)] for m in modes) != len(positions):
+        raise ValueError(f"family {family!r}: cell counts do not cover its {len(positions)} positions")
     ranked = sorted(positions, key=lambda k: (derive(seed, "mode", family, *k).random(), k))
     out: dict[tuple[Any, ...], str] = {}
     i = 0
-    for mode, count in zip(modes, quotas(len(positions), [1 / len(modes)] * len(modes)), strict=True):
-        for k in ranked[i:i + count]:
+    for mode in modes:
+        for k in ranked[i:i + counts[(family, mode)]]:
             out[k] = mode
-        i += count
+        i += counts[(family, mode)]
     return out
 
 
@@ -223,9 +350,10 @@ def mark_incoherent(client: ModelClient, book: PromptBook, families: Sequence[st
 def plan_slots(p: MintParams) -> list[Slot]:
     """Every stream position in stream order, then one held-out position per withheld cell.
 
-    A stream position's family is drawn in its regime's goal mix (within one request), and its mode evenly
-    among the modes whose cell with that family is a training cell, per regime; training never draws a
-    withheld cell. The draw reads only the seed, the positions and the grid.
+    A stream position's family is drawn in its regime's goal mix (within one request). Its mode comes from a
+    per-regime table over the training cells whose family totals are the mix quotas and whose mode totals are
+    even (the remainder by seed, the same in both regimes), so the drift moves the family axis only; training
+    never draws a withheld cell. The draw reads only the seed, the positions and the grid.
     """
     if not 1 < p.drift_round <= p.rounds:
         raise ValueError(f"drift round {p.drift_round} outside 2..{p.rounds}")
@@ -239,10 +367,12 @@ def plan_slots(p: MintParams) -> list[Slot]:
         positions = [k for k in stream if regime_of(k[0], p.drift_round) is regime]
         assigned = _assign(positions, p.families, p.mix[regime.value], p.seed)
         fam.update(assigned)
+        per_family = {f: sum(v == f for v in assigned.values()) for f in p.families}
+        counts = allocate_cells(per_family, train, mode_targets(len(positions), p.modes, p.seed))
         for f in p.families:
             mine = [k for k in positions if assigned[k] == f]
             if mine:
-                mode.update(_assign_modes(mine, f, train, p.seed))
+                mode.update(_assign_modes(mine, f, counts, p.seed))
     slots = [Slot(f"G-{i:03d}", r, pos, regime_of(r, p.drift_round), fam[(r, pos)], mode[(r, pos)])
              for i, (r, pos) in enumerate(stream, start=1)]
     slots += [Slot(f"H-{pos + 1:02d}", None, pos, Regime.R2, f, m) for pos, (f, m) in enumerate(withheld)]
@@ -333,8 +463,9 @@ def check_against_contract(check: Check, contract: Mapping[str, str], text: str,
                 raise Rejected(f"{check.id}: uses {test_query!r}, which the request text does not state")
 
 
-def validate_draft(raw: Any, regime: Regime, p: MintParams, dsl_check: DslCheck) -> Draft:
-    """The drafted request; raises Rejected on any field outside the form the prompt asks for."""
+def validate_draft(raw: Any, regime: Regime, p: MintParams, dsl_check: DslCheck, mode: str = "") -> Draft:
+    """The drafted request; raises Rejected on any field outside the form the prompt asks for, or when its
+    checks do not operate the app by `mode` (`check_mode`)."""
     if not isinstance(raw, dict):
         raise Rejected("expected an object with text, timed, contract and checks")
     text = raw.get("text")
@@ -379,11 +510,12 @@ def validate_draft(raw: Any, regime: Regime, p: MintParams, dsl_check: DslCheck)
         dsl_check(checks)
     except ValueError as e:
         raise Rejected(str(e)) from None
+    check_mode(checks, mode)
     return Draft(text, contract, checks, timed)
 
 
 def validate_regenerated(raw: Any, rejected: Check, others: Sequence[Check], contract: Mapping[str, str],
-                         text: str, p: MintParams, dsl_check: DslCheck) -> Check:
+                         text: str, p: MintParams, dsl_check: DslCheck, mode: str = "") -> Check:
     """The replacement check under the rejected one's id; raises Rejected when it is outside the form or
     repeats the rejected check."""
     if not isinstance(raw, dict) or "check" not in raw:
@@ -396,6 +528,12 @@ def validate_regenerated(raw: Any, rejected: Check, others: Sequence[Check], con
         dsl_check([*others, check])
     except ValueError as e:
         raise Rejected(str(e)) from None
+    if mode == "click or tap" and _step_verbs(check) & {"key", "type"}:
+        raise Rejected("this app is operated by click or tap only; the check holds no key or type step")
+    if mode and operates_by(rejected, mode) and not any(operates_by(c, mode) for c in others) \
+            and not operates_by(check, mode):
+        raise Rejected(f"the replacement is the only check left to operate the app by {mode}: "
+                       f"it needs {MODE_CHECKS[mode][0]}")
     return check
 
 
@@ -432,11 +570,10 @@ class GoalMinter:
         is taken from it, not re-minted. A position that yields no request with a check failing on its stub
         is reported and skipped; MintFailed is raised after the last position, carrying the partial result."""
         out = MintedGoals()
-        prior: dict[str, list[str]] = {}
+        here: dict[str, str] = {}               # drafted texts minted by this call, by request id
         failed: list[str] = []
         done = self.journal.minted() if self.journal is not None else {}
         for slot in plan_slots(self.params) if slots is None else slots:
-            seen = prior.setdefault(slot.family, [])
             minted = done.get(slot.id)
             if minted is not None:
                 _check_resumed(minted, slot)
@@ -444,7 +581,7 @@ class GoalMinter:
             else:
                 start = len(out.report)
                 try:
-                    req, draft_text, stub = self._mint_slot(slot, seen, out)
+                    req, draft_text, stub = self._mint_slot(slot, self._prior(here), out)
                 except MintFailed as e:
                     out.note(slot.id, "", "position_failed", str(e))
                     failed.append(slot.id)
@@ -452,12 +589,21 @@ class GoalMinter:
                 minted = MintedSlot(req, slot.family, draft_text, stub, tuple(out.report[start:]))
                 if self.journal is not None:
                     self.journal.record(minted)
-            seen.append(minted.draft_text)
+            here[slot.id] = minted.draft_text
             out.stubs[slot.id] = minted.stub
             (out.held_out if slot.round is None else out.stream).append(minted.request)
         if failed:
             raise MintFailed(f"no request survived for {failed}; the other positions are kept", out, failed)
         return out
+
+    def _prior(self, here: Mapping[str, str]) -> list[str]:
+        """Every request text already written, of any family: each journaled position (re-read, so a run
+        sharing the journal sees the others' progress, and a resumed `--only` run sees every earlier one) and
+        each position this call minted, in id order."""
+        texts = dict(here)
+        if self.journal is not None:
+            texts |= {rid: m.draft_text for rid, m in self.journal.minted().items()}
+        return [texts[k] for k in sorted(texts)]
 
     def _mint_slot(self, slot: Slot, prior: Sequence[str], out: MintedGoals) -> tuple[Request, str, str]:
         p = self.params
@@ -465,7 +611,7 @@ class GoalMinter:
         for attempt in range(p.request_regenerations + 1):
             asked = ask_json(
                 self.client, ROLE, self._draft_messages(slot, prior, retry),
-                lambda raw: validate_draft(raw, slot.regime, p, self.dsl_check),
+                lambda raw: validate_draft(raw, slot.regime, p, self.dsl_check, slot.mode),
                 reasks=p.reasks, tag=f"{ROLE}:{slot.id}:draft{attempt}",
             )
             if asked.value is None:
@@ -475,6 +621,10 @@ class GoalMinter:
             draft = asked.value
             text = request_text(draft.text, slot.regime, p.constraint)
             kept = self._validated_checks(slot, text, draft, out)
+            if kept and slot.mode and not any(operates_by(c, slot.mode) for c in kept):
+                out.note(slot.id, "", "request_regenerated", f"no surviving check operates the app by {slot.mode}")
+                retry = "no_behaviour"
+                continue
             if kept:
                 # Stored text never carries the drift constraint: the pass pipeline appends it once under R2
                 # (friday/app/request_text.py). The checks were validated against the text with it.
@@ -521,7 +671,8 @@ class GoalMinter:
         messages = [Message("system", self.book.text("goal_minter/system.md")), Message("user", user)]
         asked = ask_json(
             self.client, ROLE, messages,
-            lambda raw: validate_regenerated(raw, rejected, others, draft.contract, text, p, self.dsl_check),
+            lambda raw: validate_regenerated(raw, rejected, others, draft.contract, text, p, self.dsl_check,
+                                             slot.mode),
             reasks=p.reasks, tag=f"{ROLE}:{slot.id}:{rejected.id}:regen",
         )
         return asked.value

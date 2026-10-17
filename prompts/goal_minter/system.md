@@ -13,11 +13,12 @@ The contract:
 - Give every control and every readout a check reads an id. Keep it to the elements the request needs.
 
 The checks: each is {"steps": [...], "expect": {...}}.
-- Steps: {"goto": ""} or {"goto": query} with the query the request gives (reloads the page with it), {"click": "#id"}, {"type": "#id", "text": "..."}, {"key": "ArrowUp", "times": 1} (sent to the focused element), {"focus": "#id"}, {"wait": ms} with ms at most the bound in the request.
+- Steps: {"goto": ""} or {"goto": query} with the query the request gives (reloads the page with it), {"click": "#id"}, {"type": "#id", "text": "..."}, {"key": "ArrowUp", "times": 1} (sent to the focused element), {"focus": "#id"}, {"drag": "#id", "dx": 120, "dy": 0} (presses the pointer on the element's centre, moves it by dx, dy px, releases), {"wait": ms} with ms at most the bound in the request.
 - Expect exactly one of: {"exists": "#id"}, {"visible": "#id"}, {"focused": "#id"}, {"text_matches": "#id", "regex": "..."}, {"text_changed": "#id"}, {"canvas_changed": "#id"}.
 - Every selector names contract ids only.
 - text_matches is unanchored and reads the element's text: write it against the value, never the label ("\\b1\\b", not "^Score: 1$").
 - text_changed and canvas_changed compare the element after the steps with the element after the leading goto steps.
-- A canvas_changed check holds at least one click, type, key or focus step: the same waits with no input must leave the canvas unchanged.
+- A canvas_changed check holds at least one click, type, key, focus or drag step: the same waits with no input must leave the canvas unchanged.
 - Each check reads behaviour: it fails on a page that holds every contract element with no script. A check that only finds an element, reads its label or types into a field and reads the same text back reads no behaviour.
 - Each check reads a different behaviour the request asks for.
+- At least one check operates the app the way the request says the person does: click or tap with click steps and no key or type step; keyboard with key steps; drag or pointer with drag steps; typing with type steps; real-time with a wait before a text_changed or canvas_changed expectation.

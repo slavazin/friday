@@ -22,6 +22,7 @@ from friday.app.readout import (
     IMPROVES,
     JUDGE_LEARNS,
     LEANER,
+    NOT_WORSE,
     UNEARNED,
     UNRESOLVED,
     ReadoutStores,
@@ -212,7 +213,7 @@ def _tokens_for(stores, journal_tokens, notes_tokens):
     return out
 
 
-def test_r2_is_earned_on_its_bound_above_minus_margin_and_tokens_never_enter_the_verdict():
+def test_r2_reads_leaner_only_when_the_bound_clears_and_the_journal_arm_composes_fewer_tokens():
     s = make_stores()
     plant(s, [0.02, -0.01, 0.03, 0.0, 0.01, -0.02], baseline=Arm.NOTES)
     s = dataclasses.replace(s, composed_tokens=_tokens_for(s, 300, 8000))
@@ -220,7 +221,9 @@ def test_r2_is_earned_on_its_bound_above_minus_margin_and_tokens_never_enter_the
     assert -SPEC.readout.r2_margin < r.r2.lower_bound < 0 and r.r2.claim_above == -SPEC.readout.r2_margin
     assert r.r2.verdict == LEANER
     heavier = dataclasses.replace(s, composed_tokens=_tokens_for(s, 9000, 8000))
-    assert readings(heavier, SPEC).r2.verdict == LEANER          # tokens are reported beside, never a condition
+    assert readings(heavier, SPEC).r2.verdict == NOT_WORSE       # bound clears, journal tokens >= notes: not leaner
+    equal = dataclasses.replace(s, composed_tokens=_tokens_for(s, 8000, 8000))
+    assert readings(equal, SPEC).r2.verdict == NOT_WORSE
 
 
 def test_r2_bound_below_minus_margin_is_unearned():
@@ -247,16 +250,16 @@ def test_tokens_composed_read_unread_when_any_pass_lacks_a_count():
     s = dataclasses.replace(s, composed_tokens=tokens)
     out = readings(s, SPEC)
     assert None in (out.tokens_composed[Arm.JOURNAL.value].mean, out.tokens_composed[Arm.NOTES.value].mean)
-    assert out.r2.verdict == LEANER
+    assert out.r2.verdict == NOT_WORSE
 
 
 def test_r2_line_shows_tokens_unread_without_changing_its_verdict():
     s = make_stores()                                  # composed_tokens left at its default: no counts stored
     plant(s, [0.1, 0.2, 0.05, 0.3, 0.15, 0.12], baseline=Arm.NOTES)
     out = readings(s, SPEC)
-    assert out.r2.p == pytest.approx(1 / 64) and out.r2.verdict == LEANER
+    assert out.r2.p == pytest.approx(1 / 64) and out.r2.verdict == NOT_WORSE
     r2 = next(line for line in lines(out) if line.startswith("R2"))
-    assert "ratio unread" in r2 and r2.endswith(LEANER)
+    assert "ratio unread" in r2 and r2.endswith(NOT_WORSE)
 
 
 def flip(events, sid, old, new, cause, round_):
