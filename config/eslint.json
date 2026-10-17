@@ -1,0 +1,5 @@
+{
+  "comment": "Fixed ESLint config for the quality reading Q (SPEC § 5). Frozen before round 1.",
+  "languageOptions": { "ecmaVersion": 2022, "sourceType": "script", "globals": { "window": "readonly", "document": "readonly", "localStorage": "readonly", "location": "readonly", "console": "readonly", "requestAnimationFrame": "readonly", "setTimeout": "readonly", "setInterval": "readonly", "clearTimeout": "readonly", "clearInterval": "readonly", "Date": "readonly", "Math": "readonly", "Audio": "readonly", "AudioContext": "readonly" } },
+  "rules": { "no-undef": "error", "no-unused-vars": "error", "no-unreachable": "error", "no-dupe-keys": "error", "no-redeclare": "error", "no-constant-condition": "error", "no-empty": "error" }
+}

@@ -1,0 +1,173 @@
+# Friday run spec: every constant, pin and seed (the one home).
+# SPEC.md quotes defaults as pointers to this file; on any disagreement this file holds.
+# Frozen before round 1. Changing any value after round 1 starts a new run.
+
+run:
+  seed: 20261017
+  rounds: 14
+  spend_cap_usd: 30.0
+  max_parallel_passes: 16
+  convergence_rounds: 3        # halt: quiet rounds after the drift round (SPEC § 11)
+  transport_reruns: 1          # a pass failed for transport is re-run at most this many times
+  ping_transport_share: 0.3333 # ping when more than this share of a round's passes failed after re-runs
+
+pilot:                         # the worker pin rule (SPEC § 5), read once
+  min_artifacts_passing: 5     # fewer artifacts passing >= 1 check -> switch the worker to its fallback
+  max_mean_a: 0.85             # pilot mean A above this -> record the headroom premise as falsified
+
+bank:
+  path: bank/requests.json
+  training: 16
+  held_out: 6
+  tags_per_request: [2, 4]
+  tag_vocabulary_size: [10, 14]
+  checks_per_regime: [4, 6]
+  split_max_draws: 1000
+  check_regenerations: 2
+
+drift:
+  round: 8
+  constraint: >-
+    It must be fully usable with the keyboard alone: every control reachable by Tab
+    and operable by Enter or Space, and any game or canvas control mapped to arrow keys.
+
+worker:
+  repair_turns: 1
+  max_artifact_bytes: 30720
+
+eval:
+  w_a: 0.75
+  w_r: 0.25
+  viewport: [1280, 800]
+  check_timeout_ms: 15000      # page load / navigation
+  action_timeout_ms: 2000      # one click, type or focus
+  max_wait_ms: 3000
+  rubric_scale: [1, 5]
+  rubric_questions: 3
+  test_query: "?test=1"
+  eslint_config: config/eslint.json
+
+composition:
+  cap: 6
+  rank_by: e_value             # over the cap, the lowest-ranked admitted decisions are left out
+
+gate:
+  alpha: 0.2
+  n_min: 4
+  n_max: 24
+  in_flight: 3
+  quality_margin: 2.0
+  quality_level: 0.90
+  betting:
+    name: agrapa                # registry key; see friday/stats/eprocess.py
+    params:                     # passed to the named strategy as-is
+      lambda_first: 0.25
+      lambda_max: 0.9
+      eps: 1.0e-9
+  upper_bound: student_t        # registry key; see friday/stats/bounds.py
+
+detect:
+  ablate_p: 0.75
+  window: 4
+  level: 0.80
+  confirm_pairs: 3
+  contradicted_share: 0.5
+
+pool:
+  expiry_rounds: 6
+  recurrence_min_observations: 3
+  recurrence_min_rounds: 2
+  max_direction_labels: 2
+
+lens:
+  window: 64
+  n_min: 32
+  flag_p: 0.5
+  value: auc                    # registry key; see friday/stats/ranks.py
+  floor_quantile: 0.95
+  floor_shuffles: 200
+  floor_strikes: 2
+  fold_correlation: spearman    # registry key
+  fold_rho: 0.85
+  mint_every: 2
+  residual_loss: 0.5
+  residual_min_passes: 6
+  mint_max: 2
+  cap: 10
+
+judge:
+  max_observations: 3
+  quote_reasks: 1
+
+nominator:
+  payload_max_words: 60
+  reasks: 1
+
+notes:
+  max_tokens: 8000
+
+readout:
+  reps: 4
+  regime: R2
+  r1_p: 0.1
+  interval_level: 0.90
+  test: sign_flip_exact         # registry key
+
+transport:
+  max_tries: 5
+  backoff_base_s: 1.0
+  backoff_cap_s: 30.0
+  retry_status: [429, 500, 502, 503, 504]
+  request_timeout_s: 180
+
+json:
+  reasks: 1
+
+models:
+  endpoint:
+    base_url: https://managed-inference-api-proxy.crusoecloud.com/v1
+    api_key_env: crusoe_key
+  # USD per million tokens. Empty: the client reads `pricing` from GET /v1/models.
+  price_overrides: {}
+  slow_first_call_s: 60         # an Ultra-role first call slower than this moves those roles to their fallback
+  roles:
+    worker:
+      pins: [nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B]
+      fallback: openai/gpt-oss-120b
+      temperature: 0.7
+      seed: null
+    rubric:
+      pins: [google/gemma-4-31b-it, zai-org/GLM-5.3-Flash, Qwen/Qwen3.8-27B]   # first listed wins
+      fallback: nvidia/Nemotron-3-Nano-Omni-Reasoning-30B-A3B
+      temperature: 0.0
+      requires_image: true
+    judge:
+      pins: [nvidia/NVIDIA-Nemotron-3-Super-120B-A12B]
+      fallback: deepseek-ai/DeepSeek-V4-Pro
+      temperature: 0.0
+    nominator: &ultra
+      pins: [nvidia/NVIDIA-Nemotron-3-Ultra-550B]
+      fallback: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B
+      temperature: 0.3
+      slow_first_call_group: ultra
+    lens_minter: *ultra
+    bank_minter: *ultra
+    pooling: *ultra
+    coordinator:
+      pins: [openai/gpt-oss-120b]
+      fallback: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B
+      temperature: 0.2
+
+search:
+  provider: youcom
+  api_key_env: YOU_API_KEY
+  results: 5
+
+paths:
+  db: friday.db
+  artifacts: artifacts
+  journal: journal
+  lenses: lenses
+  plans: plans
+  prompts: prompts
+  templates: templates

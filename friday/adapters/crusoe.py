@@ -1,0 +1,186 @@
+"""Crusoe Managed Inference: an OpenAI-compatible endpoint, metered per call.
+
+Retries 429/5xx with full-jitter exponential backoff (a Retry-After header wins), records one spend row
+per call (failed calls included), and echoes the served model string. Prices come from GET /v1/models unless
+`models.price_overrides` names the model.
+"""
+
+from __future__ import annotations
+
+import base64
+import os
+import random
+import time
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any
+
+import httpx
+
+from friday.config import ModelsSection, RolePin, TransportSection
+from friday.ports.models import ChatResult, Message, ModelInfo
+from friday.ports.stores import SpendLog
+
+
+class TransportFailure(RuntimeError):
+    """A call that exhausted its retries; the pass is recorded as failed for transport."""
+
+
+def _price(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_models(payload: Mapping[str, Any]) -> list[ModelInfo]:
+    """ModelInfo rows from a /v1/models response body."""
+    out = []
+    for m in payload.get("data", []):
+        tags = m.get("tags", [])
+        modality = m.get("architecture", {}).get("modality", "")
+        pricing = m.get("pricing", {})
+        out.append(ModelInfo(
+            id=m["id"],
+            image_input=modality == "multimodal" or "image text to text" in tags,
+            structured_output="response_format" in m.get("supported_parameters", []),
+            price_in_per_mtok=_price(pricing.get("prompt")),
+            price_out_per_mtok=_price(pricing.get("completion")),
+        ))
+    return out
+
+
+def _content(msg: Message) -> Any:
+    if not msg.images:
+        return msg.content
+    parts: list[dict[str, Any]] = [{"type": "text", "text": msg.content}]
+    for img in msg.images:
+        url = "data:image/png;base64," + base64.b64encode(img).decode()
+        parts.append({"type": "image_url", "image_url": {"url": url}})
+    return parts
+
+
+class CrusoeClient:
+    def __init__(
+        self,
+        models: ModelsSection,
+        transport: TransportSection,
+        spend: SpendLog,
+        *,
+        http: httpx.Client | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+        rng: random.Random | None = None,
+    ) -> None:
+        key = os.environ.get(models.endpoint.api_key_env)
+        if not key:
+            raise RuntimeError(f"environment variable {models.endpoint.api_key_env} is not set")
+        self._models, self._transport, self._spend = models, transport, spend
+        self._http = http or httpx.Client(
+            base_url=models.endpoint.base_url,
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=transport.request_timeout_s,
+        )
+        self._sleep, self._rng = sleep, rng or random.Random()
+        self._role_models: dict[str, str] = {}
+        self._catalog: dict[str, ModelInfo] = {}
+
+    # ModelCatalog
+    def list_models(self) -> Sequence[ModelInfo]:
+        resp = self._request("GET", "/models", None)
+        rows = parse_models(resp)
+        self._catalog = {m.id: m for m in rows}
+        return rows
+
+    def bind(self, role_models: Mapping[str, str]) -> None:
+        """Fixes the model each role calls (role -> model id) for the rest of the run.
+
+        Raises when a bound model has no price: an unpriced call would read as $0 and the spend cap
+        could never trigger. Call `list_models` first, or name the model in `models.price_overrides`.
+        """
+        unpriced = sorted({m for m in role_models.values() if self._cost(m, 1, 1) is None})
+        if unpriced:
+            raise RuntimeError(f"no price for {unpriced}: call list_models() first or set models.price_overrides")
+        self._role_models = dict(role_models)
+
+    def model_for(self, role: str) -> str:
+        return self._role_models[role]
+
+    # ModelClient
+    def chat(
+        self, role: str, messages: Sequence[Message], *, json_schema: dict[str, Any] | None = None,
+        max_tokens: int | None = None, tag: str = "",
+    ) -> ChatResult:
+        pin: RolePin = self._models.roles[role]
+        model = self.model_for(role)
+        body: dict[str, Any] = {
+            "model": model,
+            "messages": [{"role": m.role, "content": _content(m)} for m in messages],
+            "temperature": pin.temperature,
+        }
+        if pin.seed is not None:
+            body["seed"] = pin.seed
+        if max_tokens is not None:
+            body["max_tokens"] = max_tokens
+        info = self._catalog.get(model)
+        if json_schema is not None and info is not None and info.structured_output:
+            schema = {"name": (tag or role).replace(":", "_"), "schema": json_schema}
+            body["response_format"] = {"type": "json_schema", "json_schema": schema}
+        try:
+            resp = self._request("POST", "/chat/completions", body)
+        except TransportFailure as e:
+            self._spend.record(role, tag, None, ok=False, error=str(e))
+            raise
+        usage = resp.get("usage") or {}
+        served = resp.get("model", model)
+        t_in, t_out = int(usage.get("prompt_tokens", 0)), int(usage.get("completion_tokens", 0))
+        try:
+            text = resp["choices"][0]["message"].get("content") or ""
+        except (KeyError, IndexError, TypeError, AttributeError) as e:
+            self._spend.record(role, tag, None, ok=False, error=f"malformed reply: {type(e).__name__}")
+            raise TransportFailure(f"malformed reply from {served}") from e
+        result = ChatResult(
+            text=text,
+            model=served,
+            tokens_in=t_in,
+            tokens_out=t_out,
+            cost_usd=self._cost(model, t_in, t_out),
+            raw={"id": resp.get("id"), "sent": {k: v for k, v in body.items() if k != "messages"}},
+        )
+        self._spend.record(role, tag, result, ok=True)
+        return result
+
+    def _cost(self, model: str, t_in: int, t_out: int) -> float | None:
+        override = self._models.price_overrides.get(model)
+        if override:
+            p_in, p_out = override.get("prompt"), override.get("completion")
+        else:
+            info = self._catalog.get(model)
+            p_in, p_out = (info.price_in_per_mtok, info.price_out_per_mtok) if info else (None, None)
+        if p_in is None or p_out is None:
+            return None
+        return (t_in * p_in + t_out * p_out) / 1e6
+
+    def _request(self, method: str, path: str, body: dict[str, Any] | None) -> dict[str, Any]:
+        t = self._transport
+        last = ""
+        for attempt in range(t.max_tries):
+            try:
+                r = self._http.request(method, path, json=body)
+            except httpx.TransportError as e:
+                last = f"{type(e).__name__}: {e}"
+            else:
+                if r.status_code < 400:
+                    try:
+                        return r.json()
+                    except ValueError:
+                        last = f"HTTP {r.status_code}: body is not JSON"
+                        raise TransportFailure(last) from None
+                last = f"HTTP {r.status_code}: {r.text[:200]}"
+                if r.status_code not in t.retry_status:
+                    raise TransportFailure(last)
+                retry_after = _price(r.headers.get("retry-after"))
+                if retry_after is not None and attempt + 1 < t.max_tries:
+                    self._sleep(min(retry_after, t.backoff_cap_s))
+                    continue
+            if attempt + 1 < t.max_tries:
+                self._sleep(self._rng.uniform(0, min(t.backoff_cap_s, t.backoff_base_s * 2**attempt)))
+        raise TransportFailure(f"{t.max_tries} tries: {last}")
