@@ -67,3 +67,11 @@ def test_baseline_prompt_is_appendix_a_verbatim():
     spec = (ROOT / "SPEC.md").read_text()
     block = spec.split("## Appendix A", 1)[1].split("```", 2)[1].strip("\n")
     assert block.strip() == (ROOT / "prompts/worker/baseline.md").read_text().strip()
+
+
+def test_worker_templates_name_no_interaction_mode():
+    from friday.config import load_spec
+
+    modes = load_spec(ROOT / "run.yml").stream.modes
+    templates = " ".join(p.read_text() for p in (ROOT / "prompts" / "worker").glob("*.md"))
+    assert blinding_hits(templates, modes) == []

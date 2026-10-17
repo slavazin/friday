@@ -50,6 +50,9 @@ class StreamSection:
     checks_per_regime: tuple[int, int]
     check_regenerations: int
     families: tuple[str, ...]
+    modes: tuple[str, ...]
+    held_out_cells: int
+    split_max_draws: int
     mix: dict[str, tuple[float, ...]]
 
 
@@ -286,6 +289,8 @@ class RunSpec:
         for regime, shares in self.stream.mix.items():
             if len(shares) != len(self.stream.families) or abs(sum(shares) - 1) > 1e-9:
                 problems.append(f"stream.mix.{regime} must give one share per family, summing to 1")
+        if self.stream.held_out_cells != self.stream.held_out:
+            problems.append("stream.held_out must equal stream.held_out_cells (one request per withheld cell)")
         if not 0.5 < self.pool.fast_track_share <= 1.0:
             problems.append("pool.fast_track_share must lie in (0.5, 1]")
         if not 0.0 <= self.how_to.repair_penalty < 1.0:

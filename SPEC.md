@@ -121,8 +121,10 @@ type-gce) by section.
 | **request**               | A one-line build demand in a user's words, plus its interface contract, tags and acceptance checks. Minted into the goal stream before round 1 and frozen; tagged when its round starts | hackathon: the unit of work                     |
 | **category**              | One request's identity. A training category is built in one round only, by its pair; a held-out category is built `readout.reps` times at the close | § 4                                             |
 | **goal stream**           | The frozen, ordered list of training requests, `stream.per_round` per round, drawn under the run seed from the regime's goal mix; minted once before round 1 together with the held-out set | § 4                                             |
-| **goal family**           | A stratum the goal minter draws from (e.g. `canvas game`, `data tool`). Seen only by the goal minter and the runner; never by an agent of the loop, never a tag | § 4                                             |
-| **goal mix**              | The share of each goal family in one regime's draws                                                                                                                                                                    | §§ 4, 10                                        |
+| **goal family**           | What an app is: one level of the grid's first axis (e.g. `canvas game`, `data tool`). Seen only by the goal minter and the runner; never by an agent of the loop, never a tag | § 4                                             |
+| **interaction mode**      | How an app is operated: one level of the grid's second axis (e.g. `keyboard-driven`, `drag/pointer`). Generator-side like a family; the request text states the interaction in a user's words | § 4                                             |
+| **cell**                  | One (goal family, interaction mode) combination of the grid. Training draws from the training cells; the held-out set comes from withheld cells | § 4                                             |
+| **goal mix**              | The share of each goal family in one regime's draws; interaction modes are drawn evenly in every regime                                                                                                         | §§ 4, 10                                        |
 | **tagger**                | The strong-model step that tags each round's requests at round start, reusing the tag vocabulary and minting a new tag only under the minting bar of § 4                                                           | § 4                                             |
 | **tag vocabulary**        | The tags minted so far. Open: it grows by the tagger's minting during the run and freezes at the close, before the held-out set is tagged                                                                          | § 4                                             |
 | **tag**                   | A trait word attached to a request by the tagger (e.g. `canvas`, `timer`, `keyboard`, `persistence`). Hooks match on tags. No tag set is given: the vocabulary is discovered (tag vocabulary)                        | GCE § 9 (legible symbolic keys), § 2 position 1 |
@@ -487,17 +489,37 @@ sound and counts completed sessions"). Freeze both in `goals/stream.json` and
 seeing any worker output; a request touched after round 1 voids every pair that
 built it.
 
-**Goal families and mixes.** The goal minter draws each request from a goal
-family (`stream.families`: canvas games, data tools, and the rest listed in
-`run.yml`) under the run seed, in the proportions of the regime's goal mix:
-`stream.mix.R1` for rounds before the drift round, `stream.mix.R2` from it on
-and for the held-out set. Families stratify the draw and nothing else.
-**Don't:** let a family name reach any agent of the loop. It is not a tag, and
-a hook keyed on it would be keyed on the regime.
+**The grid.** Requests are drawn from a grid of two axes: the goal family
+(`stream.families`: what the app is) and the interaction mode (`stream.modes`:
+how it is operated: click/tap, keyboard, drag/pointer, typing, real-time). Each
+combination is a cell. At minting, before any worker runs, the goal minter
+marks a cell incoherent when no plain request fits it (e.g. a text tool driven
+by dragging); incoherent cells are dropped and recorded.
+
+**Withheld cells.** Draw `stream.held_out_cells` (6) coherent cells under the
+run seed; redraw until every family and every mode still appears in some
+training cell, at most `stream.split_max_draws` draws. The held-out set is one
+request per withheld cell, minted from the R2 mix's constraint. Training never
+draws from a withheld cell.
+**Why:** a held-out request is then an unseen combination of seen traits, so
+R1 reads whether decisions learned on the parts transfer to a new whole, and a
+hook keyed on a seen trait can fire on it.
+
+**Mixes.** The goal minter draws each training request's family under the run
+seed in the proportions of the regime's goal mix (`stream.mix.R1` before the
+drift round, `stream.mix.R2` from it on), and its mode evenly among the modes
+whose cell with that family is a training cell. The drift moves the family
+axis only; the mode axis stays even, so one factor moves at a time.
+**Don't:** let a family or mode name reach any agent of the loop as a label.
+The request text states the interaction in a user's words ("played with the
+arrow keys"), and the tagger may discover a tag such as `keyboard` from it:
+that is a trait of the request. A stratum name in a template is a label of
+the generator, and a hook keyed on a family would be keyed on the regime.
 
 Each request carries:
 
 - `id`, `text` (one line), `round` (its stream position; `null` when held out),
+  `cell` (family and mode; generator-side, never shown to an agent),
 - `contract`: the required element ids, each with its role in one phrase; for
   any request with a duration, a `?test=1` query that scales every duration to
   ≤ 2 s, stated in the request text the worker reads,
@@ -1069,7 +1091,7 @@ Same worker pin and temperature, same eval, self-repair rule as in training.
 | Cost                     | dollars per admitted decision; total spend                                                                                                                                                                | reported                                                 |
 | Quality                  | `Q` per arm on V                                                                                                                                                                                          | reported, no claim                                       |
 | How-to honesty           | per arm on V: the passed share of declared controls, the share of contract ids declared, silent controls per pass, the share of passes at each repair rung                                               | reported, no claim                                       |
-| Hook transfer            | held-out requests on which at least one S\* decision fires                                                                                                                                               | reported, no claim                                       |
+| Hook transfer            | held-out requests (unseen cells) on which at least one S\* decision fires, and R1's per-category difference beside each                                                                                  | reported, no claim                                       |
 
 **Do:** state each reading with its population ("6 held-out categories × 4
 reps") and its interval or p.

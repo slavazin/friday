@@ -126,6 +126,9 @@ Mint `goals/stream.json` (`stream.per_round` × `run.rounds` requests) and `goal
   serves the latter).
 - Write the minter prompt in `prompts/goal_minter/`.
 
+Draw requests from the family × interaction-mode grid (SPEC § 4 The grid). Drop incoherent cells at
+minting, and withhold `stream.held_out_cells` cells with `algorithms/split.draw_held_out_cells`.
+
 **Done when:**
 - `goals/` is committed;
 - every check fails on its stub;
@@ -325,4 +328,5 @@ SPEC § 2 claim language. Then record the video, make the repository public, and
 | A lens answer records the judge model, but a mid-run fallback is unhandled | open question 3 | S8 |
 | Lens fold reads correlation only | open question 4, `algorithms/lens_curation.py` | S10 |
 | The knob test can miss a knob whose name matches an unrelated attribute | `tests/architecture/test_knobs.py` | any |
+| Pass processes each launch their own Chromium; a shared browser server (`npx playwright run-server`, `chromium.connect`) gives one browser many isolated contexts | `adapters/playwright_browser.py` | after the s1-eval merge |
 | `SignFlipExact` enumerates at most 20 values | `stats/significance.py` | S14 if V grows |

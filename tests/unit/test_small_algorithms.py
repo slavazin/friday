@@ -106,3 +106,21 @@ def test_readout_pairs_by_category():
     assert diffs == pytest.approx({"a": 0.2, "b": 0.1})
     r = paired_reading(diffs, SignFlipExact(), 0.9)
     assert r.n_categories == 2 and r.p == 0.25 and r.interval[0] < r.mean < r.interval[1]
+
+
+def test_withheld_cells_keep_every_level_in_training():
+    from friday.algorithms.split import draw_held_out_cells
+
+    fam, modes = ["a", "b", "c", "d", "e"], ["1", "2", "3", "4", "5"]
+    cells = [(f, m) for f in fam for m in modes if (f, m) != ("e", "3")]     # one incoherent cell dropped
+    train, held, _ = draw_held_out_cells(fam, modes, cells, 6, seed=7, max_draws=1000)
+    assert len(held) == 6 and not set(held) & set(train) and ("e", "3") not in held + train
+    assert {f for f, _ in train} == set(fam) and {m for _, m in train} == set(modes)
+    assert draw_held_out_cells(fam, modes, cells, 6, 7, 1000) == (train, held, _)
+
+
+def test_withheld_cells_refuse_when_a_level_would_vanish():
+    from friday.algorithms.split import draw_held_out_cells
+
+    cells = [("a", "1"), ("a", "2"), ("b", "1")]
+    assert draw_held_out_cells(["a", "b"], ["1", "2"], cells, 2, 1, 50) is None

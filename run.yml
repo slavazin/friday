@@ -26,6 +26,9 @@ stream:                        # the goal stream and the held-out set (SPEC § 4
   checks_per_regime: [2, 3]
   check_regenerations: 1
   families: [canvas game, data tool, timer or tracker, form or calculator, text tool]
+  modes: [click or tap, keyboard-driven, drag or pointer, typing, real-time]   # drawn evenly
+  held_out_cells: 6            # withheld (family, mode) cells; the held-out set is one request per cell
+  split_max_draws: 1000
   mix:                         # share of each family per regime, in `families` order; each sums to 1
     R1: [0.5, 0.15, 0.15, 0.1, 0.1]
     R2: [0.15, 0.5, 0.15, 0.1, 0.1]
