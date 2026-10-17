@@ -56,16 +56,21 @@ export class ReplayPage {
     }
     this.t0 = this.events[0].t;
     this.t1 = this.events[this.events.length - 1].t;
+    // Round starts keyed by round number; the readout's start is keyed "readout", whatever round it is scoped to.
     this.starts = new Map();
+    const roundSpans = new Set();
     for (const { t, r } of this.events) {
-      if (r.kind === "span" && (r.name === "round" || r.name === "readout") && r.ended_at === null && !this.starts.has(r.round)) {
-        this.starts.set(r.round, { t, readout: r.name === "readout" });
-      }
+      if (r.kind !== "span" || r.ended_at !== null) continue;
+      if (r.name === "round") roundSpans.add(r.round);
+      const key = r.name === "readout" ? "readout" : r.name === "round" ? r.round : undefined;
+      if (key !== undefined && !this.starts.has(key)) this.starts.set(key, { t, readout: key === "readout" });
     }
     // A jump lands just before the round's first pass closes: its first wave of lanes is on screen.
+    const ro = this.starts.get("readout");
     for (const { t, r } of this.events) {
-      const st = this.starts.get(r.round);
-      if (st && r.name === "pass" && r.ended_at !== null && st.jump === undefined) st.jump = Math.max(st.t, t - 1e-6);
+      if (r.name !== "pass" || r.ended_at === null) continue;
+      const st = ro && t >= ro.t && !roundSpans.has(r.round) ? ro : this.starts.get(r.round);
+      if (st && st.jump === undefined) st.jump = Math.max(st.t, t - 1e-6);
     }
     this.roundBtns.replaceChildren(...[...this.starts].map(([n, { readout }]) =>
       h("button", { class: "btn seg", type: "button", "data-jump": String(n), onclick: () => this.jumpTo(n) },
@@ -118,7 +123,8 @@ export class ReplayPage {
   stop() { this.pause(); }
 
   jumpTo(n) {
-    const st = this.starts?.get(n);
+    const key = n !== "readout" && this.state?.rounds.get(n)?.readout ? "readout" : n;
+    const st = this.starts?.get(key);
     if (!st) return;
     this.pick = null;
     this.seek(st.jump ?? st.t);

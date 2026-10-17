@@ -74,16 +74,25 @@ export class RoundView {
   _counter(state, current) {
     const want = [];
     for (let i = 1; i <= this.cfg.rounds; i++) want.push(i);
-    for (const r of state.rounds.values()) if (r.readout && !want.includes(r.round)) want.push(r.round);
-    const key = want.join(",");
+    for (const r of state.rounds.values()) {
+      if (r.round === null || r.round === undefined) continue;
+      if (r.readout) {
+        // A readout after an early halt drops the rounds that never ran past it.
+        for (let i = want.length - 1; i >= 0; i--) if (want[i] > r.round && !state.rounds.get(want[i])?.hasSpan) want.splice(i, 1);
+        if (!want.includes(r.round)) want.push(r.round);
+      }
+    }
+    want.sort((a, b) => a - b);
+    const isReadout = (n) => state.rounds.get(n)?.readout === true;
+    const key = want.map((n) => (isReadout(n) ? `r${n}` : String(n))).join(",");
     if (this.counter.dataset.key !== key) {
       this.counter.dataset.key = key;
       this.counter.replaceChildren(...want.map((n) => {
-        const isReadout = n > this.cfg.rounds;
+        const ro = isReadout(n);
         const b = h("button", { class: "dot", "data-round": String(n), type: "button",
-          title: isReadout ? "the readout" : `round ${n}`, onclick: () => this.onPick?.(n) },
-        isReadout ? "readout" : String(n));
-        if (n === this.cfg.drift_round) b.append(h("span", { class: "drift-tag" }, "drift"));
+          title: ro ? "the readout" : `round ${n}`, onclick: () => this.onPick?.(n) },
+        ro ? "readout" : String(n));
+        if (!ro && n === this.cfg.drift_round) b.append(h("span", { class: "drift-tag" }, "drift"));
         return b;
       }));
     }
@@ -93,7 +102,7 @@ export class RoundView {
       setClass(b, "is-done", r?.state === "done");
       setClass(b, "is-running", r?.state === "running");
       setClass(b, "is-shown", current?.round === n);
-      setClass(b, "is-drift", n === this.cfg.drift_round);
+      setClass(b, "is-drift", !isReadout(n) && n === this.cfg.drift_round);
     }
   }
 

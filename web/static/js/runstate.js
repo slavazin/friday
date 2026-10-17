@@ -25,7 +25,7 @@ export const PHASE_LABEL = {
 
 function newRound(n) {
   return {
-    round: n, regime: null, state: "pending", readout: false, passes: new Map(), concurrency: null,
+    round: n, regime: null, state: "pending", readout: false, hasSpan: false, passes: new Map(), concurrency: null,
     close: { state: "pending", phases: new Map(PHASES.map((p) => [p, { state: "pending", counts: {} }])) },
   };
 }
@@ -35,6 +35,8 @@ export class RunState {
     this.rounds = new Map();
     this.spend = null;          // the last run.spend reading (usd, cumulative after a round close)
     this.halt = null;
+    // The readout span, whatever round it is scoped to: null until it opens, then {state, round}.
+    this.readoutSpan = null;
     this.lastSeq = 0;
     this.lastAt = null;
     this.changed = true;
@@ -45,10 +47,28 @@ export class RunState {
     return this.rounds.get(n);
   }
 
+  // The round a non-span-boundary row lands in. Once the readout span has opened, a row whose round has no
+  // `round` span (or carries no round at all) belongs to a readout round, which takes the readout span's state.
+  _roundFor(n) {
+    const ro = this.readoutSpan;
+    if (ro === null) return this.round(n);
+    if (n === null || n === undefined) n = ro.round ?? this._nextRound();
+    const r = this.round(n);
+    if (!r.hasSpan) { r.readout = true; r.state = ro.state; }
+    return r;
+  }
+
+  // One past the highest round that a `round` span opened.
+  _nextRound() {
+    let max = 0;
+    for (const r of this.rounds.values()) if (r.hasSpan && !r.readout && r.round > max) max = r.round;
+    return max + 1;
+  }
+
   // The round shown by default: the latest one that has begun.
   latest() {
     let best = null;
-    for (const r of this.rounds.values()) if (r.state !== "pending" && (best === null || r.round > best.round)) best = r;
+    for (const r of this.rounds.values()) if (r.round !== null && r.round !== undefined && r.state !== "pending" && (best === null || r.round > best.round)) best = r;
     return best;
   }
 
@@ -59,15 +79,23 @@ export class RunState {
     const closing = row.kind === "span" && row.ended_at !== null;
     const n = row.round;
     if (row.kind === "span") {
-      if (row.name === "round" || row.name === "readout") {
+      if (row.name === "round") {
         const r = this.round(n);
-        r.readout = row.name === "readout";
+        r.hasSpan = true;
+        r.readout = false;
         if (row.attrs.regime) r.regime = row.attrs.regime;
         r.state = closing ? "done" : "running";
         return;
       }
+      if (row.name === "readout") {
+        const state = closing ? "done" : "running";
+        this.readoutSpan = { state, round: n ?? this.readoutSpan?.round ?? null };
+        if (n !== null && n !== undefined) { const r = this.round(n); r.hasSpan = false; r.readout = true; }
+        for (const r of this.rounds.values()) if (r.readout) r.state = state;
+        return;
+      }
       if (row.name === "pass") {
-        const r = this.round(n);
+        const r = this._roundFor(n);
         if (r.state === "pending") r.state = "running";
         const card = this._card(r, row.pass_id, row.attrs);
         if (closing) card.closed = true;
@@ -86,7 +114,7 @@ export class RunState {
       }
       const step = STEP_OF[row.name];
       if (step && row.pass_id) {
-        const card = this._card(this.round(n), row.pass_id);
+        const card = this._card(this._roundFor(n), row.pass_id);
         if (closing) card.done.add(step);
         else card.step = step;
         if (step === "repair") card.repaired = true;
@@ -94,14 +122,14 @@ export class RunState {
       return;
     }
     if (row.kind === "metric") {
-      if (row.name === "pass.loss" && row.pass_id) this._card(this.round(n), row.pass_id).loss = row.value;
+      if (row.name === "pass.loss" && row.pass_id) this._card(this._roundFor(n), row.pass_id).loss = row.value;
       else if (row.name === "run.spend") this.spend = row.value;
       else if (row.name === "round.concurrency") this.round(n).concurrency = row.value;
       return;
     }
     if (row.kind === "event") {
       if (row.name === "pass.outcome" && row.pass_id) {
-        const card = this._card(this.round(n), row.pass_id);
+        const card = this._card(this._roundFor(n), row.pass_id);
         card.outcome = row.attrs.outcome;
         if (card.outcome === "scored") { card.step = "scored"; card.done.add("scored"); }
       } else if (row.name === "run.halt") {
