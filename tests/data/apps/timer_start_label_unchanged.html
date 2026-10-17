@@ -1,0 +1,8 @@
+<!doctype html><html><body>
+<p>Left: <span id="t">25:00</span></p>
+<button id="start">Start</button><button id="d1">Help</button><button id="d2">Settings</button><button id="d3">More</button>
+<script>
+let n = 1500, timer = null;
+const show = () => { document.getElementById('t').textContent = String(Math.floor(n/60)).padStart(2,'0') + ':' + String(n%60).padStart(2,'0'); };
+document.getElementById('start').onclick = () => { if (timer) return; timer = setInterval(() => { n--; show(); }, 1000); };
+</script></body></html>

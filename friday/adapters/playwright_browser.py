@@ -108,8 +108,10 @@ _CONTROLS_JS = """() => {
 
 # The visible state, node by node: {key: value}. Text of visible text nodes (editable fields excluded: what is
 # typed into a field is the input, not its effect), values of fields the user does not edit directly (readonly
-# or disabled), each element's visibility, and each canvas's pixels. A key names its node by its element path.
+# or disabled), each element's visibility, and each canvas's pixels as a grid of tile hashes. A key names its
+# node by its element path.
 _SNAPSHOT_JS = """() => {
+  const CANVAS_GRID = 8;   // a canvas is CANVAS_GRID x CANVAS_GRID tiles, one node each ('c:<path>:<tile>')
   const vis = (e) => e.checkVisibility ? e.checkVisibility() : e.getClientRects().length > 0;
   const all = Array.from(document.body ? document.body.querySelectorAll('*') : []);
   const idCount = {};
@@ -140,7 +142,21 @@ _SNAPSHOT_JS = """() => {
     out['v:' + k] = vis(e) ? '1' : '0';
     if ((e.tagName === 'INPUT' || e.tagName === 'TEXTAREA') && (e.readOnly || e.disabled)) out['f:' + k] = e.value;
     if (e.tagName === 'CANVAS') {
-      try { out['c:' + k] = e.toDataURL(); } catch (err) { out['c:' + k] = 'unreadable'; }
+      try {
+        const w = e.width, h = e.height, G = CANVAS_GRID;
+        const o = document.createElement('canvas'); o.width = Math.max(1, w); o.height = Math.max(1, h);
+        const x = o.getContext('2d'); if (w && h) x.drawImage(e, 0, 0);
+        const d = new Uint32Array(x.getImageData(0, 0, o.width, o.height).data.buffer);
+        for (let ty = 0; ty < G; ty++) for (let tx = 0; tx < G; tx++) {
+          const x0 = Math.floor(tx * w / G), x1 = Math.floor((tx + 1) * w / G);
+          const y0 = Math.floor(ty * h / G), y1 = Math.floor((ty + 1) * h / G);
+          let f = 2166136261;
+          for (let y = y0; y < y1; y++) for (let i = y * o.width + x0, j = y * o.width + x1; i < j; i++) {
+            f = Math.imul(f ^ d[i], 16777619);
+          }
+          out['c:' + k + ':' + (ty * G + tx)] = (f >>> 0) + '/' + (x1 - x0) + 'x' + (y1 - y0);
+        }
+      } catch (err) { out['c:' + k] = 'unreadable'; }
     }
   }
   return out;
@@ -373,6 +389,63 @@ _NO_WEBRTC_JS = """for (const k of ['RTCPeerConnection', 'webkitRTCPeerConnectio
 }"""
 
 
+# Counts the trusted keydown, keyup, keypress and click events that reached a handler the page registered on
+# window, document or a canvas (by addEventListener or an on* property) and that returned without throwing.
+# `friday.eval.probe.HANDLER_RUNS_JS` reads the count by this key: the probe's sign that a canvas control's input
+# reached the page's code when its visible effect is hidden under the canvas's own animation (SPEC § 5).
+_HANDLER_RUNS_KEY = "__fridayHandlerRuns"
+_COUNT_HANDLERS_JS = """(() => {
+  const TYPES = new Set(['keydown', 'keyup', 'keypress', 'click']);
+  let runs = 0;
+  Object.defineProperty(window, '""" + _HANDLER_RUNS_KEY + """', {get: () => runs, configurable: false});
+  const watched = (t) => t === window || t === document || (t instanceof HTMLCanvasElement);
+  const wrappers = new WeakMap();
+  const counted = (fn) => {
+    if (wrappers.has(fn)) return wrappers.get(fn);
+    const w = function (ev) {
+      const r = typeof fn === 'function' ? fn.apply(this, arguments) : fn.handleEvent(ev);
+      if (ev && ev.isTrusted && TYPES.has(ev.type)) runs++;
+      return r;
+    };
+    wrappers.set(fn, w);
+    return w;
+  };
+  const proto = EventTarget.prototype, add = proto.addEventListener, remove = proto.removeEventListener;
+  proto.addEventListener = function (type, fn, opts) {
+    const t = this == null ? window : this;
+    if (fn && TYPES.has(type) && watched(t) && (typeof fn === 'function' || typeof fn.handleEvent === 'function')) {
+      return add.call(t, type, counted(fn), opts);
+    }
+    return add.call(t, type, fn, opts);
+  };
+  proto.removeEventListener = function (type, fn, opts) {
+    const t = this == null ? window : this;
+    if (fn && wrappers.has(fn)) remove.call(t, type, wrappers.get(fn), opts);
+    return remove.call(t, type, fn, opts);
+  };
+  const owner = (o, k) => { for (let p = o; p; p = Object.getPrototypeOf(p)) {
+    const d = Object.getOwnPropertyDescriptor(p, k); if (d) return [p, d]; } return null; };
+  for (const o of [window, Document.prototype, HTMLElement.prototype]) {
+    for (const type of TYPES) {
+      const found = owner(o, 'on' + type);
+      if (!found || !found[1].set || !found[1].configurable) continue;
+      const [p, d] = found;
+      const originals = new WeakMap();
+      Object.defineProperty(p, 'on' + type, {
+        configurable: true, enumerable: d.enumerable,
+        get() { const w = d.get.call(this); return (w && originals.get(w)) || w; },
+        set(fn) {
+          if (typeof fn === 'function' && watched(this)) {
+            const w = counted(fn); originals.set(w, fn); d.set.call(this, w);
+          }
+          else d.set.call(this, fn);
+        },
+      });
+    }
+  }
+})();"""
+
+
 class PlaywrightBrowser:
     """One browser per process: the sync API is not thread-safe, so parallel passes use one process each."""
 
@@ -407,6 +480,7 @@ class PlaywrightBrowser:
         try:
             url = Path(artifact_path).resolve().as_uri()
             ctx.add_init_script(_NO_WEBRTC_JS)
+            ctx.add_init_script(_COUNT_HANDLERS_JS)
             ctx.route("**/*", _router(url))
             ctx.set_default_navigation_timeout(self._load_ms)
             ctx.set_default_timeout(self._action_ms)
