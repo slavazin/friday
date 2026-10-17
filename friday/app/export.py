@@ -21,7 +21,7 @@ from friday.app.readout import ReadoutStores, held_out_ids, readings, scored, tr
 from friday.config import RunSpec
 from friday.domain.events import StatusFlip
 from friday.domain.types import Arm, DecisionStatus, DeltaKind, EvalReport, ObservationStatus, Pass
-from friday.ports.goals import GoalSource
+from friday.ports.goals import GoalSource, TagVocabulary
 from friday.ports.stores import (
     EventLog,
     Journal,
@@ -53,6 +53,7 @@ class ExportStores:
     events: EventLog
     spend: SpendLog
     composed_tokens: Mapping[str, int] = field(default_factory=dict)
+    tags: TagVocabulary | None = None
 
 
 @dataclass(frozen=True)
@@ -192,7 +193,7 @@ def build(
     values = lens_value_history([x.id for x in lenses], training_scored, stores.judge, spec)
     observations = stores.observations.observations()
     readout = readings(ReadoutStores(stores.passes, stores.goals, journal, lens_set, stores.events,
-                                     stores.ledger, stores.spend, stores.composed_tokens), spec)
+                                     stores.ledger, stores.spend, stores.composed_tokens, stores.tags), spec)
     doc = {
         "schema_version": SCHEMA_VERSION,
         "run": {"spec_hash": spec.spec_hash, "seed": spec.run.seed, "rounds": spec.run.rounds,

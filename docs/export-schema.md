@@ -150,7 +150,9 @@ difference over reps), `mean`, `p` (the `readout.test` one-sided p over the cate
 (the two-sided `readout.interval_level` t-interval over category means), `level`, `verdict`. R1's verdict
 is `improves` at `p ≤ readout.r1_p`, else `unresolved`. R2's verdict is `leaner than shared notes` when its
 interval does not lie wholly below 0 and the journal arm composes fewer tokens per pass than the notes arm,
-`unresolved` with no interval, else `unearned`.
+`unresolved` with no interval, else `unearned`; `null` (unread) when tokens composed per pass are unread in
+either arm. R1's `improves` follows the pre-registered p threshold even when its interval contains 0; the
+readout line then says so beside the word.
 
 `r3`: `population`, `drift_round`, `admitted_before_retired_after` (first admitted at a round close before
 `drift.round`, retired by the detector or by supersession at a close on or after it),
@@ -165,4 +167,6 @@ interval does not lie wholly below 0 and the journal arm composes fewer tokens p
 `{n, mean}`), `rung_share` (rung → share of passes with a how-to reading), `no_how_to`.
 
 `hook_transfer`: `population`, `s_star` (decisions admitted or suspect at the close), `requests_fired`,
-`categories_composed` (held-out categories whose journal-arm passes composed at least one decision).
+`categories_composed` (held-out categories whose journal-arm passes composed at least one decision). `untagged` (held-out requests with no tags in the tag vocabulary). Tags are read from the
+tag vocabulary; with no vocabulary or any held-out request untagged, `population` is `null` and
+`requests_fired` is empty: the reading is unread, not "fires on 0".

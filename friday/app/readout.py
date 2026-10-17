@@ -32,7 +32,7 @@ from friday.domain.types import (
     Regime,
     Request,
 )
-from friday.ports.goals import GoalSource
+from friday.ports.goals import GoalSource, TagVocabulary
 from friday.ports.stores import EventLog, Journal, Ledger, LensSet, PassStore, SpendLog
 from friday.stats.significance import PAIRED_TESTS
 
@@ -52,7 +52,9 @@ _EARNED_RETIRE = frozenset({FlipCause.DETECT_RETIRE.value, FlipCause.SUPERSEDE.v
 @dataclass(frozen=True)
 class ReadoutStores:
     """The stores the readout reads. `composed_tokens` maps a pass id to the tokens composed into its
-    worker prompt (decisions and notes), as recorded by the pass pipeline; a pass absent from it is unread."""
+    worker prompt (decisions and notes), as recorded by the pass pipeline; a pass absent from it is unread.
+    `tags` is the tag vocabulary that holds each request's tags; without it, or with any held-out request
+    untagged, hook transfer reads unread."""
 
     passes: PassStore
     goals: GoalSource
@@ -62,6 +64,7 @@ class ReadoutStores:
     ledger: Ledger
     spend: SpendLog
     composed_tokens: Mapping[str, int] = field(default_factory=dict)
+    tags: TagVocabulary | None = None
 
 
 @dataclass(frozen=True)
@@ -143,6 +146,7 @@ class HookTransfer:
     s_star: tuple[str, ...]
     requests_fired: tuple[str, ...]          # held-out requests on which >= 1 S* decision's hook fires
     categories_composed: tuple[str, ...]     # held-out categories whose journal-arm passes composed >= 1 decision
+    untagged: tuple[str, ...] = ()           # held-out requests with no tags in the vocabulary (reading unread)
 
 
 @dataclass(frozen=True)
@@ -179,6 +183,17 @@ def _check_readout_pass(p: Pass, regime: str) -> None:
         raise ValueError(f"notes-arm pass {p.id} must compose the notes file and no decisions")
     if p.arm is Arm.JOURNAL and c.notes:
         raise ValueError(f"journal-arm pass {p.id} composes the notes file")
+
+
+def check_journal_arm(passes: Sequence[Pass], journal: Journal) -> None:
+    """Raises when a journal-arm readout pass composes a decision outside S* (status at the close not composable)."""
+    status = {d.id: d.status for d in journal.decisions()}
+    for p in passes:
+        if p.arm is not Arm.JOURNAL:
+            continue
+        outside = sorted(i for i in p.composition.decision_ids if status.get(i) not in COMPOSABLE_DECISION)
+        if outside:
+            raise ValueError(f"journal-arm pass {p.id} composes {outside}, outside S* at the close")
 
 
 def readout_passes(passes: PassStore, held_out: frozenset[str], regime: str) -> list[Pass]:
@@ -319,14 +334,21 @@ def how_to_honesty(rows: Sequence[tuple[Pass, EvalReport]], contracts: Mapping[s
 
 
 def hook_transfer(stores: ReadoutStores, held: Sequence[Request], journal_rows: Sequence[Pass]) -> HookTransfer:
-    """Held-out requests on which >= 1 S* decision fires, and the categories whose journal passes composed one."""
-    if not held:
-        return HookTransfer(None, (), (), ())
+    """Held-out requests on which >= 1 S* decision fires (tags read from the tag vocabulary), and the
+    categories whose journal passes composed one. Unread (population None) when there is no held-out set,
+    no vocabulary, or any held-out request is untagged."""
     s_star = sorted((d for d in stores.journal.decisions() if d.status in COMPOSABLE_DECISION), key=lambda d: d.id)
-    fired = tuple(sorted(r.id for r in held if any(fires(d.hook, r.tags) for d in s_star)))
+    s_ids = tuple(d.id for d in s_star)
     composed = tuple(sorted({p.category for p in journal_rows if p.composition.decision_ids}))
+    if not held:
+        return HookTransfer(None, s_ids, (), composed)
+    tags = {r.id: None if stores.tags is None else stores.tags.tags_of(r.id) for r in held}
+    untagged = tuple(sorted(i for i, t in tags.items() if t is None))
+    if untagged:
+        return HookTransfer(None, s_ids, (), composed, untagged)
+    fired = tuple(sorted(r.id for r in held if any(fires(d.hook, tags[r.id]) for d in s_star)))
     population = f"{len(held)} held-out requests, {len(s_star)} decisions in S*"
-    return HookTransfer(population, tuple(d.id for d in s_star), fired, composed)
+    return HookTransfer(population, s_ids, fired, composed)
 
 
 def _tokens(arm_passes: Sequence[Pass], composed: Mapping[str, int]) -> ArmMean:
@@ -343,6 +365,7 @@ def readings(stores: ReadoutStores, spec: RunSpec) -> Readout:
     held_ids = frozenset(r.id for r in held)
     regime = Regime(spec.readout.regime).value
     v = readout_passes(stores.passes, held_ids, regime)
+    check_journal_arm(v, stores.journal)
     by_arm: dict[Arm, list[Pass]] = defaultdict(list)
     for p in v:
         by_arm[p.arm].append(p)
@@ -355,13 +378,15 @@ def readings(stores: ReadoutStores, spec: RunSpec) -> Readout:
 
     tokens = {arm.value: _tokens(by_arm.get(arm, []), stores.composed_tokens) for arm in Arm}
 
-    def r2_verdict(r) -> str:
-        # Earned when the interval does not lie (wholly) below 0 and the journal arm composes fewer tokens.
+    def r2_verdict(r) -> str | None:
+        # Earned when the interval does not lie wholly below 0 (upper bound >= 0) and the journal arm composes
+        # fewer tokens per pass. Tokens unread in either arm leave the claim unread: its population is missing.
+        t_j, t_n = tokens[Arm.JOURNAL.value].mean, tokens[Arm.NOTES.value].mean
+        if t_j is None or t_n is None:
+            return None
         if r.interval is None:
             return UNRESOLVED
-        t_j, t_n = tokens[Arm.JOURNAL.value].mean, tokens[Arm.NOTES.value].mean
-        leaner = t_j is not None and t_n is not None and t_j < t_n
-        return LEANER if r.interval[1] >= 0 and leaner else UNEARNED
+        return LEANER if r.interval[1] >= 0 and t_j < t_n else UNEARNED
 
     r1 = _paired("R1", Arm.EMPTY, loss_rows, held_ids, spec, r1_verdict)
     r2 = _paired("R2", Arm.NOTES, loss_rows, held_ids, spec, r2_verdict)
@@ -391,13 +416,22 @@ def _fmt(x: float | None, digits: int = 3) -> str:
 def lines(r: Readout) -> list[str]:
     """One line per reading, each with its population and its interval or p; failed readings included."""
     out = [f"Readout over {r.population}"]
+    t_j, t_n = r.tokens_composed[Arm.JOURNAL.value].mean, r.tokens_composed[Arm.NOTES.value].mean
+    ratio = "unread" if t_j is None or t_n is None or t_n == 0 else f"{t_j / t_n:.3f}"
     for c in (r.r1, r.r2):
-        if c.verdict is None:
+        if c.population is None:
             out.append(f"{c.reading} loss({c.baseline}) - loss(journal): unread (no category scored in both arms)")
             continue
         iv = "n/a" if c.interval is None else f"[{c.interval[0]:.3f}, {c.interval[1]:.3f}]"
-        out.append(f"{c.reading} loss({c.baseline}) - loss(journal) over {c.population}: mean {_fmt(c.mean)}, "
-                   f"p {_fmt(c.p, 4)}, {int(c.level * 100)} % interval {iv}: {c.verdict}")
+        line = (f"{c.reading} loss({c.baseline}) - loss(journal) over {c.population}: mean {_fmt(c.mean)}, "
+                f"p {_fmt(c.p, 4)}, {int(c.level * 100)} % interval {iv}")
+        if c.reading == "R2":
+            line += (f"; tokens composed per pass journal {_fmt(t_j, 1)}, notes {_fmt(t_n, 1)}, "
+                     f"ratio {ratio}; claim needs the interval not wholly below 0")
+        verdict = "unread (tokens composed unread)" if c.verdict is None else c.verdict
+        if c.verdict == IMPROVES and c.interval is not None and c.interval[0] <= 0:
+            verdict += " (p <= readout.r1_p; the interval contains 0)"
+        out.append(f"{line}: {verdict}")
     f = r.r3
     if f.verdict is None:
         out.append("R3 earned forgetting: unread (no decision drafted)")
@@ -416,6 +450,10 @@ def lines(r: Readout) -> list[str]:
         out.append(f"Q {arm.value}: {_fmt(q.mean, 2)} over {q.n} passes; tokens composed per pass "
                    f"{_fmt(t.mean, 1)} over {t.n} passes")
     h = r.hook_transfer
-    out.append("Hook transfer: unread (no held-out set)" if h.population is None
-               else f"Hook transfer over {h.population}: fires on {len(h.requests_fired)}")
+    if h.population is not None:
+        out.append(f"Hook transfer over {h.population}: fires on {len(h.requests_fired)}")
+    elif h.untagged:
+        out.append(f"Hook transfer: unread ({len(h.untagged)} held-out requests untagged)")
+    else:
+        out.append("Hook transfer: unread (no held-out set)")
     return out

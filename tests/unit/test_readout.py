@@ -15,6 +15,7 @@ from friday.adapters.memory import (
     MemoryLedger,
     MemoryPassStore,
     MemorySpendLog,
+    MemoryTagVocabulary,
 )
 from friday.app.readout import (
     FORGETS,
@@ -66,10 +67,13 @@ def held_request(id_, tags=("chart",)):
     return Request(id_, f"request {id_}", frozenset(tags), {"#a": "a", "#b": "b"}, {Regime.R2: ()}, held_out=True)
 
 
-def make_stores(journal=None, lenses=(), tokens=None, requests=None):
-    goals = MemoryGoalSource(list(requests) if requests is not None else [held_request(c) for c in CATS])
-    return ReadoutStores(MemoryPassStore(), goals, journal or MemoryJournal(), lens_set(lenses), MemoryEventLog(),
-                         MemoryLedger(), MemorySpendLog(), dict(tokens or {}))
+def make_stores(journal=None, lenses=(), tokens=None, requests=None, tagged=True):
+    reqs = list(requests) if requests is not None else [held_request(c) for c in CATS]
+    vocab = MemoryTagVocabulary()
+    if tagged:
+        vocab.set_tags({r.id: r.tags for r in reqs})
+    return ReadoutStores(MemoryPassStore(), MemoryGoalSource(reqs), journal or MemoryJournal(), lens_set(lenses),
+                         MemoryEventLog(), MemoryLedger(), MemorySpendLog(), dict(tokens or {}), vocab)
 
 
 def add(stores, cat, arm, rep, loss, q=0, decisions=(), how_to=(), silent=0, failed=False, **kw):
@@ -113,6 +117,12 @@ def test_r1_estimator_reads_per_category_means_not_pooled_reps():
     assert r.n_categories == 6
     assert r.reps[Arm.EMPTY.value] == (4, 40)
     assert r.population == "6 held-out categories × 4-40 reps"
+    cat_means = [r.per_category[c] for c in CATS]
+    assert cat_means[0] == pytest.approx((4 * 0.1 + 36 * 0.9) / 40)
+    assert r.mean == pytest.approx(sum(cat_means) / 6)
+    observed = sum(cat_means)
+    flips = [sum(m * (1 if (k >> i) & 1 else -1) for i, m in enumerate(cat_means)) for k in range(64)]
+    assert r.p == pytest.approx(sum(f >= observed - 1e-12 for f in flips) / 64)
 
 
 def test_r1_with_one_negative_category_reads_its_exact_sign_flip_p():
@@ -229,7 +239,17 @@ def test_tokens_composed_read_unread_when_any_pass_lacks_a_count():
     s = dataclasses.replace(s, composed_tokens=tokens)
     out = readings(s, SPEC)
     assert None in (out.tokens_composed[Arm.JOURNAL.value].mean, out.tokens_composed[Arm.NOTES.value].mean)
-    assert out.r2.verdict == UNEARNED
+    assert out.r2.verdict is None
+
+
+def test_r2_reads_unread_not_unearned_when_tokens_composed_are_unread():
+    s = make_stores()                                  # composed_tokens left at its default: no counts stored
+    plant(s, [0.1, 0.2, 0.05, 0.3, 0.15, 0.12], baseline=Arm.NOTES)
+    out = readings(s, SPEC)
+    assert out.r2.interval is not None and out.r2.p == pytest.approx(1 / 64)
+    assert out.r2.verdict is None
+    r2 = next(line for line in lines(out) if line.startswith("R2"))
+    assert "unread (tokens composed unread)" in r2 and UNEARNED not in r2
 
 
 def flip(events, sid, old, new, cause, round_):
@@ -343,6 +363,77 @@ def test_hook_transfer_counts_held_out_requests_an_s_star_hook_fires_on():
     h = readings(s, SPEC).hook_transfer
     assert h.s_star == ("D-0001",) and h.requests_fired == ("H-01",)
     assert readings(make_stores(requests=[]), SPEC).hook_transfer.population is None
+
+
+def _admitted_canvas_journal():
+    j = MemoryJournal()
+    j.draft(dec("D-0001", status=C, fires=("canvas",)))
+    flip(ev := MemoryEventLog(), "D-0001", C, A, FlipCause.GATE_ADMIT, 1)
+    j.flip(ev.flips()[0], "admit")
+    return j
+
+
+def test_hook_transfer_reads_tags_from_the_vocabulary_and_untagged_held_out_requests_read_unread():
+    # Request.tags are empty on held-out requests before tagging; the vocabulary holds the tags.
+    reqs = [Request(f"H-0{i}", "r", frozenset(), {}, {Regime.R2: ()}, held_out=True) for i in range(1, 7)]
+    untagged = make_stores(journal=_admitted_canvas_journal(), requests=reqs, tagged=False)
+    h = readings(untagged, SPEC).hook_transfer
+    assert h.population is None and h.requests_fired == ()
+    assert h.untagged == tuple(r.id for r in reqs)
+    assert any("Hook transfer: unread (6 held-out requests untagged)" == x for x in lines(readings(untagged, SPEC)))
+    no_vocab = dataclasses.replace(untagged, tags=None)
+    assert readings(no_vocab, SPEC).hook_transfer.population is None
+    tagged = make_stores(journal=_admitted_canvas_journal(), requests=reqs, tagged=False)
+    tagged.tags.set_tags({"H-01": frozenset({"canvas"}), **{r.id: frozenset({"form"}) for r in reqs[1:]}})
+    h = readings(tagged, SPEC).hook_transfer
+    assert h.population == "6 held-out requests, 1 decisions in S*" and h.requests_fired == ("H-01",)
+
+
+def test_one_untagged_held_out_request_leaves_hook_transfer_unread():
+    reqs = [held_request("H-01", ("canvas",)), held_request("H-02", ("form",))]
+    s = make_stores(journal=_admitted_canvas_journal(), requests=reqs, tagged=False)
+    s.tags.set_tags({"H-01": frozenset({"canvas"})})
+    h = readings(s, SPEC).hook_transfer
+    assert h.population is None and h.untagged == ("H-02",)
+
+
+@pytest.mark.parametrize("decision_id", ["D-0002", "D-9999"])
+def test_a_journal_arm_pass_composing_a_decision_outside_s_star_raises(decision_id):
+    j = _admitted_canvas_journal()
+    j.draft(dec("D-0002", status=C, fires=("form",)))      # a candidate: outside S*
+    s = make_stores(journal=j)
+    plant(s, [0.1] * 6)
+    add(s, "H-01", Arm.JOURNAL, 9, 0.4, decisions=("D-0001", decision_id))
+    with pytest.raises(ValueError, match="outside S"):
+        readings(s, SPEC)
+
+
+def test_a_journal_arm_pass_composing_s_star_is_accepted():
+    s = make_stores(journal=_admitted_canvas_journal())
+    plant(s, [0.1] * 6)
+    add(s, "H-01", Arm.JOURNAL, 9, 0.4, decisions=("D-0001",))
+    assert readings(s, SPEC).r1.n_categories == 6
+
+
+def test_r1_improves_with_an_interval_containing_zero_says_so_beside_the_word():
+    s = make_stores()
+    plant(s, [0.9, 0.01, 0.01, 0.01, 0.01, 0.01])
+    out = readings(s, SPEC)
+    assert out.r1.verdict == IMPROVES and out.r1.interval[0] < 0     # the pre-registered p threshold rules
+    r1 = next(line for line in lines(out) if line.startswith("R1"))
+    assert r1.endswith("improves (p <= readout.r1_p; the interval contains 0)")
+
+
+def test_r2_line_carries_the_token_ratio_and_the_not_wholly_below_zero_reading():
+    s = make_stores()
+    plant(s, [-0.2, -0.3, -0.25, -0.2, -0.22, -0.28], baseline=Arm.NOTES)
+    s = dataclasses.replace(s, composed_tokens=_tokens_for(s, 300, 8000))
+    r2 = next(line for line in lines(readings(s, SPEC)) if line.startswith("R2"))
+    assert "journal 300.0, notes 8000.0, ratio 0.037" in r2
+    assert "interval not wholly below 0" in r2 and r2.endswith(UNEARNED)
+    unread = make_stores()
+    plant(unread, [-0.2] * 6, baseline=Arm.NOTES)
+    assert "ratio unread" in next(x for x in lines(readings(unread, SPEC)) if x.startswith("R2"))
 
 
 def test_every_reading_prints_with_population_and_interval_or_p():
