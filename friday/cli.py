@@ -455,7 +455,11 @@ def _telemetry(args: argparse.Namespace) -> int:
 def _web(args: argparse.Namespace) -> int:
     from web.app import main as web_main
 
-    web_main(args.rest)
+    rest = list(args.rest)
+    run_paths = {"--root", "--db", "--export", "--artifacts"}
+    if args.spec != "run.yml" or any(a.split("=")[0] in run_paths for a in rest):
+        rest = ["--spec", args.spec, *rest]     # the run's own spec; bare `friday web` keeps the fixtures'
+    web_main(rest)
     return 0
 
 
@@ -512,7 +516,11 @@ def main(argv: list[str] | None = None) -> int:
         p = sub.add_parser(name)
         _root_args(p)
         p.set_defaults(fn=fn)
-    args = parser.parse_args(argv)
+    args, extra = parser.parse_known_args(argv)
+    if extra and args.cmd != "web":
+        parser.error(f"unrecognized arguments: {' '.join(extra)}")
+    if args.cmd == "web":                     # web.app parses its own flags (--root, --db, ...)
+        args.rest = [*extra, *args.rest]
     return int(args.fn(args))
 
 

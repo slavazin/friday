@@ -2,6 +2,7 @@
 only by known pass id, from inside their folder, under the strict CSP; no prompt, reply or key reaches a response."""
 
 import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -157,3 +158,33 @@ def test_missing_export_and_log_read_as_not_written_not_as_empty_figures(tmp_pat
     t = c.get("/api/telemetry").json()
     assert t["available"] is False and t["rows"] == []
     assert c.get("/apps/r01-C-101-journal-0").status_code == 404
+
+
+def _resolve(argv):
+    import argparse
+
+    from web.app import resolve_paths
+    ap = argparse.ArgumentParser()
+    for flag in ("--spec", "--root", "--db", "--export", "--artifacts"):
+        ap.add_argument(flag, type=Path, default=None)
+    return resolve_paths(ap.parse_args(argv))
+
+
+def test_a_real_run_root_reads_the_repository_run_spec_not_the_fixtures(tmp_path):
+    from web.app import FIXTURES, REPO_SPEC
+    spec, db, export, artifacts = _resolve(["--root", str(tmp_path)])
+    paths = load_spec(REPO_SPEC).paths
+    assert spec == REPO_SPEC and db == tmp_path / paths.db and export == tmp_path / "export.json"
+    assert artifacts == tmp_path / paths.artifacts
+    assert _resolve(["--db", str(tmp_path / "x.db"), "--export", "e", "--artifacts", "a"])[0] == REPO_SPEC
+    assert _resolve([])[0] == FIXTURES / "run.yml"
+
+
+def test_friday_web_forwards_the_spec_when_a_run_path_is_given(monkeypatch):
+    import web.app
+    from friday import cli
+    seen = []
+    monkeypatch.setattr(web.app, "main", lambda argv: seen.append(argv))
+    cli.main(["--spec", "run.yml", "web", "--root", "runs/x"])
+    cli.main(["web"])
+    assert seen == [["--spec", "run.yml", "--root", "runs/x"], []]

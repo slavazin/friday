@@ -88,7 +88,8 @@ export class RunState {
         return;
       }
       if (row.name === "readout") {
-        const state = closing ? "done" : "running";
+        // run_readout opens a second `readout` span after the runner's closed: a done readout stays done.
+        const state = closing || this.readoutSpan?.state === "done" ? "done" : "running";
         this.readoutSpan = { state, round: n ?? this.readoutSpan?.round ?? null };
         if (n !== null && n !== undefined) { const r = this.round(n); r.hasSpan = false; r.readout = true; }
         for (const r of this.rounds.values()) if (r.readout) r.state = state;

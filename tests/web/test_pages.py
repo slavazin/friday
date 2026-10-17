@@ -329,3 +329,50 @@ def test_gallery_reads_cells_from_pass_spans_and_reads_unread_without_the_log(br
         srv.close()
     conn = sqlite3.connect(P["db"])
     assert conn.execute("SELECT COUNT(*) FROM telemetry WHERE name='pass' AND attrs LIKE '%cell%'").fetchone()[0] > 0
+
+
+def test_gallery_filters_by_a_cell_the_pass_span_records_as_a_list(page, served):
+    conn = sqlite3.connect(P["db"])
+    rows = conn.execute("SELECT pass_id, attrs FROM telemetry WHERE name='pass' AND kind='span'").fetchall()
+    cells = {pid: json.loads(a)["cell"] for pid, a in rows if json.loads(a).get("cell")}
+    assert cells and all(isinstance(c, list) for c in cells.values())
+    doc = json.loads(P["export"].read_text())
+    built = {p["id"] for p in doc["passes"] if p.get("artifact_path")}
+    family, mode = next(c for pid, c in cells.items() if pid in built)
+    want = sum(1 for pid, c in cells.items() if pid in built and c == [family, mode])
+    open_tab(page, served.url, "gallery")
+    options = page.eval_on_selector_all("#page-gallery select[data-filter='cell'] option",
+                                        "els => els.map(e => e.value)")
+    assert len(options) == len(set(options)) and f"{family} / {mode}" in options
+    page.select_option("#page-gallery select[data-filter='cell']", f"{family} / {mode}")
+    assert f"showing {want} apps" in page.inner_text("#page-gallery .page-head")
+    assert want > 0
+
+
+def test_live_view_keeps_a_finished_readout_done_when_a_second_readout_span_opens(browser, tmp_path):
+    db = tmp_path / "live.db"
+    conn = connect_telemetry(db, busy_timeout_ms=1000)
+    tel = SqliteTelemetry(conn, Scope("main"))
+    srv = Served(P["spec"], db, P["export"], P["artifacts"])
+    opened = []
+    try:
+        with tel.span("readout", passes=1, reps=1):
+            pa = tel.scoped(round=4, pass_id="ro-C-901-empty-0")
+            with pa.span("pass", request_id="C-901", arm="empty"):
+                pass
+            pa.event("pass.outcome", outcome="scored", error="")
+        second = tel.span("readout", passes=0, reps=1)
+        second.__enter__()          # run_readout's own readout span, still open
+        opened.append(second)
+        ctx = browser.new_context(viewport=VIEW)
+        page = ctx.new_page()
+        open_tab(page, srv.url, "live")
+        page.wait_for_selector("#page-live .card[data-pass='ro-C-901-empty-0']")
+        page.wait_for_timeout(500)
+        assert "finished" in page.inner_text("#page-live .round-sub")
+        ctx.close()
+    finally:
+        for sp in opened:
+            sp.__exit__(None, None, None)
+        srv.close()
+        conn.close()

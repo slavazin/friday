@@ -713,7 +713,7 @@ def _pass_script(s: _Script, tel: Any, pl: PassPlan, t: float, spec: RunSpec, re
 
 def _pass_attrs(pl: PassPlan) -> dict[str, Any]:
     c = pl.p.composition
-    return {"request_id": pl.p.category, "cell": f"{pl.cat.family} / {pl.cat.mode}", "arm": pl.p.arm.value,
+    return {"request_id": pl.p.category, "cell": [pl.cat.family, pl.cat.mode], "arm": pl.p.arm.value,
             "regime": pl.p.regime.value, "pair_slot": pl.p.pair_slot, "exposed": c.exposed, "ablated": c.ablated,
             "composed": list(c.decision_ids), "notes": c.notes, "worker_model": WORKER_MODEL}
 
