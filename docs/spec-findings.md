@@ -96,6 +96,13 @@ The listing carries per-model prices, so cost is computed from it. A live struct
   one round to show forgetting. At the stop, D-0001 had 6 exposure deltas (mean d +0.025) and D-0002 had 9
   (mean d +0.071); neither reached 1/alpha.
 
+- **Main run readout (16:26): S\* was empty, so R1 and R2 read noise.** No decision was admitted, so the journal
+  arm composed nothing and its prompt equalled the empty arm's. R1's mean 0.082 (p 0.17, bound -0.009,
+  unresolved) is therefore same-prompt noise: a useful calibration, not an effect. R2 met its rule (bound +0.001 >
+  -0.05; tokens 0 < 42) only vacuously. Rule gap to close: R2's "leaner than shared notes" should read unread
+  when S\* is empty, since nothing was composed to be lean. Until then the demo states it as "not shown worse,
+  with nothing composed".
+
 ## Open questions
 
 1. **Coordinator tool calling.** `/v1/models` does not tag `openai/gpt-oss-120b` with tool calling. Verify
