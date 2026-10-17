@@ -1,10 +1,12 @@
-"""`friday` command line: doctor, steer, run."""
+"""`friday` command line: doctor, mint-goals, tag-round, steer, run."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+from pathlib import Path
 
 from friday.config import load_spec
 
@@ -27,6 +29,98 @@ def _doctor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _goal_paths(spec, goals_dir: str | None) -> tuple[Path, Path, Path, Path]:
+    """(stream, held-out, tags, stubs dir): run.yml's paths, or the same file names under `goals_dir`."""
+    s = spec.stream
+    paths = [Path(s.path), Path(s.held_out_path), Path(s.tags_path)]
+    if goals_dir is not None:
+        paths = [Path(goals_dir) / p.name for p in paths]
+    return paths[0], paths[1], paths[2], paths[0].parent / "stubs"
+
+
+def _bound_client(spec, roles: tuple[str, ...]):
+    """A metered Crusoe client with `roles` bound to their resolved pins, and its spend log."""
+    from friday.adapters.crusoe import CrusoeClient
+    from friday.adapters.memory import MemorySpendLog
+    from friday.app.pins import resolve
+
+    spend = MemorySpendLog()
+    client = CrusoeClient(spec.models, spec.transport, spend)
+    resolved = resolve({r: spec.models.roles[r] for r in roles}, client.list_models())
+    client.bind({r: res.model for r, res in resolved.items()})
+    return client, spend
+
+
+def _mint_goals(args: argparse.Namespace) -> int:
+    """Mints the goal stream and held-out set (or only the `--only` ids) and writes them with their stubs."""
+    from friday.adapters import goals_json
+    from friday.adapters.playwright_browser import PlaywrightBrowser
+    from friday.app.goals import build_minter
+    from friday.roles.goal_minter import MintedGoals, plan_slots
+    from friday.roles.prompts import PromptBook
+
+    spec = load_spec(args.spec)
+    stream_p, held_p, _, stubs = _goal_paths(spec, args.goals_dir)
+    for p in (stream_p, held_p):
+        if p.exists():
+            raise SystemExit(f"{p} exists; minted requests are frozen")
+    client, spend = _bound_client(spec, ("goal_minter",))
+    browser = PlaywrightBrowser(spec.eval.action_timeout_ms, spec.eval.load_timeout_ms)
+
+    def write_stub(request_id: str, html: str) -> str:
+        return str(goals_json.write_stub(stubs, request_id, html))
+
+    def sink(minted: MintedGoals) -> None:
+        for rid, html in minted.stubs.items():
+            goals_json.write_stub(stubs, rid, html)
+        goals_json.write_requests(stream_p, minted.stream)
+        goals_json.write_requests(held_p, minted.held_out)
+        (stream_p.parent / "mint_report.json").write_text(json.dumps(minted.report, indent=1) + "\n")
+
+    try:
+        minter = build_minter(spec, client, PromptBook(Path(spec.paths.prompts)), browser, write_stub, sink)
+        if args.only:
+            wanted = set(args.only.split(","))
+            slots = [s for s in plan_slots(minter.params) if s.id in wanted]
+            if {s.id for s in slots} != wanted:
+                raise SystemExit(f"unknown ids: {sorted(wanted - {s.id for s in slots})}")
+            sink(minter.mint_requests(slots))
+        else:
+            minter.mint()
+    finally:
+        browser.close()
+        print(f"spend ${spend.total_usd():.4f} over {len(spend.rows)} calls")
+    print(f"wrote {stream_p}, {held_p}, {stubs}/")
+    return 0
+
+
+def _tag_round(args: argparse.Namespace) -> int:
+    """Tags one round's requests (or the held-out set, minting nothing) and stores tags and glosses."""
+    from friday.adapters.goals_json import JsonGoalSource, JsonTagVocabulary
+    from friday.app.goals import build_tagger, tag_held_out, tag_round
+    from friday.roles.prompts import PromptBook
+
+    spec = load_spec(args.spec)
+    stream_p, held_p, tags_p, _ = _goal_paths(spec, args.goals_dir)
+    vocab = JsonTagVocabulary(tags_p)
+    source = JsonGoalSource(stream_p, held_p, vocab)
+    client, spend = _bound_client(spec, ("tagger",))
+    tagger = build_tagger(spec, client, PromptBook(Path(spec.paths.prompts)))
+    try:
+        if args.which == "held-out":
+            tags = tag_held_out(tagger, source, vocab, spec.run.rounds)
+            new = []
+        else:
+            tags, new = tag_round(tagger, source, vocab, int(args.which), spec.stream.max_new_tags)
+    finally:
+        print(f"spend ${spend.total_usd():.4f} over {len(spend.rows)} calls")
+    for rid in sorted(tags):
+        print(f"{rid}: {', '.join(sorted(tags[rid]))}")
+    for g in new:
+        print(f"minted {g.tag}: {g.gloss}")
+    return 0
+
+
 def _steer(args: argparse.Namespace) -> int:
     raise NotImplementedError("steer: writes a Steer event applied at the next round close")
 
@@ -40,6 +134,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--spec", default="run.yml")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("doctor").set_defaults(fn=_doctor)
+    mg = sub.add_parser("mint-goals")
+    mg.add_argument("--goals-dir", default=None, help="write here instead of run.yml's stream paths")
+    mg.add_argument("--only", default=None, help="comma-separated request ids to mint (a smoke run)")
+    mg.set_defaults(fn=_mint_goals)
+    tr = sub.add_parser("tag-round")
+    tr.add_argument("which", help="a round number, or held-out")
+    tr.add_argument("--goals-dir", default=None)
+    tr.set_defaults(fn=_tag_round)
     st = sub.add_parser("steer")
     st.add_argument("decision_id")
     st.add_argument("action", choices=["retire", "veto", "note"])
