@@ -26,13 +26,17 @@ export class ReplayPage {
     this.speedBtns = SPEEDS.map((sp) => h("button", { class: "btn seg", type: "button", "data-speed": String(sp),
       onclick: () => this.setSpeed(sp) }, `${sp}×`));
     this.roundBtns = h("div", { class: "seg-group" });
+    this.stopAt = null;           // when set, play freezes here (the end of the round being replayed)
+    this.current = null;          // the round (or "readout") last jumped to
+    this.restartBtn = h("button", { class: "btn seg", type: "button", title: "replay this round from its start",
+      onclick: () => (this.current !== null ? this.jumpTo(this.current) : this.seek(this.t0)) }, "↺ Restart round");
     this.slider = h("input", { type: "range", min: "0", max: "1000", value: "0", class: "scrub",
-      "aria-label": "replay position", oninput: (e) => this.seek(this.t0 + (this.t1 - this.t0) * (e.target.value / 1000)) });
+      "aria-label": "replay position", oninput: (e) => { this.stopAt = null; this.seek(this.t0 + (this.t1 - this.t0) * (e.target.value / 1000)); } });
     this.clock = h("div", { class: "replay-clock" });
     this.stateLabel = h("div", { class: "replay-state muted" });
     const bar = h("div", { class: "replay-bar" }, this.playBtn,
       h("div", { class: "seg-group" }, h("span", { class: "muted seg-label" }, "speed"), ...this.speedBtns),
-      h("div", { class: "seg-group" }, h("span", { class: "muted seg-label" }, "jump to"), this.roundBtns),
+      h("div", { class: "seg-group" }, h("span", { class: "muted seg-label" }, "round"), this.roundBtns, this.restartBtn),
       this.slider, this.clock, this.stateLabel);
     this.view = new RoundView(h("div"), cfg, { title: "Replay of the recorded run",
       onPick: (n) => this.jumpTo(n) });
@@ -72,6 +76,16 @@ export class ReplayPage {
       const st = ro && t >= ro.t && !roundSpans.has(r.round) ? ro : this.starts.get(r.round);
       if (st && st.jump === undefined) st.jump = Math.max(st.t, t - 1e-6);
     }
+    // Round ends: the last close of the round finishing (a resumed run may open a round twice); the readout's
+    // end is its last span closing. Replaying a round freezes there, on the round's final state.
+    this.ends = new Map();
+    for (const { t, r } of this.events) {
+      if (r.kind !== "span" || r.ended_at === null) continue;
+      if (r.name === "close" && r.round !== null) this.ends.set(r.round, t);
+      if (r.name === "readout") this.ends.set("readout", t);
+    }
+    // a round past run.rounds was started and stopped without a close (the run was cut): not offered
+    for (const n of [...this.starts.keys()]) if (n !== "readout" && n > this.cfg.rounds && !this.ends.has(n)) this.starts.delete(n);
     this.roundBtns.replaceChildren(...[...this.starts].map(([n, { readout }]) =>
       h("button", { class: "btn seg", type: "button", "data-jump": String(n), onclick: () => this.jumpTo(n) },
         readout ? "readout" : `round ${n}`)));
@@ -100,7 +114,16 @@ export class ReplayPage {
       if (!this.playing) return;
       const dt = Math.min(0.25, (now - last) / 1000);   // a background tab resumes without a jump
       last = now;
-      this._advance(this.t + dt * this.speed);
+      const next = this.t + dt * this.speed;
+      if (this.stopAt !== null && next >= this.stopAt) {      // freeze on the round's last moment
+        this._advance(this.stopAt + 1e-6);
+        this.pause();
+        this.root.dataset.state = "frozen";
+        setText(this.stateLabel, `${this.current === "readout" ? "readout" : `round ${this.current}`} finished · frozen on its last moment`);
+        this.stopAt = null;
+        return;
+      }
+      this._advance(next);
       if (this.i >= this.events.length) {
         this.pause();
         this.root.dataset.state = "ended";
@@ -122,12 +145,18 @@ export class ReplayPage {
 
   stop() { this.pause(); }
 
+  // Restarts round `n` (or "readout") from its start and plays it, freezing when the round ends.
   jumpTo(n) {
     const key = n !== "readout" && this.state?.rounds.get(n)?.readout ? "readout" : n;
     const st = this.starts?.get(key);
     if (!st) return;
     this.pick = null;
-    this.seek(st.jump ?? st.t);
+    this.pause();
+    this.current = key;
+    this.seek(st.t);
+    this.stopAt = this.ends?.get(key) ?? null;
+    for (const b of this.roundBtns.children) setClass(b, "on", b.dataset.jump === String(key));
+    this.play();
   }
 
   // Rebuilds the state from the first row through time `t`.

@@ -203,7 +203,14 @@ export class RoundView {
       const ph = r?.close.phases.get(p);
       const state = ph?.state ?? "pending";
       for (const s of ["pending", "running", "done", "failed"]) setClass(el, `is-${s}`, state === s);
-      const counts = ph ? Object.entries(ph.counts).map(([k, v]) => `${k.replaceAll("_", " ")} ${v}`).join(" · ") : "";
+      // the runner stores a round's observations just before its close, which then counts them as "rerun":
+      // show them as the round's observations
+      const shown = ph ? { ...ph.counts } : {};
+      if ("observations_rerun" in shown) {
+        shown.observations = (shown.observations ?? 0) + shown.observations_rerun;
+        delete shown.observations_rerun;
+      }
+      const counts = ph ? Object.entries(shown).map(([k, v]) => `${k.replaceAll("_", " ")} ${v}`).join(" · ") : "";
       setText(count, state === "done" || state === "failed" ? counts || "—" : state === "running" ? "running" : "");
     }
   }
