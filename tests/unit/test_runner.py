@@ -283,6 +283,10 @@ def test_readout_builds_held_out_requests_only_in_three_arms_and_never_reach_the
     v = [p for p in w.stores.passes.passes() if p.category == "H-0001"]
     assert len(v) == len(tasks) and all(p.pair_slot is None for p in v)
     assert all(w.stores.passes.eval_of(p.id) is not None for p in v)
+    spans = {r.scope.pass_id: r for r in w.telemetry.spans(name_prefix="pass") if r.name == "pass"}
+    for p in v:                                       # the live view and replay read readout passes from these
+        assert spans[p.id].scope.round == p.round and spans[p.id].attrs["readout"] is True
+    assert {r.scope.pass_id for r in w.telemetry.rows(name_prefix="pass.loss")} >= {p.id for p in v}
     assert {d: list(w.stores.ledger.deltas(d)) for d in before} == before
     assert list(w.stores.judge.fires_of("D-0001")) == fires_before
     notes = [p for p in v if p.arm is Arm.NOTES]

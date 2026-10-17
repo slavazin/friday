@@ -4,7 +4,7 @@ run:
   seed: 20261017
   rounds: 3
   spend_cap_usd: 30.0
-  max_parallel_passes: 16
+  max_parallel_passes: 32
   convergence_rounds: 3
   transport_reruns: 1
   ping_transport_share: 0.3333
@@ -164,6 +164,9 @@ transport:
   - 502
   - 503
   - 504
+  - 520
+  - 522
+  - 524
   request_timeout_s: 180
 json:
   reasks: 1

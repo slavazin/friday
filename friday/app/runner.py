@@ -265,6 +265,26 @@ class ReadoutTask:
 
 
 def run_readout_pass(task: ReadoutTask, env: pipeline.PassEnv) -> Pass:
+    """`_run_readout_pass` inside its `pass` span, with the pass metrics and outcome a training pass writes, so the
+    live view and the replay show the readout (docs/telemetry.md: readout rows carry the readout's Pass.round)."""
+    c = task.composition
+    with pipeline.narrowed(env.telemetry, round_=task.round_, pass_id=task.pass_id) as t, \
+            t.span("pass", request_id=task.request.id, arm=task.arm.value, regime=task.regime.value,
+                   readout=True, composed=list(c.decision_ids), notes=c.notes) as span:
+        pass_ = _run_readout_pass(task, env)
+        span.set(worker_model=pass_.worker)
+        if pass_.transport_failed:
+            t.event("pass.outcome", outcome="transport_failed", error=pass_.failed)
+            return pass_
+        report = env.passes.eval_of(pass_.id)
+        for name in ("loss", "A", "R", "P", "H", "C", "Q"):
+            value = getattr(report, name) if report is not None else None
+            t.metric(f"pass.{name}", None if value is None else float(value), "score")
+        t.event("pass.outcome", outcome="scored", error="")
+        return pass_
+
+
+def _run_readout_pass(task: ReadoutTask, env: pipeline.PassEnv) -> Pass:
     """Builds (with the self-repair rule) and evaluates one readout pass; writes its pass and eval rows."""
     out_dir = env.artifacts / task.pass_id
     out_dir.mkdir(parents=True, exist_ok=False)
