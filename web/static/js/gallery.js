@@ -72,6 +72,7 @@ export class GalleryPage {
     this.root = root;
     this.byId = new Map(doc.passes.map((p) => [p.id, p]));
     this.filters = { cell: "", arm: "", round: "" };
+    this.group = "request";                   // "request": by request id; "cell": a cell's apps forward through rounds
     this.io = null;
     this._build();
   }
@@ -95,7 +96,11 @@ export class GalleryPage {
           term("eval"), " scored it. The caption is the app's own ", term("how-to"), "; the chips are the ",
           term("decision", "decisions"), " composed into its prompt. Click a decision to see the passes it changed, ",
           "each beside its ", term("pair"), " partner.")),
-      h("div", { class: "filters" }, sel("cell", "cell", cells.map((c) => [c, c])),
+      h("div", { class: "filters" },
+        h("label", { class: "filter" }, h("span", { class: "muted" }, "group by"),
+          h("select", { "data-group": "", onchange: (e) => { this.group = e.target.value; this._grid(); } },
+            h("option", { value: "request" }, "request"), h("option", { value: "cell" }, "cell timeline"))),
+        sel("cell", "cell", cells.map((c) => [c, c])),
         sel("arm", "arm", arms.map((a) => [a, a])), sel("round", "round", rounds.map((r) => [r, r])), this.count));
     this.grid = h("div", { class: "gallery-grid" });
     this.drawer = h("aside", { class: "drawer", hidden: true });
@@ -110,10 +115,16 @@ export class GalleryPage {
     const shown = this.doc.passes.filter((p) => p.artifact_path
       && (!f.cell || this.cells.get(p.id) === f.cell) && (!f.arm || p.arm === f.arm)
       && (!f.round || this._roundLabel(p) === f.round));
-    // by request id (G-NNN, then the held-out H-NN), then round, then arm and pair slot
+    // request: by request id (G-NNN, then the held-out H-NN), then round, arm and pair slot.
+    // cell timeline: by cell, then round (readout last), then request, arm and pair slot, so one kind of app
+    // reads forward through the rounds as decisions accrue.
     const cmp = (x, y) => (x < y ? -1 : x > y ? 1 : 0);
-    shown.sort((a, b) => cmp(a.category, b.category) || a.round - b.round || cmp(a.arm, b.arm)
-      || (a.pair_slot ?? 9) - (b.pair_slot ?? 9) || cmp(a.id, b.id));
+    const tail = (a, b) => cmp(a.arm, b.arm) || (a.pair_slot ?? 9) - (b.pair_slot ?? 9) || cmp(a.id, b.id);
+    const roundKey = (p) => (p.readout ? 1e6 : p.round);
+    const cellOf = (p) => this.cells.get(p.id) ?? "~ cell unread";
+    shown.sort(this.group === "cell"
+      ? (a, b) => cmp(cellOf(a), cellOf(b)) || roundKey(a) - roundKey(b) || cmp(a.category, b.category) || tail(a, b)
+      : (a, b) => cmp(a.category, b.category) || a.round - b.round || tail(a, b));
     this.shown = shown;
     this.count.textContent = `showing ${shown.length} apps`;
     this.io?.disconnect();
@@ -121,7 +132,21 @@ export class GalleryPage {
       this.grid.replaceChildren(emptyState("No app matches these filters.", "Clear a filter to see more."));
       return;
     }
-    this.grid.replaceChildren(...shown.map((p) => this._card(p)));
+    if (this.group === "cell") {            // a header row per (cell, round)
+      const out = [];
+      let last = null;
+      for (const p of shown) {
+        const key = `${cellOf(p)} · ${this._roundLabel(p)}`;
+        if (key !== last) {
+          out.push(h("div", { class: "group-head" }, h("b", {}, cellOf(p)), h("span", { class: "muted" }, ` · ${this._roundLabel(p)}`)));
+          last = key;
+        }
+        out.push(this._card(p));
+      }
+      this.grid.replaceChildren(...out);
+    } else {
+      this.grid.replaceChildren(...shown.map((p) => this._card(p)));
+    }
     this.io = lazyLoad(this.grid, this.scroller);
   }
 

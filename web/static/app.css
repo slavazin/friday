@@ -149,6 +149,7 @@ button.chip:hover { border-color: var(--accent); }
 .gallery-body { flex: 1 1 auto; min-height: 0; display: flex; gap: 16px; }
 .gallery-scroll { flex: 1 1 auto; overflow: auto; padding-right: 4px; }
 .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+.group-head { grid-column: 1 / -1; padding: 10px 2px 0; font-size: 15px; border-bottom: 1px solid var(--line); }
 .app-card { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; display: flex; flex-direction: column; transition: border-color .2s, transform .2s; }
 .app-card:hover { border-color: #3a4256; transform: translateY(-2px); }
 .frame-wrap { position: relative; height: 200px; background: #000; overflow: hidden; }
