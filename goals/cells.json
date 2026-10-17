@@ -689,5 +689,9 @@
    "text tool",
    "click or tap"
   ]
+ },
+ "remap": {
+  "rounds": "stream rounds 1-3 kept; minted rounds 8-11 became 4-7; minted rounds 4-7 and 12-14 are not in the run",
+  "reason": "pilot timing fit to the 17:00 deadline"
  }
 }

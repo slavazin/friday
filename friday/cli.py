@@ -43,7 +43,7 @@ def _goal_paths(spec, goals_dir: str | None) -> tuple[Path, Path, Path, Path]:
     return paths[0], paths[1], paths[2], paths[0].parent / "stubs"
 
 
-def _telemetry(spec):
+def _open_telemetry(spec):
     """This process's run telemetry log over `paths.db` (docs/telemetry.md)."""
     from friday.adapters.telemetry import open_run_telemetry
 
@@ -81,7 +81,7 @@ def _mint_goals(args: argparse.Namespace) -> int:
     for p in (stream_p, held_p):
         if p.exists():
             raise SystemExit(f"{p} exists; minted requests are frozen")
-    telemetry = _telemetry(spec)
+    telemetry = _open_telemetry(spec)
     client, spend = _bound_client(spec, ("goal_minter",), telemetry)
     browser = PlaywrightBrowser(spec.eval.action_timeout_ms, spec.eval.load_timeout_ms, telemetry=telemetry)
 
@@ -145,7 +145,7 @@ def _tag_round(args: argparse.Namespace) -> int:
     stream_p, held_p, tags_p, _ = _goal_paths(spec, args.goals_dir)
     vocab = JsonTagVocabulary(tags_p)
     source = JsonGoalSource(stream_p, held_p, vocab)
-    telemetry = _telemetry(spec)
+    telemetry = _open_telemetry(spec)
     client, spend = _bound_client(spec, ("tagger",), telemetry)
     tagger = build_tagger(spec, client, PromptBook(Path(spec.paths.prompts)))
     try:

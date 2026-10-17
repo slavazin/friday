@@ -12,7 +12,7 @@ TEXT = (ROOT / "run.yml").read_text()
 
 def test_run_yml_loads_and_validates():
     spec = load_spec(ROOT / "run.yml")
-    assert spec.gate.alpha == 0.3 and spec.composition.cap == 6 and spec.drift.round == 8
+    assert spec.gate.alpha == 0.3 and spec.composition.cap == 6 and spec.drift.round == 4
     assert spec.models.roles["lens_minter"] == spec.models.roles["nominator"]
     assert len(spec.spec_hash) == 16
 

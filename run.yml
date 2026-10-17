@@ -4,9 +4,9 @@
 
 run:
   seed: 20261017
-  rounds: 14
+  rounds: 7                    # fitted to the 17:00 deadline from the pilot round (docs/spec-findings.md)
   spend_cap_usd: 30.0
-  max_parallel_passes: 16
+  max_parallel_passes: 32      # every pass of a round starts at once; the round takes about its slowest pass
   convergence_rounds: 3        # halt: quiet rounds after the drift round (SPEC § 11)
   transport_reruns: 1          # a pass failed for transport is re-run at most this many times
   ping_transport_share: 0.3333 # ping when more than this share of a round's passes failed after re-runs
@@ -35,7 +35,7 @@ stream:                        # the goal stream and the held-out set (SPEC § 4
     R2: [0.15, 0.5, 0.15, 0.1, 0.1]
 
 drift:
-  round: 8
+  round: 4
   constraint: >-
     It must work on a phone screen: at 375 px wide every control is visible and usable
     without horizontal scrolling, and touch or click operates it.
