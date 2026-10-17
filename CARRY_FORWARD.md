@@ -82,9 +82,10 @@ Every slice that adds a `run.yml` consumer removes that knob from `PENDING` in
 | S12 | Dry run, 3 rounds | 14:15–14:30 | S11 |
 | S13 | Full run | 14:30–15:30 | S12 |
 | S14 | Readout runner | 14:30–15:30 | S6 |
-| S15 | Gallery, timeline, demo page and script | 14:30–16:15 | S6 |
+| S15 | Showcase UI: live round view, gallery, timeline, readout | 13:30–16:15 | S14 export schema; S18 for live data |
 | S16 | Critic run (optional) | 15:30–16:15 | S13 |
 | S17 | Tier-2 language read, video, submission | 16:15–17:00 | S14, S15 |
+| S18 | Telemetry wiring through every step | 13:30–14:15 | S1, S4, S6, S7, S10 |
 
 ### S1. Probe suite, how-to check, repair chain
 
@@ -306,15 +307,43 @@ Compute R1–R4 and the descriptive readings of SPEC § 12 from the stores (`alg
 **Done when:** every pre-registered reading prints with its population and its interval or p, the failed
 ones included.
 
-### S15. Gallery, timeline, demo
+### S15. Showcase UI
 
-`web/`: plain HTML over the JSON export, served by FastAPI (`uv sync --extra web`). Order of the page:
-1. the gallery, each app captioned by its how-to;
-2. one live pass;
-3. the timeline;
-4. the readout (SPEC § 13).
+`web/`: a FastAPI app (`uv sync --extra web`) and static pages that show the run as it learns. It reads
+the S14 export (`docs/export-schema.md`) for settled figures and the telemetry log (`docs/telemetry.md`)
+for live state. Pages, in demo order:
+1. **Live round:** the passes in flight (open `pass` spans and their eval phases), each finished pass's
+   loss, the round close's phases as they run, and spend against the cap. It polls the log every
+   `telemetry.live_poll_ms`.
+2. **Gallery:** each built app in an iframe, captioned by its how-to, filterable by cell and arm.
+3. **Timeline:** per decision, its wealth path against the 1/α line and its status flips; per lens, its
+   value history; the drift round marked.
+4. **Readout:** the SPEC § 12 readings with their populations and intervals, the failed ones included.
 
-**Don't:** coin a UI synonym for a vocabulary term (SPEC § 2, Demo words).
+The prebuild starts once the export schema and the telemetry catalogue are fixed, against fixture
+documents made from both; the dry run (S12) then replaces the fixtures with a real database.
+
+**Done when:** every page renders from fixtures and from the dry-run database, with no figure typed by
+hand.
+
+**Don't:** coin a UI synonym for a vocabulary term (SPEC § 2, Demo words), or show a prompt, a reply or a
+key.
+
+### S18. Telemetry wiring
+
+Emit every row in `docs/telemetry.md` from the step it times. The step owns the call:
+- `CrusoeClient.chat` opens `model.call` and records attempts, retry statuses and backoff;
+- the pass process opens `pass` and its children;
+- the evaluator opens `eval.*`;
+- the round close opens `close.*`;
+- the runner opens `run` and `round` and writes `run.manifest`.
+
+The composition root builds one `SqliteTelemetry` per process from `paths.db` and
+`telemetry.busy_timeout_ms`, scoped to the run. Add `friday telemetry` (CLI) to print a round's spans as a
+tree and a per-phase time table; S5 reads its timings from that table.
+
+**Done when:** a 1-round dry run with fakes emits every catalogued row at least once (a test asserts the
+catalogue against the log), and no decision path imports the telemetry port.
 
 ### S16. Critic run (optional)
 

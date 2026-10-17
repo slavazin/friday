@@ -199,6 +199,12 @@ class JsonSection:
 
 
 @dataclass(frozen=True)
+class TelemetrySection:
+    busy_timeout_ms: int
+    live_poll_ms: int
+
+
+@dataclass(frozen=True)
 class CriticSection:
     max_requests: int
     spend_cap_usd: float
@@ -268,6 +274,7 @@ class RunSpec:
     readout: ReadoutSection
     transport: TransportSection
     json: JsonSection
+    telemetry: TelemetrySection
     critic: CriticSection
     models: ModelsSection
     search: SearchSection

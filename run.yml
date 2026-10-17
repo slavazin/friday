@@ -146,6 +146,10 @@ transport:
 json:
   reasks: 1
 
+telemetry:                     # operational record only; no decision reads it (friday/ports/telemetry.py)
+  busy_timeout_ms: 10000       # SQLite wait for a concurrent writer before raising
+  live_poll_ms: 1000           # how often a live view re-reads the log
+
 critic:                        # the critic run only (SPEC § 17); run-critic.yml overrides
   max_requests: 2
   spend_cap_usd: 10.0

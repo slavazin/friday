@@ -13,6 +13,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 # section.key -> the unbuilt consumer that will read it
 PENDING = {
+    "telemetry.busy_timeout_ms": "composition root (connect_telemetry)",
+    "telemetry.live_poll_ms": "web live view",
     "run.rounds": "runner (halt_reason)",
     "run.spend_cap_usd": "runner (halt_reason)",
     "run.convergence_rounds": "runner (halt_reason)",
