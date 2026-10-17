@@ -543,7 +543,7 @@ export class ArchitecturePage {
     this.drawer = h("aside", { class: "arch-drawer", "aria-hidden": "true", tabindex: "-1" });
     this.backdrop = h("div", { class: "arch-backdrop", onclick: () => this.close() });
 
-    this.root.replaceChildren(head, stage, this.tuples(), this.legend(), this.backdrop, this.drawer);
+    this.root.replaceChildren(head, stage, this.tuples(), this.models(), this.legend(), this.backdrop, this.drawer);
   }
 
   diagram() {
@@ -729,6 +729,63 @@ export class ArchitecturePage {
           "One Journal entry D-NNNN. Text frozen at drafting; only its status flips, each flip one git commit.", DEC,
           h("div", { class: "arch-tup-fals" }, h("b", {}, "Falsifiers"),
             ...FALS.map(([k, v]) => h("div", { class: "arch-tup-f" }, h("code", {}, k), h("span", { class: "muted" }, v)))))));
+  }
+
+  // ---- models: every role's pin, its fallback, and what the main run actually called -------------------------
+
+  models() {
+    // [role, what it does, pinned model(s), fallback, main-run calls, main-run spend]; calls and spend copied from the
+    // main run's spend table (friday-runs/main/friday.db) after its readout. Every model is served by one Crusoe
+    // managed-inference endpoint; the first pin the endpoint lists is bound at start-up, else the fallback.
+    const ROWS = [
+      ["worker", "builds the app from the request and its composed decisions; weak on purpose",
+        "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B", "openai/gpt-oss-120b", "389", "$0.355"],
+      ["rubric", "scores R from a screenshot (vision)",
+        "nvidia/NVIDIA-Nemotron-3.5-Super-VL · then gemma-4-31b-it · GLM-5.3-Flash · Qwen3.8-27B",
+        "nvidia/Nemotron-3-Nano-Omni-Reasoning-30B-A3B", "294", "$0.189"],
+      ["judge", "lens answers, observations and dispositions; at most 8 calls at once",
+        "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B", "deepseek-ai/DeepSeek-V4-Pro", "92", "$0.640"],
+      ["pooling", "groups observations by shape, assigns direction labels", "zai-org/GLM-5.3",
+        "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B", "23", "$0.488"],
+      ["nominator", "drafts a candidate decision from a pool, grounded by one You.com call", "zai-org/GLM-5.3",
+        "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B", "2", "$0.237"],
+      ["tagger", "tags each request from the vocabulary", "zai-org/GLM-5.3",
+        "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B", "6", "$0.272"],
+      ["coordinator", "round plan, re-runs, pings, halt advice (tool calls)", "openai/gpt-oss-120b",
+        "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B", "13", "$0.003"],
+      ["lens minter", "proposes lenses from the residual view", "zai-org/GLM-5.3",
+        "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B", "0", "—"],
+      ["goal minter", "mints the request stream before the run (family × mode grid)", "zai-org/GLM-5.3",
+        "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B", "before the run", ""],
+    ];
+    const CRITIC = [
+      ["worker", "deepseek-ai/DeepSeek-V4.1-Flash", "openai/gpt-oss-120b", "a stronger builder, chosen by a live probe"],
+      ["critic", "nvidia/Nemotron-3-Nano-Omni-Reasoning-30B-A3B", "google/gemma-4-31b-it",
+        "a vision manager with hidden taste quirks; reads a screenshot and asks for one revision"],
+    ];
+    const head = ["role", "what it does", "pinned", "fallback", "calls", "spend"];
+    const table = h("table", { class: "arch-models" },
+      h("thead", {}, h("tr", {}, ...head.map((x) => h("th", {}, x)))),
+      h("tbody", {}, ...ROWS.map(([role, what, pin, fb, n, usd]) => h("tr", {},
+        h("td", {}, h("b", {}, role)), h("td", { class: "muted" }, what), h("td", {}, h("code", {}, pin)),
+        h("td", {}, h("code", { class: "muted" }, fb)), h("td", { class: "num" }, n), h("td", { class: "num" }, usd)))));
+    const critic = h("table", { class: "arch-models" },
+      h("thead", {}, h("tr", {}, ...["role", "pinned", "fallback", "why"].map((x) => h("th", {}, x)))),
+      h("tbody", {}, ...CRITIC.map(([role, pin, fb, why]) => h("tr", {},
+        h("td", {}, h("b", {}, role)), h("td", {}, h("code", {}, pin)), h("td", {}, h("code", { class: "muted" }, fb)),
+        h("td", { class: "muted" }, why)))));
+    return h("div", { class: "arch-tuples" },
+      h("h2", {}, "Models"),
+      h("p", { class: "lede" }, "Every role calls a pinned model through one client on the Crusoe managed-inference ",
+        "endpoint; the first pin the endpoint serves is bound at start-up, else the fallback, and the model string of ",
+        "every call is recorded with its tokens and cost. No role shares a model with the role that grades it: the ",
+        "worker never runs on the judge's, rubric's or critic's model, and the nominator is not the judge."),
+      h("div", { class: "arch-tup" }, h("h3", {}, "Main run · models actually called"),
+        h("p", { class: "muted small" }, "Calls and spend from the main run's spend table, 4 rounds plus the readout; ",
+          "53 calls that failed in transport (42 judge, 11 worker) are not counted."), table),
+      h("div", { class: "arch-tup arch-models-critic" }, h("h3", {}, "Critic run · what changes"),
+        h("p", { class: "muted small" }, "run-critic.yml overlays these two roles; every other role keeps the main ",
+          "run's pin."), critic));
   }
 
   // ---- legend ---------------------------------------------------------------------------------------------

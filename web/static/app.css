@@ -437,3 +437,9 @@ ul.flips { margin: 0; padding-left: 18px; font-size: 14.5px; }
 .arch-tup-f { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 8px; margin: 4px 0; }
 .arch-tup-f code { color: #ff8a3d; }
 @media (max-width: 1100px) { .arch-tup-grid { grid-template-columns: 1fr; } .arch-tup-arrow { transform: rotate(90deg); justify-self: center; } }
+.arch-models { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 6px; }
+.arch-models th { text-align: left; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted, #8b93a7); padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.arch-models td { padding: 7px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+.arch-models td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.arch-models code { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: #cfe3ff; overflow-wrap: anywhere; }
+.arch-models-critic { margin-top: 12px; }
