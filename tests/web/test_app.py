@@ -32,7 +32,7 @@ def test_config_reads_the_run_spec(client):
     cfg = client.get("/api/config").json()
     assert cfg == {"live_poll_ms": SPEC.telemetry.live_poll_ms, "alpha": SPEC.gate.alpha,
                    "admit_wealth": 1 / SPEC.gate.alpha, "drift_round": SPEC.drift.round, "rounds": SPEC.run.rounds,
-                   "spend_cap_usd": SPEC.run.spend_cap_usd}
+                   "spend_cap_usd": SPEC.run.spend_cap_usd, "telemetry_run": "main"}
 
 
 def test_telemetry_pages_by_after_seq_without_gaps_or_repeats(client):
