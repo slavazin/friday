@@ -203,6 +203,8 @@ class RoundTools:
         return "recorded; a pass failed for transport is re-run once by the pipeline"
 
     def read_ledger(self, decision_id: str) -> Mapping[str, Any]:
+        if decision_id not in {d.id for d in self.journal.decisions()}:
+            raise LookupError(f"{decision_id} is not in the Journal")
         d = self.journal.get(decision_id)
         return {"id": d.id, "status": d.status.value,
                 "exposure_pairs": len(self.ledger.deltas(d.id, DeltaKind.EXPOSURE)),

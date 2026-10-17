@@ -236,6 +236,18 @@ def test_coordinator_stops_after_max_turns_without_plan_round():
     assert len(turns) == 4 and len(client.calls) == 4
 
 
+def test_read_ledger_on_an_unknown_decision_in_a_markdown_journal_is_fed_back_not_raised(tmp_path):
+    from friday.adapters.journal_md import MarkdownJournal
+    journal = MarkdownJournal(tmp_path / "journal", RecordingVcs())
+    tools = RoundTools(1, runner_mod.pipeline.RoundPlan(1, (), {}, {}, (), {}), (), journal, MemoryLedger(),
+                       tmp_path / "plans", (), lambda reason: None)
+    client = ScriptedClient([json.dumps({"tool": "read_ledger", "args": {"decision_id": "D-0001"}}),
+                             plan_reply()])
+    turns = Coordinator(client, BOOK, 1).run_round(RoundState(1, 14, ("Q-0001",), "", (), ()), tools)
+    assert turns[0].result == "error: D-0001 is not in the Journal"
+    assert turns[-1].call.tool == "plan_round" and (tmp_path / "plans" / "round-01.md").exists()
+
+
 def test_coordinator_templates_name_no_blinded_word():
     words = BOOK.blinding["coordinator"]
     assert {"check", "loss", "score", "regime", "drift"} <= set(words)
