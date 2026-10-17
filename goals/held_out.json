@@ -1,0 +1,498 @@
+[
+ {
+  "id": "H-01",
+  "text": "a fireworks game where the night sky sits dark and quiet until I tap it, and each tap sends a rocket climbing up to burst into a spray of stars that keeps glittering there; my burst count goes up by one for every rocket I send up, and a big finale button sets the whole sky off at once. With ?test=1 in the address, every duration is at most 2 seconds.",
+  "round": null,
+  "held_out": true,
+  "contract": {
+   "#sky": "canvas that shows the night sky, the climbing rockets and the star bursts",
+   "#bursts": "display of the burst count",
+   "#finale": "button that sets off the whole barrage at once"
+  },
+  "checks": {
+   "R2": [
+    {
+     "id": "c1",
+     "steps": [
+      {
+       "goto": "?test=1"
+      },
+      {
+       "click": "#sky"
+      },
+      {
+       "wait": 1500
+      }
+     ],
+     "expect": {
+      "canvas_changed": "#sky"
+     }
+    },
+    {
+     "id": "c2",
+     "steps": [
+      {
+       "goto": "?test=1"
+      },
+      {
+       "click": "#sky"
+      },
+      {
+       "wait": 2500
+      }
+     ],
+     "expect": {
+      "text_matches": "#bursts",
+      "regex": "\\b1\\b"
+     }
+    },
+    {
+     "id": "c3",
+     "steps": [
+      {
+       "goto": "?test=1"
+      },
+      {
+       "click": "#finale"
+      },
+      {
+       "wait": 2500
+      }
+     ],
+     "expect": {
+      "text_changed": "#bursts"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "H-02",
+  "text": "a monster lunch: I press start and a hungry monster sits waiting for its lunch with its wish floating in a bubble above its head, and I type the word letter by letter on my keyboard to serve it \u2014 each correct letter glows in the bubble, the first wish is always pie, the moment I finish a word the snack flies into its mouth and it gobbles it down while a fresh wish pops up, every snack I serve bumps my fed tally, and every letter I press that isn't the next one in the word bumps my fumbles tally",
+  "round": null,
+  "held_out": true,
+  "contract": {
+   "#start": "button that starts the game",
+   "#board": "canvas that shows the hungry monster, its wish bubble and the flying snacks, and takes my letter presses",
+   "#fed": "display showing my fed tally",
+   "#fumbles": "display showing my fumbles tally"
+  },
+  "checks": {
+   "R2": [
+    {
+     "id": "c1",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "click": "#start"
+      },
+      {
+       "focus": "#board"
+      },
+      {
+       "key": "p",
+       "times": 1
+      },
+      {
+       "key": "i",
+       "times": 1
+      },
+      {
+       "key": "e",
+       "times": 1
+      },
+      {
+       "wait": 500
+      }
+     ],
+     "expect": {
+      "text_matches": "#fed",
+      "regex": "\\b1\\b"
+     }
+    },
+    {
+     "id": "c2",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "click": "#start"
+      },
+      {
+       "focus": "#board"
+      },
+      {
+       "key": "z",
+       "times": 1
+      },
+      {
+       "wait": 500
+      }
+     ],
+     "expect": {
+      "text_matches": "#fumbles",
+      "regex": "\\b1\\b"
+     }
+    },
+    {
+     "id": "c3",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "click": "#start"
+      },
+      {
+       "wait": 500
+      }
+     ],
+     "expect": {
+      "canvas_changed": "#board"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "H-03",
+  "text": "a point plotter: I tap anywhere on the graph to drop a data point where I tapped, the point count and the average of my points update the moment I tap, and an undo button takes the last point back off.",
+  "round": null,
+  "held_out": true,
+  "contract": {
+   "#chart": "canvas that shows the graph and every point I tap onto it",
+   "#count": "display that shows how many points are on the graph",
+   "#average": "display that shows the average value of the plotted points",
+   "#undo": "button that removes the last point I added"
+  },
+  "checks": {
+   "R2": [
+    {
+     "id": "c1",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "click": "#chart"
+      },
+      {
+       "wait": 400
+      }
+     ],
+     "expect": {
+      "canvas_changed": "#chart"
+     }
+    },
+    {
+     "id": "c2",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "click": "#chart"
+      },
+      {
+       "click": "#chart"
+      },
+      {
+       "wait": 400
+      }
+     ],
+     "expect": {
+      "text_matches": "#count",
+      "regex": "\\b2\\b"
+     }
+    },
+    {
+     "id": "c3",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "click": "#chart"
+      },
+      {
+       "click": "#chart"
+      },
+      {
+       "click": "#undo"
+      },
+      {
+       "wait": 400
+      }
+     ],
+     "expect": {
+      "text_matches": "#count",
+      "regex": "\\b1\\b"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "H-04",
+  "text": "I paste my writing into the box and tap the buttons to switch it to ALL CAPITALS, all small letters or Title Case, and the switched writing shows up next to the box.",
+  "round": null,
+  "held_out": true,
+  "contract": {
+   "#input": "textarea that holds the writing to switch",
+   "#upper": "button that switches the writing to all capitals",
+   "#lower": "button that switches the writing to all small letters",
+   "#title": "button that switches the writing to title case",
+   "#output": "display that shows the switched writing"
+  },
+  "checks": {
+   "R2": [
+    {
+     "id": "c1",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "type": "#input",
+       "text": "hello world"
+      },
+      {
+       "click": "#upper"
+      },
+      {
+       "wait": 300
+      }
+     ],
+     "expect": {
+      "text_matches": "#output",
+      "regex": "HELLO WORLD"
+     }
+    },
+    {
+     "id": "c2",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "type": "#input",
+       "text": "HeLLo World"
+      },
+      {
+       "click": "#lower"
+      },
+      {
+       "wait": 300
+      }
+     ],
+     "expect": {
+      "text_matches": "#output",
+      "regex": "hello world"
+     }
+    },
+    {
+     "id": "c3",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "type": "#input",
+       "text": "the quick brown fox"
+      },
+      {
+       "click": "#title"
+      },
+      {
+       "wait": 300
+      }
+     ],
+     "expect": {
+      "text_matches": "#output",
+      "regex": "The Quick Brown Fox"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "H-05",
+  "text": "a box where I type my words and press the up arrow to flip the text to ALL CAPS, press it again for lowercase, again for Title Case, and the down arrow flips it back the other way, with the changed text shown underneath",
+  "round": null,
+  "held_out": true,
+  "contract": {
+   "#input": "textarea where the person types their words",
+   "#output": "display showing the flipped text"
+  },
+  "checks": {
+   "R2": [
+    {
+     "id": "c1",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "click": "#input"
+      },
+      {
+       "type": "#input",
+       "text": "hello WORLD"
+      },
+      {
+       "key": "ArrowUp",
+       "times": 1
+      },
+      {
+       "wait": 250
+      }
+     ],
+     "expect": {
+      "text_matches": "#output",
+      "regex": "HELLO WORLD"
+     }
+    },
+    {
+     "id": "c2",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "click": "#input"
+      },
+      {
+       "type": "#input",
+       "text": "hello WORLD"
+      },
+      {
+       "key": "ArrowUp",
+       "times": 3
+      },
+      {
+       "wait": 250
+      }
+     ],
+     "expect": {
+      "text_matches": "#output",
+      "regex": "Hello World"
+     }
+    },
+    {
+     "id": "c3",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "click": "#input"
+      },
+      {
+       "type": "#input",
+       "text": "hello WORLD"
+      },
+      {
+       "key": "ArrowUp",
+       "times": 2
+      },
+      {
+       "key": "ArrowDown",
+       "times": 1
+      },
+      {
+       "wait": 250
+      }
+     ],
+     "expect": {
+      "text_matches": "#output",
+      "regex": "HELLO WORLD"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "H-06",
+  "text": "a caps changer where I type my sentence and it shows up in capital letters as I type it, with a button that flips it to small letters",
+  "round": null,
+  "held_out": true,
+  "contract": {
+   "#sentence-box": "textarea where the person types their sentence",
+   "#sentence-view": "display that shows the sentence in capital or small letters",
+   "#letters-toggle": "button that flips the sentence between capital and small letters"
+  },
+  "checks": {
+   "R2": [
+    {
+     "id": "c1",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "type": "#sentence-box",
+       "text": "hello world"
+      },
+      {
+       "wait": 300
+      }
+     ],
+     "expect": {
+      "text_matches": "#sentence-view",
+      "regex": "HELLO WORLD"
+     }
+    },
+    {
+     "id": "c2",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "type": "#sentence-box",
+       "text": "Hello"
+      },
+      {
+       "click": "#letters-toggle"
+      },
+      {
+       "wait": 300
+      }
+     ],
+     "expect": {
+      "text_matches": "#sentence-view",
+      "regex": "hello"
+     }
+    },
+    {
+     "id": "c3",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "type": "#sentence-box",
+       "text": "Hello"
+      },
+      {
+       "click": "#letters-toggle"
+      },
+      {
+       "click": "#letters-toggle"
+      },
+      {
+       "wait": 300
+      }
+     ],
+     "expect": {
+      "text_matches": "#sentence-view",
+      "regex": "HELLO"
+     }
+    }
+   ]
+  }
+ }
+]
