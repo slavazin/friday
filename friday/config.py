@@ -30,6 +30,7 @@ class RunSection:
     convergence_rounds: int
     transport_reruns: int
     ping_transport_share: float
+    pass_timeout_s: float
 
 
 @dataclass(frozen=True)
@@ -173,6 +174,7 @@ class NominatorSection:
 @dataclass(frozen=True)
 class NotesSection:
     max_tokens: int
+    chars_per_token: int
 
 
 @dataclass(frozen=True)

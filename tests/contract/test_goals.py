@@ -10,12 +10,14 @@ import pytest
 
 from friday.adapters import goals_json
 from friday.adapters.goals_json import JsonGoalSource, JsonTagVocabulary
+from friday.adapters.telemetry import MemoryTelemetry
 from friday.algorithms.language import word_hits
 from friday.app.goals import StubBench, dsl_validator, mint_params
 from friday.config import load_spec
 from friday.domain.types import Check, Regime, TagGloss
 from friday.eval import dsl
 from friday.ports import goals
+from friday.ports.telemetry import Scope
 from friday.roles.ask import Rejected
 from friday.roles.goal_minter import (
     GoalMinter,
@@ -33,6 +35,8 @@ from friday.roles.goal_minter import (
 )
 from friday.roles.prompts import PromptBook
 from tests.fakes import ScriptedClient
+
+TEL = MemoryTelemetry(Scope("main"))
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = load_spec(ROOT / "run.yml")
@@ -335,7 +339,7 @@ def test_a_check_failing_on_the_stub_before_its_expectation_is_kept_and_reported
 def chromium():
     from friday.adapters.playwright_browser import PlaywrightBrowser
 
-    b = PlaywrightBrowser(SPEC.eval.action_timeout_ms, SPEC.eval.load_timeout_ms)
+    b = PlaywrightBrowser(SPEC.eval.action_timeout_ms, SPEC.eval.load_timeout_ms, telemetry=TEL)
     yield b
     b.close()
 

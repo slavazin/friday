@@ -7,9 +7,13 @@ import pytest
 
 from friday.adapters.crusoe import CrusoeClient, TransportFailure, parse_models
 from friday.adapters.memory import MemorySpendLog
+from friday.adapters.telemetry import MemoryTelemetry
 from friday.app.pins import NoServedModel, demote_group, resolve
 from friday.config import load_spec
 from friday.ports.models import Message
+from friday.ports.telemetry import Scope
+
+TEL = MemoryTelemetry(Scope("main"))
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = load_spec(ROOT / "run.yml")
@@ -46,7 +50,7 @@ def make_client(monkeypatch, handler):
     http = httpx.Client(base_url="https://x/v1", transport=httpx.MockTransport(handler))
     sleeps: list[float] = []
     models = dataclasses.replace(SPEC.models, price_overrides={"m": {"prompt": 0.1, "completion": 0.2}})
-    c = CrusoeClient(models, SPEC.transport, spend, http=http, sleep=sleeps.append)
+    c = CrusoeClient(models, SPEC.transport, spend, http=http, sleep=sleeps.append, telemetry=TEL)
     return c, spend, sleeps
 
 

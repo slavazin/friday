@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS passes (
   id TEXT PRIMARY KEY, round INTEGER NOT NULL, category TEXT NOT NULL, arm TEXT NOT NULL,
   worker TEXT NOT NULL, regime TEXT NOT NULL, composition TEXT NOT NULL,   -- composition: JSON
   pair_slot INTEGER, artifact_path TEXT, repaired INTEGER NOT NULL DEFAULT 0,
-  transport_failed INTEGER NOT NULL DEFAULT 0
+  transport_failed INTEGER NOT NULL DEFAULT 0, failed TEXT NOT NULL DEFAULT '', composed_tokens INTEGER
 );
 CREATE TABLE IF NOT EXISTS evals (
   pass_id TEXT PRIMARY KEY REFERENCES passes(id), regime TEXT NOT NULL, checks TEXT NOT NULL,

@@ -16,6 +16,7 @@ from friday.algorithms.gate import GateAction, GateRule, select_in_flight
 from friday.algorithms.halt import HaltReason, RoundSummary, halt_reason
 from friday.algorithms.recurrence import RecurrenceBar, expired, nomination_queue
 from friday.app.lens_close import LensClose, LensCloseResult, ResidualSource
+from friday.app.pipeline import narrowed
 from friday.app.render import FlipRenderer
 from friday.app.steer import SteerResult, apply_steers, landed_flip
 from friday.app.wiring import build_mechanics, flip_constants
@@ -47,6 +48,7 @@ from friday.ports.stores import (
     PoolStore,
     SpendLog,
 )
+from friday.ports.telemetry import Telemetry
 from friday.roles.judge import DraftObservation
 from friday.roles.lens_minter import LensMinter
 from friday.roles.nominator import Draft, NoDecision, Nominator
@@ -76,6 +78,7 @@ class DecisionClose:
     detector: Detector
     renderer: FlipRenderer
     in_flight: int
+    telemetry: Telemetry                    # the parent's log: `close.wealth` per candidate, `close.commit` per flip
     constants: Mapping[str, Any] = field(default_factory=dict)
 
     def _flip(self, d: Decision, new: DecisionStatus, cause: FlipCause, round_: int,
@@ -90,7 +93,10 @@ class DecisionClose:
         message = self.renderer.render("decision", flip, self.constants)
         if landed is None:
             self.events.append_flip(flip)
-        return self.journal.flip(flip, message)
+        written = self.journal.flip(flip, message)
+        # The Journal port returns no commit sha: recorded unread.
+        self.telemetry.event("close.commit", subject_id=flip.subject_id, sha=None, cause=flip.cause.value)
+        return written
 
     def flip(self, d: Decision, new: DecisionStatus, cause: FlipCause, round_: int,
              evidence: Mapping[str, Any], successors: Sequence[str] = ()) -> Decision:
@@ -107,6 +113,8 @@ class DecisionClose:
         for cand in self.in_flight_candidates():
             rows = self.ledger.deltas(cand.id, DeltaKind.EXPOSURE)
             reading = self.gate.read([r.d for r in rows], [r.dQ for r in rows])
+            self.telemetry.metric("close.wealth", reading.wealth, "score", decision_id=cand.id, n=reading.n,
+                                  mean_d=reading.mean_d, action=reading.action.value)
             if reading.action is GateAction.HOLD:
                 continue
             new, cause = _GATE_FLIP[reading.action]
@@ -253,6 +261,7 @@ class RoundClose:
     bar: RecurrenceBar
     spend: SpendLog
     params: CloseParams
+    telemetry: Telemetry      # the parent's one log, shared with the close's roles and model client
 
     @property
     def journal(self) -> Journal:
@@ -273,28 +282,62 @@ class RoundClose:
         Order: (1) steers; (2) lens curation, minter, cap; (3) observation writes and expiry; (4) pooling per
         kept lens and `free`; (5) nomination and drafting; (6) gate; (7) detector and successor invitations;
         (8) pings. `history` holds the earlier closes' RoundSummary rows for the halt rule.
+
+        Telemetry: the parent's log is narrowed to the round for the close; `close` spans it, and each phase
+        opens its `close.<phase>` span with its counts.
         """
+        with narrowed(self.telemetry, round_=round_) as t, t.span("close"):
+            return self._close(t, round_, drafts, history)
+
+    def _close(self, t: Telemetry, round_: int, drafts: Mapping[str, Sequence[DraftObservation]],
+               history: Sequence[RoundSummary]) -> CloseSummary:
         start = len(self.events.flips())
-        steers = apply_steers(self.events, self.journal, self.decisions.flip, round_,
-                              lambda d: self.decisions.refuse_pool(d.pool_id, round_))
-        lens = self.lenses.close(round_)
+        with t.span("close.steers") as span:
+            steers = apply_steers(self.events, self.journal, self.decisions.flip, round_,
+                                  lambda d: self.decisions.refuse_pool(d.pool_id, round_))
+            span.set(flipped=len(steers.flipped), notes=len(steers.notes))
+        with t.span("close.lens_curation") as span:
+            lens = self.lenses.close(round_)
+            causes = [f.cause for f in lens.flips]
+            span.set(lens_flips=len(lens.flips), lenses_minted=len(lens.minted),
+                     lenses_folded=causes.count(FlipCause.LENS_FOLD),
+                     lenses_retired=causes.count(FlipCause.LENS_FLOOR) + causes.count(FlipCause.LENS_CAP))
         kept = sorted(x.id for x in self.lenses.lens_set.lenses() if x.status is LensStatus.ACTIVE)
-        minted_obs, rerun_obs = self._write_observations(round_, drafts)
-        new_obs = [*rerun_obs, *minted_obs]
-        gone = self._expire(round_)
-        minted_pools = self._pool(kept, new_obs)
-        nominated, no_dec = self._nominate(round_, kept, since=None)
-        self.decisions.close_gate(round_)
-        detected = self.decisions.close_detector(round_)
-        invited = tuple(d.id for d in detected if d.status is DecisionStatus.SUSPECT)
-        if invited:
-            more, more_no = self._nominate(round_, kept, since=round_)
-            nominated += more
-            no_dec += more_no
-        summary = self._round_summary(round_, kept)
-        halt = halt_reason([*history, summary], self.params.rounds, self.spend.total_usd(),
-                           self.params.spend_cap_usd, self.params.drift_round, self.params.convergence_rounds)
-        pings = self._pings(round_, invited, halt)
+        with t.span("close.observations") as span:
+            minted_obs, rerun_obs = self._write_observations(round_, drafts)
+            new_obs = [*rerun_obs, *minted_obs]
+            gone = self._expire(round_)
+            span.set(observations=len(minted_obs), observations_rerun=len(rerun_obs), expired=len(gone))
+        with t.span("close.pooling") as span:
+            merged_before = sum(p.status is PoolStatus.MERGED for p in self.pool_store.pools())
+            minted_pools = self._pool(kept, new_obs)
+            span.set(pools_new=len(minted_pools),
+                     pools_merged=sum(p.status is PoolStatus.MERGED for p in self.pool_store.pools()) - merged_before)
+        with t.span("close.nomination") as span:
+            nominated, no_dec = self._nominate(round_, kept, since=None)
+            span.set(nominated=len(nominated), no_decision=len(no_dec))
+        with t.span("close.gate") as span:
+            gated = self.decisions.close_gate(round_)
+            span.set(admitted=sum(d.status is DecisionStatus.ADMITTED for d in gated),
+                     rejected=sum(d.status is DecisionStatus.REFUSED for d in gated),
+                     expired=sum(d.status is DecisionStatus.EXPIRED for d in gated),
+                     retired=sum(d.status is DecisionStatus.RETIRED for d in gated))
+        with t.span("close.detector") as span:
+            detected = self.decisions.close_detector(round_)
+            invited = tuple(d.id for d in detected if d.status is DecisionStatus.SUSPECT)
+            more: list[str] = []
+            if invited:
+                more, more_no = self._nominate(round_, kept, since=round_)
+                nominated += more
+                no_dec += more_no
+            span.set(suspect=len(invited), retired=sum(d.status is DecisionStatus.RETIRED for d in detected),
+                     cleared=sum(d.status is DecisionStatus.ADMITTED for d in detected), successors_nominated=len(more))
+        with t.span("close.pings") as span:
+            summary = self._round_summary(round_, kept)
+            halt = halt_reason([*history, summary], self.params.rounds, self.spend.total_usd(),
+                               self.params.spend_cap_usd, self.params.drift_round, self.params.convergence_rounds)
+            pings = self._pings(round_, invited, halt)
+            span.set(pings=len(pings), halt=None if halt is None else halt.value)
         return CloseSummary(
             round=round_, flips=tuple(self.events.flips()[start:]), steers=steers, lens=lens,
             observations=tuple(o.id for o in minted_obs), expired=tuple(gone), pools=tuple(minted_pools),
@@ -542,7 +585,7 @@ def build_round_close(
     spec: RunSpec, *, journal: Journal, ledger: Ledger, events: EventLog, judge_store: JudgeStore,
     pools: PoolStore, passes: PassStore, observations: ObservationStore, lens_set: LensSet, spend: SpendLog,
     pooling: PoolingCall, nominator: Nominator, minter: LensMinter | None, renderer: FlipRenderer,
-    residual_source: ResidualSource | None = None, bar: RecurrenceBar | None = None,
+    telemetry: Telemetry, residual_source: ResidualSource | None = None, bar: RecurrenceBar | None = None,
 ) -> RoundClose:
     """A RoundClose over the given stores and roles, every constant read from `spec`.
 
@@ -554,13 +597,14 @@ def build_round_close(
     ln = spec.lens
     decisions = DecisionClose(journal=journal, ledger=ledger, events=events, judge_store=judge_store, pools=pools,
                               gate=m.gate, detector=m.detector, renderer=renderer, in_flight=spec.gate.in_flight,
-                              constants=constants)
+                              telemetry=telemetry, constants=constants)
     lenses = LensClose(
         lens_set=lens_set, events=events, passes=passes, judge_store=judge_store, observations=observations,
         renderer=renderer, params=m.curation, scorer=m.lens_value, correlation=m.fold_correlation,
         seed=spec.run.seed, window=ln.window, mint_every=ln.mint_every, residual_min_passes=ln.residual_min_passes,
-        mint_max=ln.mint_max, minter=minter, residual_source=residual_source, constants=constants,
+        mint_max=ln.mint_max, minter=minter, telemetry=telemetry, residual_source=residual_source,
+        constants=constants,
     )
     return RoundClose(decisions=decisions, lenses=lenses, passes=passes, observations=observations,
                       pooling=pooling, nominator=nominator, bar=bar or m.bar, spend=spend,
-                      params=CloseParams.from_spec(spec))
+                      params=CloseParams.from_spec(spec), telemetry=telemetry)

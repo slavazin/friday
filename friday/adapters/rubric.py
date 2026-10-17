@@ -27,6 +27,7 @@ from friday.config import RunSpec
 from friday.domain.types import Viewport
 from friday.ports.models import ChatResult, Message, ModelClient, ResponseCache
 from friday.ports.stores import SpendLog
+from friday.ports.telemetry import Telemetry
 
 ROLE = "rubric"
 TEMPLATE = "rubric.md"
@@ -39,8 +40,10 @@ class RubricUnreadable(RuntimeError):
 
 class _Asked(Protocol):
     value: Any
+    attempts: int
     results: tuple[ChatResult, ...]
     failures: tuple[str, ...]
+    repair_rung: str
 
 
 class AskJson(Protocol):
@@ -66,8 +69,11 @@ class ModelRubric:
         reasks: int,
         cache: ResponseCache | None = None,
         spend: SpendLog | None = None,
+        telemetry: Telemetry,
     ) -> None:
-        """`ask` and `rejected` are `friday.roles.ask.ask_json` and `friday.roles.ask.Rejected`; `model` is the
+        """`telemetry` receives the `eval.rubric` span and the `model.json` event of each score.
+
+        `ask` and `rejected` are `friday.roles.ask.ask_json` and `friday.roles.ask.Rejected`; `model` is the
         id the `rubric` role is bound to (after pin resolution), so a fallback model never reads a pin's cache.
         `spend` receives the zero-cost row of each cache hit, so a `cache` needs one."""
         if cache is not None and spend is None:
@@ -82,17 +88,19 @@ class ModelRubric:
         self._system, self._user = Template(system.strip()), Template(user.strip())
         self._model, self._scale, self._reasks, self._cache, self._spend = model, scale, reasks, cache, spend
         self.prompt_hash = hashlib.sha256(template.encode("utf-8")).hexdigest()
+        self._telemetry = telemetry
+        self._last_cached = False
 
     @classmethod
     def from_spec(
         cls, spec: RunSpec, client: ModelClient, ask: AskJson, rejected: type[Exception], *, model: str,
-        prompts: Path, cache: ResponseCache | None = None, spend: SpendLog | None = None,
+        prompts: Path, telemetry: Telemetry, cache: ResponseCache | None = None, spend: SpendLog | None = None,
     ) -> ModelRubric:
         """The rubric on `eval.rubric_scale`, `eval.rubric_questions` and `json.reasks`, template from `prompts`."""
         return cls(
             client, ask, rejected, (prompts / TEMPLATE).read_text(encoding="utf-8"), model=model,
             scale=spec.eval.rubric_scale, questions=spec.eval.rubric_questions, reasks=spec.json.reasks,
-            cache=cache, spend=spend,
+            cache=cache, spend=spend, telemetry=telemetry,
         )
 
     @property
@@ -144,6 +152,13 @@ class ModelRubric:
         client sent the call to, or the service echoed, a model other than the one this rubric is bound to.
         A cache hit records a zero-cost cached spend row under the call's tag.
         """
+        with self._telemetry.span("eval.rubric", model=self._model, questions=len(self._keys)) as span:
+            scores = self._score(screenshot, request_text, artifact_hash, viewport)
+            span.set(cached=self._last_cached)
+            return scores
+
+    def _score(self, screenshot: bytes, request_text: str, artifact_hash: str, viewport: Viewport) -> tuple[int, ...]:
+        self._last_cached = False
         if not screenshot:
             raise ValueError("empty screenshot: an artifact that cannot render scores the floor in the evaluator")
         key = self.cache_key(artifact_hash, tuple(viewport), request_text)
@@ -152,11 +167,14 @@ class ModelRubric:
         if self._cache is not None:
             stored = self._cache.get(key)
             if stored is not None:
+                self._last_cached = True
                 return self._cache_hit(key, stored, tag)
         asked = self._ask(
             self._client, ROLE, self.messages(screenshot, request_text, viewport), self.validate,
             reasks=self._reasks, tag=tag, schema=self.schema(),
         )
+        self._telemetry.event("model.json", role=ROLE, tag=tag, repair_rung=asked.repair_rung,
+                              reasks=max(0, asked.attempts - 1), ok=asked.value is not None)
         for res in asked.results:
             sent = res.raw.get("sent") or res.raw.get("requested") or {}
             if "model" in sent and sent["model"] != self._model:

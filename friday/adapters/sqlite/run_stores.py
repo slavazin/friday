@@ -53,13 +53,14 @@ def _adding(conn: sqlite3.Connection, what: str) -> Iterator[None]:
 
 
 _PASS_COLS = ("id, round, category, arm, worker, regime, composition, pair_slot, artifact_path, repaired, "
-              "transport_failed")
+              "transport_failed, failed, composed_tokens")
 
 
 def _pass_of(r: tuple) -> Pass:
     return Pass(id=r[0], round=r[1], category=r[2], arm=Arm(r[3]), worker=r[4],
                 composition=codec.decode_composition(r[6]), regime=Regime(r[5]), artifact_path=r[8],
-                repaired=bool(r[9]), transport_failed=bool(r[10]), pair_slot=r[7])
+                repaired=bool(r[9]), transport_failed=bool(r[10]), pair_slot=r[7], failed=r[11],
+                composed_tokens=r[12])
 
 
 class SqlitePassStore:
@@ -71,10 +72,10 @@ class SqlitePassStore:
         p = pass_
         with _adding(self.conn, f"pass {p.id}"):
             self.conn.execute(
-                f"INSERT INTO passes ({_PASS_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                f"INSERT INTO passes ({_PASS_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (p.id, p.round, p.category, p.arm.value, p.worker, p.regime.value,
                  codec.encode_composition(p.composition), p.pair_slot, p.artifact_path, int(p.repaired),
-                 int(p.transport_failed)),
+                 int(p.transport_failed), p.failed, p.composed_tokens),
             )
 
     def add_eval(self, report: EvalReport) -> None:

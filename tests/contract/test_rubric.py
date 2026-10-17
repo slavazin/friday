@@ -13,12 +13,16 @@ from friday.adapters.cache import FileResponseCache
 from friday.adapters.crusoe import CrusoeClient
 from friday.adapters.memory import MemorySpendLog
 from friday.adapters.rubric import ModelRubric, RubricUnreadable
+from friday.adapters.telemetry import MemoryTelemetry
 from friday.algorithms.language import blinding_hits
 from friday.algorithms.loss import LossModel
 from friday.config import load_spec
+from friday.ports.telemetry import Scope
 from friday.roles.ask import Rejected, ask_json
 from friday.roles.prompts import PromptBook
 from tests.fakes import ScriptedClient
+
+TEL = MemoryTelemetry(Scope("main"))
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = load_spec(ROOT / "run.yml")
@@ -33,7 +37,7 @@ def rubric(client, cache=None, model="fake/model", spend=None):
     if cache is not None and spend is None:
         spend = MemorySpendLog()
     return ModelRubric.from_spec(SPEC, client, ask_json, Rejected, model=model, prompts=ROOT / "prompts", cache=cache,
-                                 spend=spend)
+                                 spend=spend, telemetry=TEL)
 
 
 def test_template_asks_exactly_the_configured_number_of_questions():
@@ -45,7 +49,8 @@ def test_template_asks_exactly_the_configured_number_of_questions():
 def test_a_template_with_the_wrong_question_count_is_refused():
     text = (ROOT / "prompts/rubric.md").read_text()
     with pytest.raises(ValueError, match="rubric_questions"):
-        ModelRubric(ScriptedClient([]), ask_json, Rejected, text, model="m", scale=(1, 5), questions=4, reasks=1)
+        ModelRubric(ScriptedClient([]), ask_json, Rejected, text, model="m", scale=(1, 5), questions=4, reasks=1,
+                    telemetry=TEL)
 
 
 def test_prompt_names_no_blinded_word():
@@ -125,7 +130,7 @@ def test_the_cache_key_moves_with_everything_that_changes_the_answer(tmp_path, c
     else:
         text = (ROOT / "prompts/rubric.md").read_text().replace("Rate only", "Rate strictly only")
         r = ModelRubric(client, ask_json, Rejected, text, model="fake/model", scale=(1, 5), questions=3, reasks=1,
-                        cache=cache, spend=MemorySpendLog())
+                        cache=cache, spend=MemorySpendLog(), telemetry=TEL)
     r.score(SHOT, req, art, vp)
     assert len(client.calls) == 2
 
@@ -158,7 +163,7 @@ def test_a_rubric_level_cache_hit_records_a_zero_cost_spend_row_with_the_echoed_
 def test_a_cache_without_a_spend_log_is_refused():
     with pytest.raises(ValueError, match="spend"):
         ModelRubric.from_spec(SPEC, ScriptedClient([]), ask_json, Rejected, model="m", prompts=ROOT / "prompts",
-                              cache=FileResponseCache(Path("/nonexistent")))
+                              cache=FileResponseCache(Path("/nonexistent")), telemetry=TEL)
 
 
 def test_a_cached_entry_answered_by_another_model_raises(tmp_path):
@@ -201,7 +206,8 @@ def _crusoe(monkeypatch, replies, cache=None):
                                                                "n": {"prompt": 0.1, "completion": 0.2}})
     spend = MemorySpendLog()
     http = httpx.Client(base_url="https://x/v1", transport=httpx.MockTransport(handler))
-    return CrusoeClient(models, SPEC.transport, spend, http=http, sleep=lambda s: None, cache=cache), spend, posts
+    return CrusoeClient(models, SPEC.transport, spend, http=http, sleep=lambda s: None, cache=cache,
+                        telemetry=TEL), spend, posts
 
 
 def test_the_request_body_carries_the_image_as_a_content_part_at_temperature_zero(monkeypatch):
@@ -241,11 +247,11 @@ def test_live_fixture_screenshot_scores_and_the_second_call_is_a_cache_hit(tmp_p
 
     spend = MemorySpendLog()
     cache = FileResponseCache(tmp_path / "cache")
-    client = CrusoeClient(SPEC.models, SPEC.transport, spend, cache=cache)
+    client = CrusoeClient(SPEC.models, SPEC.transport, spend, cache=cache, telemetry=TEL)
     resolved = resolve(SPEC.models.roles, client.list_models())
     client.bind({"rubric": resolved["rubric"].model})
     fixture = ROOT / "tests/data/quality/clean.html"
-    browser = PlaywrightBrowser(SPEC.eval.action_timeout_ms, SPEC.eval.load_timeout_ms)
+    browser = PlaywrightBrowser(SPEC.eval.action_timeout_ms, SPEC.eval.load_timeout_ms, telemetry=TEL)
     try:
         with browser.page(str(fixture), VP) as page:
             shot = page.screenshot()
@@ -256,7 +262,7 @@ def test_live_fixture_screenshot_scores_and_the_second_call_is_a_cache_hit(tmp_p
     first = rubric(client, model=resolved["rubric"].model).score(shot, request, art, VP)
     # A rubric without its own cache reaches the client; the identical body is a response-cache hit.
     second = ModelRubric.from_spec(SPEC, client, ask_json, Rejected, model=resolved["rubric"].model,
-                                   prompts=ROOT / "prompts").score(shot, request, art, VP)
+                                   prompts=ROOT / "prompts", telemetry=TEL).score(shot, request, art, VP)
     assert first == second and len(first) == SPEC.eval.rubric_questions
     live_rows = [r for r in spend.rows if not r[2].cached]
     hits = [r for r in spend.rows if r[2].cached]

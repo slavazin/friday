@@ -11,8 +11,12 @@ import pytest
 from friday.adapters.cache import FileResponseCache, request_key
 from friday.adapters.crusoe import CrusoeClient
 from friday.adapters.memory import MemorySpendLog
+from friday.adapters.telemetry import MemoryTelemetry
 from friday.config import load_spec
 from friday.ports.models import Message
+from friday.ports.telemetry import Scope
+
+TEL = MemoryTelemetry(Scope("main"))
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = load_spec(ROOT / "run.yml")
@@ -78,7 +82,8 @@ def _client(monkeypatch, cache, served_model="m-served"):
     spend = MemorySpendLog()
     http = httpx.Client(base_url="https://x/v1", transport=httpx.MockTransport(handler))
     models = dataclasses.replace(SPEC.models, price_overrides=PRICES)
-    client = CrusoeClient(models, SPEC.transport, spend, http=http, sleep=lambda s: None, cache=cache)
+    client = CrusoeClient(models, SPEC.transport, spend, http=http, sleep=lambda s: None, cache=cache,
+                          telemetry=TEL)
     return client, spend, posts
 
 

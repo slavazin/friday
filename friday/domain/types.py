@@ -140,6 +140,8 @@ class Pass:
     repaired: bool = False
     transport_failed: bool = False
     pair_slot: int | None = None            # 0 or 1 within a journal-arm pair; None otherwise
+    failed: str = ""                         # why the pass crashed or timed out; "" for a pass that did not
+    composed_tokens: int | None = None      # tokens composed into the worker prompt (decisions, notes); None unread
 
 
 @dataclass(frozen=True)

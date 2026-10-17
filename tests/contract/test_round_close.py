@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from friday.adapters.memory import MemoryEventLog, MemoryJournal, MemoryJudgeStore, MemoryLedger, MemoryPoolStore
+from friday.adapters.telemetry import MemoryTelemetry
 from friday.algorithms.exposure import PairKind, PairPlan
 from friday.app.ledger import pair_deltas
 from friday.app.render import FlipRenderer
@@ -27,6 +28,7 @@ from friday.domain.types import (
     PoolStatus,
     Regime,
 )
+from friday.ports.telemetry import Scope
 from tests.unit.builders import dec
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,7 +41,7 @@ def close():
         journal=MemoryJournal(), ledger=MemoryLedger(), events=MemoryEventLog(), judge_store=MemoryJudgeStore(),
         pools=MemoryPoolStore(),
         gate=m.gate, detector=m.detector, renderer=FlipRenderer.load(ROOT / "templates/flips.yml"),
-        in_flight=SPEC.gate.in_flight, constants=flip_constants(SPEC),
+        in_flight=SPEC.gate.in_flight, constants=flip_constants(SPEC), telemetry=MemoryTelemetry(Scope("main")),
     )
 
 

@@ -21,6 +21,7 @@ from friday.domain.ids import IdMinter
 from friday.domain.lifecycle import LIVE_LENS, FlipCause, check_lens_flip
 from friday.domain.types import Arm, Lens, LensStatus, Pass
 from friday.ports.stores import EventLog, JudgeStore, LensSet, ObservationStore, PassStore
+from friday.ports.telemetry import Telemetry
 from friday.roles.lens_minter import LensMinter, ResidualItem
 from friday.stats.ranks import BinaryScore, Correlation
 
@@ -55,6 +56,7 @@ class LensClose:
     residual_min_passes: int
     mint_max: int
     minter: LensMinter | None               # None when the minter is cut (SPEC § 13)
+    telemetry: Telemetry                    # the parent's log: `close.lens_value` per lens, `close.commit` per flip
     residual_source: ResidualSource | None = None
     constants: Mapping[str, Any] = field(default_factory=dict)
 
@@ -136,6 +138,8 @@ class LensClose:
         if landed is None:
             self.events.append_flip(flip)
         self.lens_set.flip(flip, message)
+        # The LensSet port returns no commit sha: recorded unread.
+        self.telemetry.event("close.commit", subject_id=flip.subject_id, sha=None, cause=flip.cause.value)
         return flip
 
     def close(self, round_: int) -> LensCloseResult:
@@ -145,6 +149,9 @@ class LensClose:
         strikes = self.strikes_before(live, round_)
         window, model = self.window_at(round_)
         result = curate(live, window, strikes, self.params, self.scorer, self.correlation, self.seed, round_)
+        for lens_id in sorted(result.values):
+            self.telemetry.metric("close.lens_value", result.values[lens_id], "score", lens_id=lens_id,
+                                  n=sum(1 for w in window if lens_id in w.p), floor=result.floors.get(lens_id))
         flips: list[StatusFlip] = []
         for lf in result.flips:
             evidence: dict[str, Any] = dict(lf.figures)

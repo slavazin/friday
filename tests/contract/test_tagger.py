@@ -6,13 +6,17 @@ from pathlib import Path
 import pytest
 
 from friday.adapters.memory import MemoryGoalSource, MemoryTagVocabulary
+from friday.adapters.telemetry import MemoryTelemetry
 from friday.algorithms.language import blinding_hits
 from friday.app.goals import build_tagger, tag_held_out, tag_round
 from friday.config import load_spec
 from friday.domain.types import Check, Regime, Request, TagGloss
+from friday.ports.telemetry import Scope
 from friday.roles.prompts import PromptBook
 from friday.roles.tagger import Tagger, TaggingRefused, names_family, near_duplicate
 from tests.fakes import ScriptedClient
+
+TEL = MemoryTelemetry(Scope("main"))
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = load_spec(ROOT / "run.yml")
@@ -130,9 +134,9 @@ def test_held_out_tagging_mints_nothing():
     source = MemoryGoalSource(stream + held)
     minting = reply({"H-01": ["table", "keyboard"]}, ["table"])
     with pytest.raises(TaggingRefused, match="at most 0"):
-        tag_held_out(tagger([minting, minting]), source, vocab, SPEC.run.rounds)
+        tag_held_out(tagger([minting, minting]), source, vocab, SPEC.run.rounds, telemetry=TEL)
     assert vocab.glosses() == VOCAB and vocab.tags_of("H-01") is None
-    tags = tag_held_out(tagger([reply({"H-01": ["keyboard", "timer"]})]), source, vocab, SPEC.run.rounds)
+    tags = tag_held_out(tagger([reply({"H-01": ["keyboard", "timer"]})]), source, vocab, SPEC.run.rounds, telemetry=TEL)
     assert tags["H-01"] == {"keyboard", "timer"} and vocab.glosses() == VOCAB
 
 
@@ -144,18 +148,19 @@ def test_the_minting_bar_is_per_round_across_calls():
     two_new = reply({"G-031": ["sound", "pads", "keyboard"]}, ["sound", "pads"])
     t = tagger([two_new, two_new])
     with pytest.raises(TaggingRefused, match="at most 1"):
-        tag_round(t, source, vocab, 4, MAX_NEW)
+        tag_round(t, source, vocab, 4, MAX_NEW, telemetry=TEL)
     assert "at most 1 new tags" in t.client.calls[0][1][1].content
-    tags, new = tag_round(tagger([reply({"G-031": ["sound", "keyboard"]}, ["sound"])]), source, vocab, 4, MAX_NEW)
+    tags, new = tag_round(tagger([reply({"G-031": ["sound", "keyboard"]}, ["sound"])]), source, vocab, 4, MAX_NEW,
+                          telemetry=TEL)
     assert [g.tag for g in new] == ["sound"] and vocab.tags_of("G-031") == {"sound", "keyboard"}
 
 
 def test_tags_are_frozen_once_given():
     vocab = MemoryTagVocabulary(list(VOCAB))
     source = MemoryGoalSource([SNAKE])
-    tag_round(tagger([reply({"G-001": ["keyboard", "timer"]})]), source, vocab, 1, MAX_NEW)
+    tag_round(tagger([reply({"G-001": ["keyboard", "timer"]})]), source, vocab, 1, MAX_NEW, telemetry=TEL)
     with pytest.raises(ValueError, match="already tagged"):
-        tag_round(tagger([]), source, vocab, 1, MAX_NEW)
+        tag_round(tagger([]), source, vocab, 1, MAX_NEW, telemetry=TEL)
     tagged = Request(**{**SNAKE.__dict__, "tags": frozenset({"keyboard"})})
     with pytest.raises(ValueError, match="frozen"):
         tagger([]).tag([tagged], VOCAB, 1, MAX_NEW)
@@ -210,10 +215,10 @@ def test_held_out_tagging_before_the_close_is_refused_and_leaves_the_close_taggi
     source = Watched(stream + held)
     t = tagger([reply({"H-01": ["keyboard", "timer"]})])
     with pytest.raises(ValueError, match="close only"):
-        tag_held_out(t, source, vocab, SPEC.run.rounds)
+        tag_held_out(t, source, vocab, SPEC.run.rounds, telemetry=TEL)
     assert Watched.held_reads == 0 and vocab.tags_of("H-01") is None and t.client.calls == []
     vocab.set_tags({r.id: frozenset({"keyboard", "timer"}) for r in stream[1:]})
-    tags = tag_held_out(t, source, vocab, SPEC.run.rounds)
+    tags = tag_held_out(t, source, vocab, SPEC.run.rounds, telemetry=TEL)
     assert tags["H-01"] == {"keyboard", "timer"} and Watched.held_reads == 1
 
 

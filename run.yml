@@ -10,6 +10,7 @@ run:
   convergence_rounds: 3        # halt: quiet rounds after the drift round (SPEC § 11)
   transport_reruns: 1          # a pass failed for transport is re-run at most this many times
   ping_transport_share: 0.3333 # ping when more than this share of a round's passes failed after re-runs
+  pass_timeout_s: 600          # a pass process past this is terminated and recorded timed out
 
 pilot:                         # the worker pin rule (SPEC § 5), read once
   min_share_passing: 0.3       # fewer pilot artifacts passing >= 1 acceptance check -> worker takes its fallback
@@ -128,6 +129,7 @@ nominator:
 
 notes:
   max_tokens: 8000
+  chars_per_token: 4           # the notes budget's token proxy: ceil(characters / chars_per_token)
 
 readout:
   reps: 4

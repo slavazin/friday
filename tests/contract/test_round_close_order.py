@@ -20,6 +20,7 @@ from friday.adapters.memory import (
     MemoryPoolStore,
     MemorySpendLog,
 )
+from friday.adapters.telemetry import MemoryTelemetry
 from friday.algorithms.halt import HaltReason
 from friday.algorithms.recurrence import RecurrenceBar
 from friday.app.render import FlipRenderer
@@ -48,6 +49,7 @@ from friday.domain.types import (
     Regime,
 )
 from friday.ports.models import Citation
+from friday.ports.telemetry import Scope
 from friday.roles.judge import DraftObservation
 from friday.roles.lens_minter import LensMinter
 from friday.roles.nominator import Draft, NoDecision, Nominator
@@ -128,10 +130,11 @@ class World:
             return nxt
 
         self.nominator.draft = draft
+        self.telemetry = MemoryTelemetry(Scope("main"))
         self.close = build_round_close(
             SPEC, journal=self.journal, ledger=self.ledger, events=self.events, judge_store=self.judge,
             pools=self.pools, passes=self.passes, observations=self.obs, lens_set=self.lens_set, spend=self.spend,
-            pooling=self.pooling, nominator=self.nominator, minter=minter, renderer=RENDERER,
+            pooling=self.pooling, nominator=self.nominator, minter=minter, renderer=RENDERER, telemetry=self.telemetry,
             bar=bar or FastTrackBar(SPEC.pool.recurrence_min_observations, SPEC.pool.recurrence_min_rounds),
         )
 
@@ -483,7 +486,7 @@ def test_build_round_close_with_a_minter_and_no_residual_source_raises(tmp_path)
         build_round_close(
             SPEC, journal=w.journal, ledger=w.ledger, events=w.events, judge_store=w.judge, pools=w.pools,
             passes=w.passes, observations=w.obs, lens_set=w.lens_set, spend=w.spend, pooling=w.pooling,
-            nominator=w.nominator, minter=minter, renderer=RENDERER)
+            nominator=w.nominator, minter=minter, renderer=RENDERER, telemetry=w.telemetry)
 
 
 def _fail_journal_flip_once(w):

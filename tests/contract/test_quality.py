@@ -9,8 +9,12 @@ import pytest
 
 from friday.adapters import quality
 from friday.adapters.quality import NodeQualityProbe, QualityToolFailed, QualityUnavailable, inline_code, inline_script
+from friday.adapters.telemetry import MemoryTelemetry
 from friday.config import load_spec
+from friday.ports.telemetry import Scope
 from tests.fakes import FakeDom, FakePage
+
+TEL = MemoryTelemetry(Scope("main"))
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = load_spec(ROOT / "run.yml")
@@ -34,7 +38,7 @@ def browser():
     pytest.importorskip("playwright")
     from friday.adapters.playwright_browser import PlaywrightBrowser
 
-    b = PlaywrightBrowser(SPEC.eval.action_timeout_ms, SPEC.eval.load_timeout_ms)
+    b = PlaywrightBrowser(SPEC.eval.action_timeout_ms, SPEC.eval.load_timeout_ms, telemetry=TEL)
     yield b
     b.close()
 

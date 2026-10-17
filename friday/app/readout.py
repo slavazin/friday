@@ -34,6 +34,7 @@ from friday.domain.types import (
 )
 from friday.ports.goals import GoalSource, TagVocabulary
 from friday.ports.stores import EventLog, Journal, Ledger, LensSet, PassStore, SpendLog
+from friday.ports.telemetry import Telemetry
 from friday.stats.significance import PAIRED_TESTS
 
 # SPEC § 2 claim language: the pitch word each reading earns.
@@ -355,11 +356,13 @@ def hook_transfer(stores: ReadoutStores, held: Sequence[Request], journal_rows: 
 
 
 def _tokens(arm_passes: Sequence[Pass], composed: Mapping[str, int]) -> ArmMean:
-    """Mean tokens composed per pass; unread when any of the arm's passes has no recorded count."""
+    """Mean tokens composed per pass: `composed` for a pass it names, else the pass's own `composed_tokens`;
+    unread when any of the arm's passes has neither."""
     ps = [p for p in arm_passes if not p.transport_failed]
-    if not ps or any(p.id not in composed for p in ps):
+    counts = [composed.get(p.id, p.composed_tokens) for p in ps]
+    if not ps or any(c is None for c in counts):
         return ArmMean(len(ps), None)
-    return _mean([float(composed[p.id]) for p in ps])
+    return _mean([float(c) for c in counts if c is not None])
 
 
 def readings(stores: ReadoutStores, spec: RunSpec) -> Readout:
@@ -407,6 +410,26 @@ def readings(stores: ReadoutStores, spec: RunSpec) -> Readout:
         hook_transfer=hook_transfer(stores, held, by_arm.get(Arm.JOURNAL, [])),
         tokens_composed=tokens,
     )
+
+
+def run_readout(stores: ReadoutStores, spec: RunSpec, *, telemetry: Telemetry) -> Readout:
+    """`readings` inside one `readout` span, with one `readout.reading` event per pre-registered reading.
+
+    Telemetry records what the readout computed; nothing here reads it back."""
+    with telemetry.span("readout", reps=spec.readout.reps) as span:
+        r = readings(stores, spec)
+        span.set(passes=len(readout_passes(stores.passes, frozenset(r.held_out), r.regime)))
+        for claim in (r.r1, r.r2):
+            telemetry.event("readout.reading", reading=claim.reading, population=claim.population,
+                            estimate=claim.mean, lower_bound=claim.lower_bound, claim_above=claim.claim_above,
+                            p=claim.p, verdict=claim.verdict)
+        telemetry.event("readout.reading", reading="R3", population=r.r3.population,
+                        estimate=None if r.r3.population is None else len(r.r3.admitted_before_retired_after),
+                        lower_bound=None, claim_above=None, p=None, verdict=r.r3.verdict)
+        telemetry.event("readout.reading", reading="R4", population=r.r4.population,
+                        estimate=None if r.r4.population is None else len(r.r4.kept_minted),
+                        lower_bound=None, claim_above=None, p=None, verdict=r.r4.verdict)
+        return r
 
 
 def _fmt(x: float | None, digits: int = 3) -> str:
