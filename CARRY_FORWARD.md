@@ -56,11 +56,9 @@ uv run --env-file .env friday doctor
 
 ## Open questions (a human decides; record the answer in docs/spec-findings.md)
 
-The six questions are in [docs/spec-findings.md](docs/spec-findings.md), under "Open questions". Two block
-slices:
-- **The Ultra fallback (question 1)** decides the nominator, goal minter, tagger and pooling pins. Settle
-  it before S2.
-- **Coordinator tool calling (question 2)** blocks S11.
+The six questions are in [docs/spec-findings.md](docs/spec-findings.md), under "Open questions". One blocks a
+slice: **coordinator tool calling (question 1)** blocks S11. The drafting-role pins are settled
+(`zai-org/GLM-5.3`).
 
 ## Work slices
 
@@ -71,7 +69,7 @@ Every slice that adds a `run.yml` consumer removes that knob from `PENDING` in
 | Id | Slice | Block | Depends on |
 | --- | --- | --- | --- |
 | S1 | Probe suite, how-to check, repair chain, A from P, H and C | 12:15–13:15 | — |
-| S2 | Goal minter, contract stubs, check validation, goal source; freeze `goals/` | 12:15–13:15 | question 1 |
+| S2 | Goal minter, contract stubs, check validation, goal source; freeze `goals/` | 12:15–13:15 | — |
 | S3 | Tagger and tag vocabulary store | 12:15–13:15 | S2 |
 | S4 | Rubric adapter, quality probe, response cache | 12:15–13:15 | — |
 | S5 | Pilot round and the worker pin rule | 13:00–13:15 | S1–S4 |
@@ -80,7 +78,7 @@ Every slice that adds a `run.yml` consumer removes that knob from `PENDING` in
 | S8 | Judge prompts and calls | 13:15–14:15 | S7 |
 | S9 | Pooling call, fast-track, nominator with You.com | 13:15–14:15 | S8 |
 | S10 | Round-close orchestrator | 13:15–14:15 | S9 |
-| S11 | Coordinator, runner, notes arm, steer CLI | 13:15–14:15 | S10, question 2 |
+| S11 | Coordinator, runner, notes arm, steer CLI | 13:15–14:15 | S10, question 1 |
 | S12 | Dry run, 3 rounds | 14:15–14:30 | S11 |
 | S13 | Full run | 14:30–15:30 | S12 |
 | S14 | Readout runner | 14:30–15:30 | S6 |

@@ -44,19 +44,20 @@ The listing carries per-model prices, so cost is computed from it. A live struct
 - Status is read from the front matter. The event log is the append-only history, and a flip is validated
   before either is written.
 - The critic run: optional, timeboxed (SPEC § 17).
+- The drafting roles (nominator, lens minter, goal minter, tagger, pooling call) are pinned to
+  `zai-org/GLM-5.3`, since Ultra is not served. The drafting model then differs from the judge's, which
+  keeps the roles independent. A live structured call answered in 0.8 s. The critic moves to
+  `deepseek-ai/DeepSeek-V4-Pro`, so it differs from both.
 
 ## Open questions
 
-1. **Ultra is not served.** The nominator, the minters, the tagger and the pooling call run on the judge's
-   model. Pick another strong text model (`zai-org/GLM-5.3`, `deepseek-ai/DeepSeek-V4-Pro`) to keep the
-   roles independent, or accept it and record it beside D6.
-2. **Coordinator tool calling.** `/v1/models` does not tag `openai/gpt-oss-120b` with tool calling. Verify
+1. **Coordinator tool calling.** `/v1/models` does not tag `openai/gpt-oss-120b` with tool calling. Verify
    it with one tool call before the dry run.
-3. **Lens value per judge model.** If the judge pin falls back mid-run, a lens's value history mixes two
+2. **Lens value per judge model.** If the judge pin falls back mid-run, a lens's value history mixes two
    answerers. Decide whether a fallback resets the window.
-4. **Fold on correlation alone.** Two lenses whose `p` move together may ask different things. A cheap
+3. **Fold on correlation alone.** Two lenses whose `p` move together may ask different things. A cheap
    guard: fold only when their flagged quotes overlap on most passes.
-5. **The contradicted path.** A judge label alone moves a decision to `suspect` (§ 9); retirement still
+4. **The contradicted path.** A judge label alone moves a decision to `suspect` (§ 9); retirement still
    needs ablation pairs. State it in the readout.
-6. **Smaller effects.** One acceptance check is now worth 0.10 of loss, not 0.15. Fewer decisions may clear
+5. **Smaller effects.** One acceptance check is now worth 0.10 of loss, not 0.15. Fewer decisions may clear
    the gate within 12 pairs (§ 8). The falsifier "no candidate admitted by the drift round" (§ 16) reads it.

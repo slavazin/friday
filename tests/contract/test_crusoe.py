@@ -21,8 +21,10 @@ def test_pins_resolve_against_the_served_list():
     res = resolve(SPEC.models.roles, served)
     assert res["worker"].model == "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B" and not res["worker"].replaced
     assert res["rubric"].model == "nvidia/NVIDIA-Nemotron-3.5-Super-VL"
-    assert res["nominator"].replaced and res["nominator"].model == "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B"
-    demoted = demote_group(res, SPEC.models.roles, "ultra")
+    assert not res["nominator"].replaced and res["nominator"].model == "zai-org/GLM-5.3"
+    assert res["nominator"].model != res["judge"].model
+    assert res["critic"].model not in (res["judge"].model, res["nominator"].model)
+    demoted = demote_group(res, SPEC.models.roles, "drafting")
     assert all(demoted[r].replaced for r in ("nominator", "lens_minter", "goal_minter", "tagger", "pooling"))
     assert not demoted["judge"].replaced
 

@@ -563,16 +563,16 @@ is deterministic where it can be and pinned where it cannot.
 | worker                                                         | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`                                                                                                                                                                       | `openai/gpt-oss-120b`                           | 0.7, no seed | composition               | one HTML file with its how-to |
 | eval rubric                                                    | the first image-input model `/v1/models` lists among `nvidia/NVIDIA-Nemotron-3.5-Super-VL`, `google/gemma-4-31b-it`, `zai-org/GLM-5.3-Flash`, `Qwen/Qwen3.8-27B` (in the order written here) | `nvidia/Nemotron-3-Nano-Omni-Reasoning-30B-A3B` | 0            | screenshots + request text | 3 scores on 1–5 per viewport |
 | judge                                                          | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B`                                                                                                                                                                    | `deepseek-ai/DeepSeek-V4-Pro`                   | 0            | text only (§ 6)           | JSON            |
-| nominator, lens minter, goal minter, tagger, pooling call     | Nemotron 3 Ultra (`nvidia/NVIDIA-Nemotron-3-Ultra-550B`; not served on 2026-10-17)                                                                                                                          | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B`      | 0.3          | pool, residual view, round's requests | JSON |
+| nominator, lens minter, goal minter, tagger, pooling call     | `zai-org/GLM-5.3` (Nemotron 3 Ultra is not served; a model other than the judge's keeps the drafting roles independent of it)                                                       | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B`      | 0.3          | pool, residual view, round's requests | JSON |
 | coordinator                                                    | `openai/gpt-oss-120b`                                                                                                                                                                                          | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B`      | 0.2          | round state               | tool calls      |
-| critic (critic run only)                                       | `zai-org/GLM-5.3`                                                                                                                                                                                              | `deepseek-ai/DeepSeek-V4-Pro`                   | 0.3          | request, artifact, how-to, screenshot | JSON |
+| critic (critic run only)                                       | `deepseek-ai/DeepSeek-V4-Pro`                                                                                                                                                                                  | `deepseek-ai/Deepseek-V4-Flash`                 | 0.3          | request, artifact, how-to, screenshot | JSON |
 
 Pins live in `run.yml`. At start-up the runner reads `GET /v1/models`; a
 pinned id that is absent is replaced by its fallback, and the replacement is
-recorded. The runner also records each model string the service echoes. An
-Ultra call taking more than `models.slow_first_call_s` (60 s) on the first
-goal-minting call moves the Ultra roles to their fallback for the whole run.
-With Ultra unserved, the nominator and the judge run on one model; the readout
+recorded. The runner also records each model string the service echoes. A
+drafting-role call taking more than `models.slow_first_call_s` (60 s) on the
+first goal-minting call moves the drafting roles to their fallback for the
+whole run. That fallback is the judge's model; if it is taken, the readout
 records it beside D6 (§ 15).
 
 **The worker pin rule (the one data-informed choice, fixed in advance).** The
@@ -1183,7 +1183,7 @@ checks, two judge calls); 30 passes at 16 in parallel plus the close is about
 | D3  | Identity attaches at admission (§ 6 I3)                                             | `D-NNNN` is minted at drafting so the Ledger and the timeline can show candidates; admission is a status flip                                  | The candidate's life is part of the demo                                                                          |
 | D4  | Self-graded labels never drive permanent structure alone (§ 6 I12)                  | Kept: the deterministic checks carry 0.75 of the loss and the rubric model 0.25                                                                | —                                                                                                                 |
 | D5  | No learned routing or embedder in the retrieval path (§ 2 position 1)               | Kept: hooks are tag sets; pooling is a model assigning legible shapes to stable pools                                                          | —                                                                                                                 |
-| D6  | The adjudicator is stronger than the worker                                         | If the rubric pin resolves to a model no stronger than the worker, the rubric's share of the loss is graded by a peer; recorded in the readout. Likewise when the nominator and the judge resolve to one model | Crusoe's image-input models are mostly the 27–31B class; Ultra is not served |
+| D6  | The adjudicator is stronger than the worker                                         | If the rubric pin resolves to a model no stronger than the worker, the rubric's share of the loss is graded by a peer; recorded in the readout. Likewise if the drafting roles fall back to the judge's model | Crusoe's image-input models are mostly the 27–31B class |
 
 ---
 

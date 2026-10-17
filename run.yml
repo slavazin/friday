@@ -151,7 +151,7 @@ models:
     api_key_env: crusoe_key
   # USD per million tokens. Empty: the client reads `pricing` from GET /v1/models.
   price_overrides: {}
-  slow_first_call_s: 60         # an Ultra-role first call slower than this moves those roles to their fallback
+  slow_first_call_s: 60         # a drafting-role first call slower than this moves those roles to their fallback
   roles:
     worker:
       pins: [nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B]
@@ -167,22 +167,22 @@ models:
       pins: [nvidia/NVIDIA-Nemotron-3-Super-120B-A12B]
       fallback: deepseek-ai/DeepSeek-V4-Pro
       temperature: 0.0
-    nominator: &ultra
-      pins: [nvidia/NVIDIA-Nemotron-3-Ultra-550B]
+    nominator: &drafting        # a different model from the judge, so the roles stay independent
+      pins: [zai-org/GLM-5.3]
       fallback: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B
       temperature: 0.3
-      slow_first_call_group: ultra
-    lens_minter: *ultra
-    goal_minter: *ultra
-    tagger: *ultra
-    pooling: *ultra
+      slow_first_call_group: drafting
+    lens_minter: *drafting
+    goal_minter: *drafting
+    tagger: *drafting
+    pooling: *drafting
     coordinator:
       pins: [openai/gpt-oss-120b]
       fallback: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B
       temperature: 0.2
-    critic:
-      pins: [zai-org/GLM-5.3]
-      fallback: deepseek-ai/DeepSeek-V4-Pro
+    critic:                     # differs from the judge and the drafting roles (SPEC § 17)
+      pins: [deepseek-ai/DeepSeek-V4-Pro]
+      fallback: deepseek-ai/Deepseek-V4-Flash
       temperature: 0.3
 
 search:
