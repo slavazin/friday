@@ -41,7 +41,11 @@ def build_mechanics(spec: RunSpec) -> Mechanics:
         loss=LossModel(spec.eval.w_a, spec.eval.w_r, spec.eval.rubric_scale, spec.eval.rubric_questions),
         gate=GateRule(g.alpha, g.n_min, g.n_max, g.quality_margin, g.quality_level, betting, bound),
         detector=Detector(dt.window, dt.level, g.alpha, dt.confirm_pairs, dt.contradicted_share, betting, bound),
-        bar=RecurrenceBar(spec.pool.recurrence_min_observations, spec.pool.recurrence_min_rounds),
+        bar=RecurrenceBar(
+            spec.pool.recurrence_min_observations, spec.pool.recurrence_min_rounds,
+            fast_track_share=spec.pool.fast_track_share, min_requests=spec.pool.recurrence_min_requests,
+            fast_track_min_requests=spec.pool.fast_track_min_requests,
+        ),
         curation=CurationParams(
             n_min=ln.n_min, flag_p=ln.flag_p, floor_quantile=ln.floor_quantile, floor_shuffles=ln.floor_shuffles,
             floor_strikes=ln.floor_strikes, fold_rho=ln.fold_rho, residual_loss=ln.residual_loss, cap=ln.cap,

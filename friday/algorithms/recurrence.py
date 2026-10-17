@@ -34,6 +34,8 @@ class RecurrenceBar:
     min_observations: int
     min_rounds: int
     fast_track_share: float | None = None
+    min_requests: int = 1               # distinct requests (categories) behind the label's observations
+    fast_track_min_requests: int = 1    # distinct requests behind a fast-tracked pool's observations
 
     def label_at_bar(self, pool: Pool, observations: Sequence[Observation]) -> str | None:
         """The direction label whose open observations in `pool` reach the bar; None when none does.
@@ -44,28 +46,33 @@ class RecurrenceBar:
         if pool.status is PoolStatus.MERGED:
             return None
         for label, obs in _ranked_labels(pool, _counted(pool, observations)):
-            if len(obs) >= self.min_observations and len({o.round for o in obs}) >= self.min_rounds:
+            if (len(obs) >= self.min_observations and len({o.category for o in obs}) >= self.min_requests
+                    and len({o.round for o in obs}) >= self.min_rounds):
                 return label
         return None
 
     def fast_tracked_label(self, pool: Pool, observations: Sequence[Observation]) -> str | None:
         """The leading direction label when `pool` is fast-tracked; None when it is not.
 
-        Fast-tracked: at least `min_observations` counted open observations, and the leading label holds at
-        least `fast_track_share` of them (an open observation with no label counts in the denominator only).
+        Fast-tracked: at least `min_observations` counted open observations from at least
+        `fast_track_min_requests` distinct requests, and the leading label holds at least `fast_track_share` of
+        those requests (SPEC § 7 Counting: shares are over distinct requests, so the two passes of a pair count
+        once; a request with only unlabeled observations counts in the denominator only).
         No round spread is required. For a refused pool only observations dated after the refusal count,
         exactly as for the bar.
         """
         if self.fast_track_share is None or pool.status is PoolStatus.MERGED:
             return None
         counted = _counted(pool, observations)
-        if len(counted) < self.min_observations:
+        requests = {o.category for o in counted}
+        if len(counted) < self.min_observations or len(requests) < self.fast_track_min_requests:
             return None
-        ranked = _ranked_labels(pool, counted)
-        if not ranked:
+        by_requests = sorted(((lbl, {o.category for o in obs}) for lbl, obs in _ranked_labels(pool, counted)),
+                             key=lambda kv: (-len(kv[1]), _label_index(pool, kv[0])))
+        if not by_requests:
             return None
-        label, obs = ranked[0]
-        return label if len(obs) / len(counted) >= self.fast_track_share else None
+        label, reqs = by_requests[0]
+        return label if len(reqs) / len(requests) >= self.fast_track_share else None
 
 
 def _counted(pool: Pool, observations: Sequence[Observation]) -> list[Observation]:

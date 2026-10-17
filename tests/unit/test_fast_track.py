@@ -14,9 +14,10 @@ BAR = RecurrenceBar(3, 2, SHARE)
 _n = iter(range(1, 10_000))
 
 
-def obs(rnd, label, pool="P-0001", status=ObservationStatus.OPEN):
-    i = next(_n)
-    return Observation(f"O-{i:04d}", f"x{i}", rnd, "L-03", "cat", "shape", "dir", "q", status, pool, label)
+def obs(rnd, label, pool="P-0001", status=ObservationStatus.OPEN, request=None):
+    i = next(_n)                                    # each observation from its own request unless one is given
+    return Observation(f"O-{i:04d}", f"x{i}", rnd, "L-03", request or f"cat{i}", "shape", "dir", "q", status, pool,
+                       label)
 
 
 def pool(pid, status=PoolStatus.OPEN, refused_at=None, labels=("a", "b")):
@@ -128,3 +129,28 @@ def test_fast_track_reads_no_gate_code():
     assert "gate" not in {m.split(".")[-1] for m in src.split() if m.startswith("friday.")}
     assert "from friday.algorithms.gate" not in src and "eprocess" not in src
     assert not hasattr(gate, "fast_track_share")
+
+
+SPEC_BAR = RecurrenceBar(3, 2, SHARE, min_requests=2, fast_track_min_requests=3)
+
+
+def test_two_passes_of_one_request_never_reach_the_bar_or_the_fast_track():
+    p = pool("P-0001")
+    ob = [obs(1, "a", request="Q-1"), obs(1, "a", request="Q-1"), obs(2, "a", request="Q-1"),
+          obs(2, "a", request="Q-1")]                               # four passes, one request, two rounds
+    assert SPEC_BAR.label_at_bar(p, ob) is None
+    assert SPEC_BAR.fast_tracked_label(p, ob) is None
+    ob.append(obs(2, "a", request="Q-2"))                           # a second request reaches the bar
+    assert SPEC_BAR.label_at_bar(p, ob) == "a" and SPEC_BAR.fast_tracked_label(p, ob) is None
+
+
+def test_fast_track_share_is_over_distinct_requests_not_passes():
+    p = pool("P-0001")
+    # label a: 4 passes from 2 requests; label b: 2 passes from 2 requests -> 4/6 of passes, 2/4 of requests
+    ob = [obs(1, "a", request="Q-1"), obs(1, "a", request="Q-1"), obs(1, "a", request="Q-2"),
+          obs(1, "a", request="Q-2"), obs(1, "b", request="Q-3"), obs(1, "b", request="Q-4")]
+    assert SPEC_BAR.fast_tracked_label(p, ob) is None
+    ob.append(obs(1, "a", request="Q-5"))                           # a holds 3 of 5 requests: still under 2/3
+    assert SPEC_BAR.fast_tracked_label(p, ob) is None
+    ob.append(obs(1, "a", request="Q-6"))                           # 4 of 6 requests
+    assert SPEC_BAR.fast_tracked_label(p, ob) == "a"
