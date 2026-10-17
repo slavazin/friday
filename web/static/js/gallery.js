@@ -15,22 +15,23 @@ const FREEZE_AFTER_MS = 5000;  // this long after the pointer leaves, the app is
 
 // A built app shown frozen: its poster still (rendered once by the server), with a hint. Hovering starts the
 // live app in its sandboxed iframe; leaving freezes it again. Only hovered apps run, so the page stays light.
-function frozenApp(passId, title, cls = "app-frame") {
+export function frozenApp(passId, title, cls = "app-frame", appBase = "/apps/", posterBase = "/posters/") {
   const img = h("img", { class: "poster", alt: title, loading: "lazy", decoding: "async" });
   const hint = h("div", { class: "play-hint" }, "▶ hover to play");
   const wrap = h("div", { class: "frozen" }, img, hint);
   let tries = 0;
   const retry = () => {            // not rendered yet: show the placeholder and look again shortly
     wrap.classList.add("no-poster");
-    if (++tries <= 60) setTimeout(() => { img.src = `/posters/${encodeURIComponent(passId)}?t=${tries}`; }, 5000);
+    if (posterBase && ++tries <= 60) setTimeout(() => { img.src = `${posterBase}${encodeURIComponent(passId)}?t=${tries}`; }, 5000);
   };
   img.onerror = retry;
   img.onload = () => (img.naturalWidth <= 1 ? retry() : wrap.classList.remove("no-poster"));   // 1x1: pending
-  img.dataset.src = `/posters/${encodeURIComponent(passId)}`;
+  if (posterBase) img.dataset.src = `${posterBase}${encodeURIComponent(passId)}`;
+  else wrap.classList.add("no-poster");
   let playT = null, freezeT = null, frame = null;
   const play = () => {
     if (frame) return;
-    frame = h("iframe", { class: `${cls} live`, src: `/apps/${encodeURIComponent(passId)}`, sandbox: "allow-scripts",
+    frame = h("iframe", { class: `${cls} live`, src: `${appBase}${encodeURIComponent(passId)}`, sandbox: "allow-scripts",
       referrerpolicy: "no-referrer", title });
     wrap.append(frame);
     wrap.classList.add("playing");

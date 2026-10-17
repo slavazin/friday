@@ -341,3 +341,12 @@ ul.flips { margin: 0; padding-left: 18px; font-size: 14.5px; }
 .play-hint { position: absolute; left: 8px; bottom: 8px; padding: 4px 9px; border-radius: 999px; font: 600 12px/1 inherit;
   color: #fff; background: #0b0d12b3; opacity: .8; pointer-events: none; transition: opacity .2s; }
 .frozen.playing .play-hint, .frame-wrap:hover .play-hint { opacity: 0; }
+
+/* What if */
+.whatif-note { color: #f5c26b; font-size: 14px; }
+.whatif-decisions { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.whatif-dec { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; }
+.whatif-dec-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.whatif-row { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 12px; margin-bottom: 14px; }
+.whatif-row .pair-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.whatif-frame { height: 360px; }

@@ -106,7 +106,7 @@ def with_esc_relay(html: bytes) -> bytes:
 
 
 def create_app(spec: RunSpec, db_path: str | Path, export_path: str | Path, artifacts_dir: str | Path,
-               *, render_posters: bool = False) -> FastAPI:
+               *, render_posters: bool = False, whatif_dir: str | Path | None = None) -> FastAPI:
     """The demo app over one run's telemetry log, export file and artifacts folder. With `render_posters`, a
     background thread renders a still poster per built app (`web/posters.py`) for the gallery's frozen cards."""
     export = _ExportFile(Path(export_path))
@@ -214,6 +214,27 @@ def create_app(spec: RunSpec, db_path: str | Path, export_path: str | Path, arti
             return Response(PENDING_GIF, media_type="image/gif", headers={"X-Poster": "pending"})
         return FileResponse(path, media_type="image/jpeg")
 
+    # "What if": builds made outside the run (scripts/whatif.py) with every would-be decision composed.
+    # Illustrative and unscored; served like the run's apps, under the same CSP, from their own folder.
+    whatif = None if whatif_dir is None else Path(whatif_dir).resolve()
+
+    @app.get("/api/whatif")
+    def get_whatif() -> JSONResponse:
+        f = None if whatif is None else whatif / "whatif.json"
+        if f is None or not f.is_file():
+            raise HTTPException(404, "no what-if showcase built")
+        return JSONResponse(json.loads(f.read_text()))
+
+    @app.get("/whatif/apps/{build_id}")
+    def get_whatif_app(build_id: str) -> Response:
+        if whatif is None or not PASS_ID.match(build_id) or build_id in (".", ".."):
+            raise HTTPException(404, "unknown build")
+        path = (whatif / "apps" / build_id / "index.html").resolve()
+        if not path.is_relative_to(whatif / "apps") or not path.is_file():
+            raise HTTPException(404, "unknown build")
+        return Response(with_esc_relay(path.read_bytes()), media_type="text/html; charset=utf-8",
+                        headers={"Content-Security-Policy": APP_CSP, "Cross-Origin-Resource-Policy": "same-origin"})
+
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app
 
@@ -256,11 +277,13 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--db", type=Path, default=None)
     ap.add_argument("--export", type=Path, default=None)
     ap.add_argument("--artifacts", type=Path, default=None)
+    ap.add_argument("--whatif", type=Path, default=None, help="the what-if showcase folder (scripts/whatif.py)")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8765)
     args = ap.parse_args(argv)
     spec, db, export, artifacts = resolve_paths(args)
-    app = create_app(load_spec(spec), db, export, artifacts, render_posters=True)
+    whatif = args.whatif or (args.root.parent / "whatif" if args.root is not None else None)
+    app = create_app(load_spec(spec), db, export, artifacts, render_posters=True, whatif_dir=whatif)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 
 if __name__ == "__main__":

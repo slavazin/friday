@@ -6,10 +6,11 @@ import { LivePage } from "./live.js";
 import { ReadoutPage } from "./readout.js";
 import { ReplayPage } from "./replay.js";
 import { TimelinePage } from "./timeline.js";
+import { WhatIfPage } from "./whatif.js";
 import { StagePage } from "./stage.js";
 import { cellText, emptyState, getJSON, h } from "./util.js";
 
-const TABS = ["stage", "gallery", "live", "replay", "timeline", "readout"];
+const TABS = ["stage", "gallery", "live", "replay", "timeline", "readout", "whatif"];
 const pages = {};
 let cfg = null;
 let doc = null;
@@ -58,6 +59,7 @@ function build(tab) {
   if (pages[tab]) return pages[tab];
   if (tab === "live") pages.live = new LivePage(el, cfg);
   else if (tab === "replay") pages.replay = new ReplayPage(el, cfg);
+  else if (tab === "whatif") pages.whatif = new WhatIfPage(el);
   else if (!needsExport(el)) return null;
   else if (tab === "stage") pages.stage = new StagePage(el, cfg, doc, cells);
   else if (tab === "gallery") pages.gallery = new GalleryPage(el, cfg, doc, cells);
