@@ -56,3 +56,65 @@ CREATE TRIGGER IF NOT EXISTS ledger_no_update BEFORE UPDATE ON ledger_deltas
   BEGIN SELECT RAISE(ABORT, 'ledger_deltas is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS ledger_no_delete BEFORE DELETE ON ledger_deltas
   BEGIN SELECT RAISE(ABORT, 'ledger_deltas is append-only'); END;
+
+-- Additions for the pass and judge stores, the register stores and the exposure store (CARRY_FORWARD S6).
+-- The readings of an EvalReport that `evals` has no column for: P, H, C, silent controls and the nested
+-- probe and how-to readings (JSON), so the report rebuilds field for field.
+CREATE TABLE IF NOT EXISTS eval_details (
+  pass_id TEXT PRIMARY KEY REFERENCES evals(pass_id), p REAL NOT NULL, h REAL NOT NULL, c REAL NOT NULL,
+  silent_controls INTEGER NOT NULL, probes TEXT NOT NULL, how_to TEXT NOT NULL
+);
+-- A round's pair plans, as drawn before its passes run. `exposure_rounds` marks a round recorded, so a
+-- round with no plans is still recorded once.
+CREATE TABLE IF NOT EXISTS exposure_rounds (round INTEGER PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS exposures (
+  round INTEGER NOT NULL REFERENCES exposure_rounds(round), seq INTEGER NOT NULL, category TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('exposure', 'ablation', 'none')), decision_id TEXT,
+  treated_slot INTEGER NOT NULL CHECK (treated_slot IN (0, 1)), PRIMARY KEY (round, seq)
+);
+-- One finished holder per pair slot: two passes of one round, category, request and arm cannot both
+-- record the same slot. A pass failed for transport gives no delta and leaves its slot to the re-run.
+CREATE UNIQUE INDEX IF NOT EXISTS passes_one_holder_per_slot
+  ON passes(round, category, arm, json_extract(composition, '$.request_id'), pair_slot)
+  WHERE pair_slot IS NOT NULL AND transport_failed = 0;
+CREATE INDEX IF NOT EXISTS passes_by_round ON passes(round);
+CREATE INDEX IF NOT EXISTS fires_by_decision ON fires(decision_id);
+-- A pass's rows (pass, eval, lens answers, fires) and the exposure plans are insert-only.
+CREATE TRIGGER IF NOT EXISTS passes_no_update BEFORE UPDATE ON passes
+  BEGIN SELECT RAISE(ABORT, 'passes is insert-only'); END;
+CREATE TRIGGER IF NOT EXISTS passes_no_delete BEFORE DELETE ON passes
+  BEGIN SELECT RAISE(ABORT, 'passes is insert-only'); END;
+CREATE TRIGGER IF NOT EXISTS evals_no_update BEFORE UPDATE ON evals
+  BEGIN SELECT RAISE(ABORT, 'evals is insert-only'); END;
+CREATE TRIGGER IF NOT EXISTS evals_no_delete BEFORE DELETE ON evals
+  BEGIN SELECT RAISE(ABORT, 'evals is insert-only'); END;
+CREATE TRIGGER IF NOT EXISTS eval_details_no_update BEFORE UPDATE ON eval_details
+  BEGIN SELECT RAISE(ABORT, 'eval_details is insert-only'); END;
+CREATE TRIGGER IF NOT EXISTS eval_details_no_delete BEFORE DELETE ON eval_details
+  BEGIN SELECT RAISE(ABORT, 'eval_details is insert-only'); END;
+CREATE TRIGGER IF NOT EXISTS lens_answers_no_update BEFORE UPDATE ON lens_answers
+  BEGIN SELECT RAISE(ABORT, 'lens_answers is insert-only'); END;
+CREATE TRIGGER IF NOT EXISTS lens_answers_no_delete BEFORE DELETE ON lens_answers
+  BEGIN SELECT RAISE(ABORT, 'lens_answers is insert-only'); END;
+CREATE TRIGGER IF NOT EXISTS fires_no_update BEFORE UPDATE ON fires
+  BEGIN SELECT RAISE(ABORT, 'fires is insert-only'); END;
+CREATE TRIGGER IF NOT EXISTS fires_no_delete BEFORE DELETE ON fires
+  BEGIN SELECT RAISE(ABORT, 'fires is insert-only'); END;
+CREATE TRIGGER IF NOT EXISTS exposure_rounds_no_update BEFORE UPDATE ON exposure_rounds
+  BEGIN SELECT RAISE(ABORT, 'exposures is insert-only'); END;
+CREATE TRIGGER IF NOT EXISTS exposure_rounds_no_delete BEFORE DELETE ON exposure_rounds
+  BEGIN SELECT RAISE(ABORT, 'exposures is insert-only'); END;
+CREATE TRIGGER IF NOT EXISTS exposures_no_update BEFORE UPDATE ON exposures
+  BEGIN SELECT RAISE(ABORT, 'exposures is insert-only'); END;
+CREATE TRIGGER IF NOT EXISTS exposures_no_delete BEFORE DELETE ON exposures
+  BEGIN SELECT RAISE(ABORT, 'exposures is insert-only'); END;
+-- Observations and pools are registers, corrected in place, with ids reserved once: never deleted.
+-- An observation's facts from its pass (pass, round, category, quote) never change.
+CREATE TRIGGER IF NOT EXISTS observations_facts_frozen BEFORE UPDATE ON observations
+  WHEN NEW.pass_id IS NOT OLD.pass_id OR NEW.round IS NOT OLD.round OR NEW.category IS NOT OLD.category
+    OR NEW.quote IS NOT OLD.quote
+  BEGIN SELECT RAISE(ABORT, 'an observation''s pass, round, category and quote are frozen'); END;
+CREATE TRIGGER IF NOT EXISTS observations_no_delete BEFORE DELETE ON observations
+  BEGIN SELECT RAISE(ABORT, 'observation ids are reserved once'); END;
+CREATE TRIGGER IF NOT EXISTS pools_no_delete BEFORE DELETE ON pools
+  BEGIN SELECT RAISE(ABORT, 'pool ids are reserved once'); END;
