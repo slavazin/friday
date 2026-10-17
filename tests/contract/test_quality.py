@@ -215,3 +215,20 @@ def test_the_globals_package_is_a_pinned_dev_dependency():
     pkg = json.loads((ROOT / "package.json").read_text())
     assert pkg["devDependencies"]["globals"] == json.loads((ROOT / "node_modules/globals/package.json").read_text())[
         "version"]
+
+
+def test_no_redeclare_does_not_count_top_level_names_that_shadow_browser_globals(probe):
+    html = ("<script>const status = document.getElementById('s'); const name = 'x'; function stop(){}"
+            " let top = 1, history = 2, event = 3; var length = 4; function close(){} function print(){}"
+            " function open(){} console.log(status, name, top, history, event, length); stop(); close(); print();"
+            " open();</script>")
+    assert probe.eslint_errors(html) == 0
+    assert probe.eslint_errors("<script>var a; var a; console.log(a);</script>") == 1
+
+
+def test_a_fatal_script_counts_once_and_its_own_lint_errors_are_not_counted_accepted(probe):
+    # Accepted (SPEC § 5 does not weigh a fatal piece): breaking a lint-heavy single script lowers Q; P and C
+    # catch the dead page. Pinned so a change here is a deliberate one.
+    noisy = "var a1,a2,a3,a4,a5; if(true){}"
+    assert probe.eslint_errors(f"<script>{noisy}</script>") == 7
+    assert probe.eslint_errors(f"<script>{noisy} let = ;</script>") == 1

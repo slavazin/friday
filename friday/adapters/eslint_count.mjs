@@ -3,7 +3,8 @@
 // `modules` the module-script bodies. Writes {"errors": n, "messages": [...]} to stdout.
 //
 // The browser compiles each piece on its own, so a piece that fails to compile breaks only itself: here it
-// counts as one error and is left out, and the rest is still linted. Classic pieces share one global scope
+// counts as one error and is left out, and the rest is still linted. Accepted: a broken piece's own lint errors
+// are not counted, so breaking a lint-heavy script can lower Q; Q is a guard, and P and C catch the dead page. Classic pieces share one global scope
 // and are linted as one source; each module is linted on its own with sourceType "module", seeing the
 // classic pieces' top-level names as globals (a classic name a module reads counts as used). Browser
 // globals come from the `globals` package (pinned in package.json) under the config's own list. Uses the
