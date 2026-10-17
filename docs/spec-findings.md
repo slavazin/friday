@@ -91,6 +91,11 @@ The listing carries per-model prices, so cost is computed from it. A live struct
   per build against gpt-oss-120b's bare ones. GLM-5.3 (drafting), Nemotron Super (judge), Super-VL (rubric) and
   Nano-Omni (critic) were excluded so the builder is never its own grader. The main run keeps Nemotron Nano.
 
+- **Main run stopped after round 4 for the readout (16:13).** Rounds ran 12-22 minutes under judge rate limits;
+  `run.rounds` 5 -> 4 so the readout lands before the deadline. Round 4 is the only post-drift round, so R3 has
+  one round to show forgetting. At the stop, D-0001 had 6 exposure deltas (mean d +0.025) and D-0002 had 9
+  (mean d +0.071); neither reached 1/alpha.
+
 ## Open questions
 
 1. **Coordinator tool calling.** `/v1/models` does not tag `openai/gpt-oss-120b` with tool calling. Verify
