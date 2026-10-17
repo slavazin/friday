@@ -21,6 +21,3 @@ The checks: each is {"steps": [...], "expect": {...}}.
 - A canvas_changed check holds at least one click, type, key or focus step: the same waits with no input must leave the canvas unchanged.
 - Each check reads behaviour: it fails on a page that holds every contract element with no script. A check that only finds an element, reads its label or types into a field and reads the same text back reads no behaviour.
 - Each check reads a different behaviour the request asks for.
-
-Reply in this form:
-{"text": "...", "timed": false, "contract": {"#id": "kind and role"}, "checks": [{"steps": [], "expect": {}}]}

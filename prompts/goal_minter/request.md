@@ -4,3 +4,6 @@ Give it {lo} to {hi} checks. Each wait is at most {max_wait_ms} ms. A timed requ
 {phone_block}{retry_block}
 Requests already written for this kind of app (write a different app, not a variant of one of these):
 {prior}
+
+Reply in this form:
+{{"text": "...", "timed": false, "contract": {{"#id": "kind and role"}}, "checks": [{{"steps": [], "expect": {{}}}}]}}

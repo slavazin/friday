@@ -155,7 +155,7 @@ def test_a_draft_naming_a_goal_family_is_rejected_and_no_family_reaches_the_writ
     out = minter([draft(checks=(BEHAVIOUR, BEHAVIOUR_2))], fails_on_stub).mint_requests([R1_SLOT])
     goals_json.write_requests(tmp_path / "s.json", out.stream)
     written = (tmp_path / "s.json").read_text()
-    assert word_hits(written, SPEC.stream.families) == []
+    assert word_hits(written, SPEC.stream.families, inflected=True) == []
     assert "R1" not in json.dumps([r["text"] for r in json.loads(written)])
 
 
@@ -226,7 +226,7 @@ def test_stub_is_deterministic_holds_every_contract_id_and_no_script():
 
 def test_draft_prompt_templates_name_no_goal_family_literally():
     templates = " ".join(p.read_text() for p in (ROOT / "prompts" / "goal_minter").glob("*.md"))
-    assert word_hits(templates, SPEC.stream.families) == []
+    assert word_hits(templates, SPEC.stream.families, inflected=True) == []
 
 
 # --- check validation on the stub (scripted stub readings) ------------------------------------------------
@@ -393,3 +393,93 @@ def test_goal_source_serves_tags_as_stored_so_far(tmp_path):
 def test_request_text_helper_matches_the_minted_text():
     assert request_text("a", Regime.R1, "C.") == "a" and request_text("a", Regime.R2, "C.") == "a. C."
     assert request_text("a.", Regime.R2, "C.") == "a. C."
+
+
+# --- review fixes: resume, family spellings, role kinds, reply forms, verb pick, --only ---------------------
+
+REFUSED = json.dumps({"text": ""})
+REFUSALS_PER_POSITION = (PARAMS.request_regenerations + 1) * (PARAMS.reasks + 1)
+SMALL = replace(PARAMS, rounds=2, per_round=1, held_out=1, drift_round=2)      # G-001 (R1), G-002, H-01 (R2)
+
+
+def test_a_failed_position_does_not_discard_the_minted_ones_and_a_rerun_resumes_from_the_journal(tmp_path):
+    journal = goals_json.JsonlMintJournal(tmp_path / "mint_journal.jsonl")
+    sunk: list[MintedGoals] = []
+    first = GoalMinter(ScriptedClient([draft(checks=(BEHAVIOUR, BEHAVIOUR_2)), *[REFUSED] * REFUSALS_PER_POSITION,
+                                       draft(text="a counter for the held-out set", checks=(BEHAVIOUR, BEHAVIOUR_2))]),
+                       BOOK, SMALL, fails_on_stub, DSL, sunk.append, journal)
+    with pytest.raises(MintFailed) as e:
+        first.mint()
+    assert sunk == []                                       # nothing frozen while a position is missing
+    assert e.value.failed == ["G-002"]
+    assert [r.id for r in e.value.partial.stream + e.value.partial.held_out] == ["G-001", "H-01"]
+    assert ("G-002", "position_failed") in [(r["request"], r["event"]) for r in e.value.partial.report]
+    assert sorted(journal.minted()) == ["G-001", "H-01"]
+    again = GoalMinter(ScriptedClient([draft(text="a counter that resumes", checks=(BEHAVIOUR, BEHAVIOUR_2))]),
+                       BOOK, SMALL, fails_on_stub, DSL, sunk.append, journal)
+    again.mint()
+    assert len(again.client.calls) == 1                     # only the failed position is re-minted
+    (out,) = sunk
+    assert [r.id for r in out.stream] == ["G-001", "G-002"] and [r.id for r in out.held_out] == ["H-01"]
+    assert out.stream[0].text == "a tally counter that goes up by one each time I press add"
+    assert set(out.stubs) == {"G-001", "G-002", "H-01"}
+
+
+def test_a_journal_written_for_another_plan_is_refused_on_resume(tmp_path):
+    journal = goals_json.JsonlMintJournal(tmp_path / "j.jsonl")
+    GoalMinter(ScriptedClient([draft(checks=(BEHAVIOUR, BEHAVIOUR_2))]), BOOK, PARAMS, fails_on_stub, DSL,
+               no_sink, journal).mint_requests([R1_SLOT])
+    moved = replace(R1_SLOT, family=SPEC.stream.families[2])
+    with pytest.raises(ValueError, match="does not match the plan"):
+        GoalMinter(ScriptedClient([]), BOOK, PARAMS, fails_on_stub, DSL, no_sink, journal).mint_requests([moved])
+
+
+@pytest.mark.parametrize("text", ["a few data tools for my budget", "two canvas games in one page",
+                                  "a pair of text-tools for my notes", "my canvasgames collection"])
+def test_a_draft_naming_a_family_in_the_plural_hyphenated_or_joined_is_rejected(text):
+    with pytest.raises(Rejected, match="kind label"):
+        validate_draft(json.loads(draft(text=text)), Regime.R1, PARAMS, DSL)
+
+
+def test_a_contract_role_not_beginning_with_its_element_kind_is_rejected():
+    contract = {"#city": "text box for the city", "#count": "display of the running count"}
+    check = {"steps": [{"type": "#city", "text": "Paris"}], "expect": {"text_matches": "#count", "regex": "Paris"}}
+    with pytest.raises(Rejected, match="element kind"):
+        validate_draft(json.loads(draft(contract=contract, checks=(check, BEHAVIOUR))), Regime.R1, PARAMS, DSL)
+
+
+def test_a_text_matches_check_listing_regex_before_the_verb_is_accepted():
+    check = {"steps": [{"click": "#add"}], "expect": {"regex": r"\b1\b", "text_matches": "#count"}}
+    d = validate_draft(json.loads(draft(checks=(BEHAVIOUR, check))), Regime.R1, PARAMS, DSL)
+    assert d.checks[1].expect == check["expect"]
+
+
+def test_every_minter_call_states_exactly_one_reply_form():
+    m = minter([draft(), regen(BEHAVIOUR_2)], reading_by_expect({"exists"}))
+    m.mint_requests([R1_SLOT])
+    (_, draft_msgs, _), (_, regen_msgs, _) = m.client.calls
+    for msgs, form in ((draft_msgs, '"checks"'), (regen_msgs, '{"check"')):
+        joined = "\n".join(x.content for x in msgs)
+        assert joined.count("Reply in this form") == 1 and form in joined.split("Reply in this form")[1]
+
+
+def test_the_retry_block_states_the_reason_the_previous_draft_was_retried():
+    refused_then_ok = minter([REFUSED, REFUSED, draft(checks=(BEHAVIOUR, BEHAVIOUR_2))], fails_on_stub)
+    refused_then_ok.mint_requests([R1_SLOT])
+    retried = refused_then_ok.client.calls[2][1][1].content
+    assert BOOK.text("goal_minter/retry_refused.md").strip() in retried
+    assert BOOK.text("goal_minter/retry_block.md").strip() not in retried
+    script = [draft(checks=(ON_STUB, ON_STUB_2)), regen({"steps": [], "expect": {"visible": "#add"}}),
+              regen({"steps": [], "expect": {"exists": "#add"}}), draft(checks=(BEHAVIOUR, BEHAVIOUR_2))]
+    no_behaviour = minter(script, reading_by_expect({"exists", "visible"}))
+    no_behaviour.mint_requests([R1_SLOT])
+    retried = no_behaviour.client.calls[-1][1][1].content
+    assert BOOK.text("goal_minter/retry_block.md").strip() in retried
+    assert BOOK.text("goal_minter/retry_refused.md").strip() not in retried
+
+
+def test_mint_goals_only_refuses_to_write_into_the_frozen_goal_paths():
+    from friday.cli import main
+
+    with pytest.raises(SystemExit, match="--only needs --goals-dir"):
+        main(["--spec", str(ROOT / "run.yml"), "mint-goals", "--only", "G-001"])

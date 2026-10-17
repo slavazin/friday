@@ -12,13 +12,13 @@ import json
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
-from friday.algorithms.language import word_hits
 from friday.domain.types import Check, Regime, Request
 from friday.ports.models import Message, ModelClient
 from friday.roles.ask import Rejected, ask_json
 from friday.roles.prompts import PromptBook
+from friday.roles.tagger import names_family
 from friday.stats.rng import derive
 
 ROLE = "goal_minter"
@@ -30,7 +30,14 @@ ELEMENT_KINDS = ("button", "input", "textarea", "select", "checkbox", "canvas", 
 
 
 class MintFailed(RuntimeError):
-    """A position for which no request survived drafting and check validation."""
+    """A position for which no request survived drafting and check validation. Raised by `mint_requests`
+    after every other position was tried; `partial` holds what was minted, `failed` the positions that
+    were not."""
+
+    def __init__(self, message: str, partial: MintedGoals | None = None, failed: Sequence[str] = ()) -> None:
+        super().__init__(message)
+        self.partial = partial
+        self.failed = list(failed)
 
 
 @dataclass(frozen=True)
@@ -51,6 +58,7 @@ class MintParams:
     test_query: str
     max_wait_ms: int
     reasks: int
+    expect_verbs: frozenset[str]    # the check DSL's expectation verbs (the eval owns the table)
 
 
 @dataclass(frozen=True)
@@ -92,6 +100,25 @@ class MintedGoals:
 
     def note(self, request_id: str, check_id: str, event: str, detail: str = "") -> None:
         self.report.append({"request": request_id, "check": check_id, "event": event, "detail": detail})
+
+
+@dataclass(frozen=True)
+class MintedSlot:
+    """One position as minted: its request, family, drafted text, stub and the report rows it produced."""
+
+    request: Request
+    family: str
+    draft_text: str
+    stub: str
+    report: tuple[dict[str, str], ...]
+
+
+class MintJournal(Protocol):
+    """Where each minted position is kept as soon as it completes, so a failed run resumes."""
+
+    def minted(self) -> Mapping[str, MintedSlot]: ...
+
+    def record(self, minted: MintedSlot) -> None: ...
 
 
 StubCheck = Callable[[str, Mapping[str, str], Check, Regime], StubReading]
@@ -186,9 +213,11 @@ def stub_html(contract: Mapping[str, str]) -> str:
             f"<body>\n{body}\n</body>\n</html>\n")
 
 
-def _selectors(check: Check) -> list[str]:
+def _selectors(check: Check, verbs: frozenset[str]) -> list[str]:
+    """Every selector the check's steps and its expectation name. The verb is picked as the DSL picks it:
+    the first expect key that is a verb, so a modifier listed first is never read as a selector."""
     sels = [str(s[v]) for s in check.steps for v in SELECTOR_STEPS if v in s]
-    verb = next(iter(check.expect))
+    verb = next(k for k in check.expect if k in verbs)
     if verb != "no_console_errors":
         sels.append(str(check.expect[verb]))
     return sels
@@ -207,7 +236,7 @@ def build_check(raw: Any, check_id: str) -> Check:
 
 
 def check_against_contract(check: Check, contract: Mapping[str, str], text: str, test_query: str,
-                           dsl_check: DslCheck) -> None:
+                           dsl_check: DslCheck, verbs: frozenset[str]) -> None:
     """Raises Rejected when `check` is outside the DSL, is one no build could pass (an element outside the
     contract, a canvas_changed with no input step), names no contract element, or reloads with a query the
     request text does not state."""
@@ -215,7 +244,7 @@ def check_against_contract(check: Check, contract: Mapping[str, str], text: str,
         dsl_check([check])
     except ValueError as e:                     # InvalidCheck: a DSL shape error, stated to the model
         raise Rejected(f"{check.id}: {e}") from None
-    for sel in _selectors(check):
+    for sel in _selectors(check, verbs):
         ids = SELECTOR_ID.findall(sel)
         if not ids:
             raise Rejected(f"{check.id}: selector {sel!r} names no contract id")
@@ -243,7 +272,7 @@ def validate_draft(raw: Any, regime: Regime, p: MintParams, dsl_check: DslCheck)
     text = text.strip()
     if "\n" in text:
         raise Rejected("'text' must be one line")
-    if word_hits(text, p.families):
+    if names_family(text, p.families):
         raise Rejected("'text' must describe the app in the user's words, not name a kind label")
     if p.constraint.strip() in text:
         raise Rejected("'text' must not include the phone-screen sentence; it is added after your text")
@@ -260,6 +289,9 @@ def validate_draft(raw: Any, regime: Regime, p: MintParams, dsl_check: DslCheck)
             raise Rejected(f"contract key {sel!r} must be an id with '#', such as '#start'")
         if not isinstance(role, str) or not role.strip():
             raise Rejected(f"contract role of {sel} must be a non-empty phrase")
+        words = re.findall(r"[a-z]+", role.lower())
+        if not words or words[0] not in ELEMENT_KINDS:
+            raise Rejected(f"contract role of {sel} must begin with its element kind, one of {list(ELEMENT_KINDS)}")
     contract = {str(k): str(v).strip() for k, v in contract.items()}
     raw_checks = raw.get("checks")
     lo, hi = p.checks_per_regime
@@ -268,7 +300,7 @@ def validate_draft(raw: Any, regime: Regime, p: MintParams, dsl_check: DslCheck)
     full = request_text(text, regime, p.constraint)
     checks = tuple(build_check(c, f"c{i}") for i, c in enumerate(raw_checks, start=1))
     for c in checks:
-        check_against_contract(c, contract, full, p.test_query, dsl_check)
+        check_against_contract(c, contract, full, p.test_query, dsl_check, p.expect_verbs)
     try:
         dsl_check(checks)
     except ValueError as e:
@@ -285,12 +317,20 @@ def validate_regenerated(raw: Any, rejected: Check, others: Sequence[Check], con
     check = build_check(raw["check"], rejected.id)
     if (check.steps, check.expect) == (rejected.steps, rejected.expect):
         raise Rejected("the replacement repeats the rejected check")
-    check_against_contract(check, contract, text, p.test_query, dsl_check)
+    check_against_contract(check, contract, text, p.test_query, dsl_check, p.expect_verbs)
     try:
         dsl_check([*others, check])
     except ValueError as e:
         raise Rejected(str(e)) from None
     return check
+
+
+def _check_resumed(minted: MintedSlot, slot: Slot) -> None:
+    """Raises ValueError when a journaled position does not match the plan (another seed, mix or regime)."""
+    r = minted.request
+    if (r.id, r.round, r.held_out, minted.family, set(r.checks)) != (
+            slot.id, slot.round, slot.round is None, slot.family, {slot.regime}):
+        raise ValueError(f"the mint journal's {r.id} does not match the plan's {slot}; mint into a fresh goals dir")
 
 
 def _check_json(c: Check) -> str:
@@ -305,34 +345,58 @@ class GoalMinter:
     stub_reading: StubCheck
     dsl_check: DslCheck
     sink: Callable[[MintedGoals], None]
+    journal: MintJournal | None = None      # keeps each position as it completes; a rerun skips those
 
     def mint(self) -> None:
-        """Mints every planned position and hands the result to `sink` (which writes `goals/`)."""
+        """Mints every planned position and hands the result to `sink` (which writes `goals/`). The sink is
+        called only when every position minted; MintFailed propagates otherwise, after the journal has kept
+        every position that did."""
         self.sink(self.mint_requests())
 
     def mint_requests(self, slots: Sequence[Slot] | None = None) -> MintedGoals:
-        """The minted requests for `slots` (default: the whole plan); raises MintFailed when a position
-        yields no request with a check that fails on its stub."""
+        """The minted requests for `slots` (default: the whole plan). A position the journal already holds
+        is taken from it, not re-minted. A position that yields no request with a check failing on its stub
+        is reported and skipped; MintFailed is raised after the last position, carrying the partial result."""
         out = MintedGoals()
         prior: dict[str, list[str]] = {}
+        failed: list[str] = []
+        done = self.journal.minted() if self.journal is not None else {}
         for slot in plan_slots(self.params) if slots is None else slots:
             seen = prior.setdefault(slot.family, [])
-            req, draft_text, stub = self._mint_slot(slot, seen, out)
-            seen.append(draft_text)
-            out.stubs[req.id] = stub
-            (out.held_out if slot.round is None else out.stream).append(req)
+            minted = done.get(slot.id)
+            if minted is not None:
+                _check_resumed(minted, slot)
+                out.report.extend(minted.report)
+            else:
+                start = len(out.report)
+                try:
+                    req, draft_text, stub = self._mint_slot(slot, seen, out)
+                except MintFailed as e:
+                    out.note(slot.id, "", "position_failed", str(e))
+                    failed.append(slot.id)
+                    continue
+                minted = MintedSlot(req, slot.family, draft_text, stub, tuple(out.report[start:]))
+                if self.journal is not None:
+                    self.journal.record(minted)
+            seen.append(minted.draft_text)
+            out.stubs[slot.id] = minted.stub
+            (out.held_out if slot.round is None else out.stream).append(minted.request)
+        if failed:
+            raise MintFailed(f"no request survived for {failed}; the other positions are kept", out, failed)
         return out
 
     def _mint_slot(self, slot: Slot, prior: Sequence[str], out: MintedGoals) -> tuple[Request, str, str]:
         p = self.params
+        retry: str | None = None                # why the previous draft was retried
         for attempt in range(p.request_regenerations + 1):
             asked = ask_json(
-                self.client, ROLE, self._draft_messages(slot, prior, attempt),
+                self.client, ROLE, self._draft_messages(slot, prior, retry),
                 lambda raw: validate_draft(raw, slot.regime, p, self.dsl_check),
                 reasks=p.reasks, tag=f"{ROLE}:{slot.id}:draft{attempt}",
             )
             if asked.value is None:
                 out.note(slot.id, "", "draft_refused", "; ".join(asked.failures))
+                retry = "refused"
                 continue
             draft = asked.value
             text = request_text(draft.text, slot.regime, p.constraint)
@@ -342,6 +406,7 @@ class GoalMinter:
                               held_out=slot.round is None, round=slot.round)
                 return req, draft.text, stub_html(draft.contract)
             out.note(slot.id, "", "request_regenerated", "no check failed on the contract stub")
+            retry = "no_behaviour"
         raise MintFailed(f"{slot.id}: no request survived {p.request_regenerations + 1} drafts")
 
     def _validated_checks(self, slot: Slot, text: str, draft: Draft, out: MintedGoals) -> list[Check]:
@@ -385,15 +450,16 @@ class GoalMinter:
         )
         return asked.value
 
-    def _draft_messages(self, slot: Slot, prior: Sequence[str], attempt: int) -> list[Message]:
+    def _draft_messages(self, slot: Slot, prior: Sequence[str], retry: str | None) -> list[Message]:
         p = self.params
         lo, hi = p.checks_per_regime
         phone = (self.book.text("goal_minter/phone_block.md").format(constraint=p.constraint)
                  if slot.regime is Regime.R2 else "")
-        retry = self.book.text("goal_minter/retry_block.md") if attempt else ""
+        retry_block = {None: "", "refused": self.book.text("goal_minter/retry_refused.md"),
+                       "no_behaviour": self.book.text("goal_minter/retry_block.md")}[retry]
         user = self.book.text("goal_minter/request.md").format(
             family=slot.family, lo=lo, hi=hi, test_query=p.test_query, max_wait_ms=p.max_wait_ms,
-            phone_block=phone, retry_block=retry,
+            phone_block=phone, retry_block=retry_block,
             prior="\n".join(f"- {t}" for t in prior) or "- none yet",
         )
         return [Message("system", self.book.text("goal_minter/system.md")), Message("user", user)]

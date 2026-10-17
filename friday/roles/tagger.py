@@ -12,6 +12,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from friday.algorithms.language import word_hits
 from friday.domain.types import Request, TagGloss
 from friday.ports.models import Message, ModelClient
 from friday.roles.ask import Rejected, ask_json
@@ -44,11 +45,11 @@ def near_duplicate(a: str, b: str) -> bool:
     return bool(_forms(a) & _forms(b))
 
 
-def names_family(tag: str, families: Sequence[str]) -> bool:
-    """True when a tag spells a goal family, with hyphens or joined."""
-    spaced = tag.replace("-", " ")
-    joined = tag.replace("-", "")
-    return any(spaced == f.lower() or joined == f.lower().replace(" ", "") for f in families)
+def names_family(text: str, families: Sequence[str]) -> bool:
+    """True when `text` (a tag or a request text) names a goal family in any spelling: inflected
+    ('data tools'), hyphenated ('canvas-games') or joined ('canvasgames')."""
+    joined = [f.replace(" ", "") for f in families]
+    return bool(word_hits(text.replace("-", " "), families, inflected=True) or word_hits(text, joined, inflected=True))
 
 
 def validate_tagging(

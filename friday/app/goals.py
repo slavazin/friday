@@ -27,6 +27,7 @@ def mint_params(spec: RunSpec) -> MintParams:
         checks_per_regime=tuple(s.checks_per_regime), check_regenerations=s.check_regenerations,
         request_regenerations=s.check_regenerations, constraint=spec.drift.constraint,
         test_query=spec.eval.test_query, max_wait_ms=spec.eval.max_wait_ms, reasks=spec.json.reasks,
+        expect_verbs=frozenset(dsl.EXPECT_KEYS),
     )
 
 

@@ -125,3 +125,45 @@ class JsonGoalSource:
 
     def held_out(self) -> Sequence[Request]:
         return [request_from_json(o, self._tags(o["id"])) for o in _load(self._held_path) if o["held_out"]]
+
+
+class JsonlMintJournal:
+    """The goal minter's journal: one JSON line per minted position (request, family, drafted text, stub,
+    report rows), appended and flushed as the position completes. A rerun reads it and skips those positions.
+    Conforms to `friday.roles.goal_minter.MintJournal`; holds no import of it (adapters sit below roles)."""
+
+    def __init__(self, path: str | Path) -> None:
+        self._path = Path(path)
+
+    def minted(self) -> Mapping[str, Any]:
+        """The journaled positions by request id; raises ValueError on a malformed line or a repeated id."""
+        from types import SimpleNamespace
+
+        out: dict[str, Any] = {}
+        if not self._path.exists():
+            return out
+        for n, line in enumerate(self._path.read_text().splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                obj = json.loads(line)
+                req = request_from_json(obj["request"])
+                row = SimpleNamespace(request=req, family=str(obj["family"]), draft_text=str(obj["draft_text"]),
+                                      stub=str(obj["stub"]), report=tuple(obj["report"]))
+            except (ValueError, KeyError, TypeError) as e:
+                raise ValueError(f"{self._path}:{n}: malformed journal line ({e})") from None
+            if req.id in out:
+                raise ValueError(f"{self._path}:{n}: {req.id} journaled twice")
+            out[req.id] = row
+        return out
+
+    def record(self, minted: Any) -> None:
+        """Appends one minted position as a single line and flushes it to disk."""
+        line = json.dumps({"request": request_to_json(minted.request), "family": minted.family,
+                           "draft_text": minted.draft_text, "stub": minted.stub,
+                           "report": list(minted.report)}) + "\n"
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        with self._path.open("a") as f:
+            f.write(line)
+            f.flush()
+            os.fsync(f.fileno())

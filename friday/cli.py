@@ -52,15 +52,20 @@ def _bound_client(spec, roles: tuple[str, ...]):
 
 
 def _mint_goals(args: argparse.Namespace) -> int:
-    """Mints the goal stream and held-out set (or only the `--only` ids) and writes them with their stubs."""
+    """Mints the goal stream and held-out set (or only the `--only` ids, into `--goals-dir`) and writes them
+    with their stubs. Each minted position is journaled as it completes; a rerun after a failure resumes from
+    the journal, and the frozen stream and held-out files are written only when every position minted."""
     from friday.adapters import goals_json
     from friday.adapters.playwright_browser import PlaywrightBrowser
     from friday.app.goals import build_minter
-    from friday.roles.goal_minter import MintedGoals, plan_slots
+    from friday.roles.goal_minter import MintedGoals, MintFailed, plan_slots
     from friday.roles.prompts import PromptBook
 
     spec = load_spec(args.spec)
+    if args.only and args.goals_dir is None:
+        raise SystemExit("--only needs --goals-dir: a partial mint never writes run.yml's frozen goal files")
     stream_p, held_p, _, stubs = _goal_paths(spec, args.goals_dir)
+    report_p = stream_p.parent / "mint_report.json"
     for p in (stream_p, held_p):
         if p.exists():
             raise SystemExit(f"{p} exists; minted requests are frozen")
@@ -75,10 +80,11 @@ def _mint_goals(args: argparse.Namespace) -> int:
             goals_json.write_stub(stubs, rid, html)
         goals_json.write_requests(stream_p, minted.stream)
         goals_json.write_requests(held_p, minted.held_out)
-        (stream_p.parent / "mint_report.json").write_text(json.dumps(minted.report, indent=1) + "\n")
+        report_p.write_text(json.dumps(minted.report, indent=1) + "\n")
 
     try:
         minter = build_minter(spec, client, PromptBook(Path(spec.paths.prompts)), browser, write_stub, sink)
+        minter.journal = goals_json.JsonlMintJournal(stream_p.parent / "mint_journal.jsonl")
         if args.only:
             wanted = set(args.only.split(","))
             slots = [s for s in plan_slots(minter.params) if s.id in wanted]
@@ -87,6 +93,11 @@ def _mint_goals(args: argparse.Namespace) -> int:
             sink(minter.mint_requests(slots))
         else:
             minter.mint()
+    except MintFailed as e:
+        if e.partial is not None:
+            report_p.parent.mkdir(parents=True, exist_ok=True)
+            report_p.with_suffix(".partial.json").write_text(json.dumps(e.partial.report, indent=1) + "\n")
+        raise SystemExit(f"{e}; the minted positions are journaled, rerun to resume") from None
     finally:
         browser.close()
         print(f"spend ${spend.total_usd():.4f} over {len(spend.rows)} calls")

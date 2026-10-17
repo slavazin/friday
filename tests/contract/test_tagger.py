@@ -180,3 +180,14 @@ def test_tagger_family_list_is_never_sent():
     t = Tagger(ScriptedClient([reply({"G-001": ["keyboard", "timer"]})]), BOOK, (2, 4), 1, ("secret family",))
     t.tag([SNAKE], VOCAB, 1, MAX_NEW)
     assert all("secret family" not in m.content for m in t.client.calls[0][1])
+
+
+@pytest.mark.parametrize("make", [lambda f: f.replace(" ", "-") + "s", lambda f: f.replace(" ", "") + "s",
+                                  lambda f: f.replace(" ", "-")])
+def test_a_plural_hyphenated_or_joined_family_tag_is_refused(make):
+    for fam in ("canvas game", "data tool", "text tool"):
+        assert fam in SPEC.stream.families
+        bad_tag = make(fam)
+        bad = reply({"G-001": ["keyboard", bad_tag], "G-002": ["timer", "keyboard"]}, [bad_tag])
+        with pytest.raises(TaggingRefused, match="kind label"):
+            tagger([bad, bad]).tag([SNAKE, TIMER], VOCAB, 2, MAX_NEW)
