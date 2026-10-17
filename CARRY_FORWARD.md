@@ -374,5 +374,4 @@ SPEC § 2 claim language. Then record the video, make the repository public, and
 | A crashed pass's reason lives only in `artifacts/<id>/pass.json`; tokens composed per pass are not stored, so R2 reads unread | `Pass.failed`, `Pass.composed_tokens` (additive, after S6 merges) | S18 |
 | Report-call observations are held in memory until the close; a runner restart before the close loses them | `app/pipeline.py` | S11 |
 | The export's wiring must pass the tag vocabulary, or hook transfer reads unread | `app/export.py` callers | S11 |
-| R1 is pre-registered on p alone while SPEC § 2 reads a difference inside its interval as unresolved; R2's verdict adds token conditions | SPEC §§ 2, 12 | ruling before S13 |
 | A lens mint is not in the event log; a partly applied mint reads as complete on a close re-run | `app/lens_close.py` | S11 |

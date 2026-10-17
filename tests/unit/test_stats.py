@@ -129,3 +129,34 @@ def test_draws_depend_only_on_their_keys():
     assert derive(1, "x").random() != derive(2, "x").random()
     hits = sum(bernoulli(0.75, 9, "ablate", r, "c") for r in range(4000))
     assert 0.72 < hits / 4000 < 0.78
+
+
+def test_sign_flip_bound_is_above_zero_exactly_when_p_is_at_most_alpha():
+    from hypothesis import given, settings
+    from hypothesis import strategies as st
+
+    from friday.stats.significance import SignFlipExact
+
+    t = SignFlipExact()
+    vals = st.sampled_from([-0.3, -0.1, -0.05, 0.0, 0.05, 0.1, 0.2, 0.9])   # a small grid forces ties
+
+    @settings(max_examples=400, deadline=None)
+    @given(st.lists(vals | st.floats(-1, 1), min_size=1, max_size=8), st.sampled_from([0.05, 0.1, 0.2, 6 / 64]))
+    def check(xs, alpha):
+        b = t.lower_bound(xs, alpha)
+        assert (t.p_value(xs) <= alpha) == (b is not None and b > 0)
+        if b is not None:      # the bound is the edge of the rejection region
+            assert t.p_value([x - (b - 1e-6) for x in xs]) <= alpha
+            assert t.p_value([x - (b + 1e-6) for x in xs]) > alpha
+
+    check()
+
+
+def test_readout_config_refuses_an_r1_threshold_apart_from_the_bound_level():
+    from pathlib import Path
+
+    from friday.config import ConfigError, parse_spec
+
+    text = (Path(__file__).resolve().parents[2] / "run.yml").read_text()
+    with pytest.raises(ConfigError, match="r1_p must equal"):
+        parse_spec(text.replace("r1_p: 0.1 ", "r1_p: 0.05 "))

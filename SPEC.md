@@ -366,8 +366,8 @@ L-09 minted lens clears its floor: AUC 0.71 over 48 passes, floor 0.64
 The reader is a hackathon judge with three minutes and no spec.
 
 **Do:** tie each claim to its reading (R1–R4, § 12) and its population
-("over 6 held-out categories × 4 reps"). State each effect with its interval
-or p; a difference inside its interval is **unresolved**. Show every
+("over 6 held-out categories × 4 reps"). State each effect with its bound
+or p; a difference whose bound does not clear its claim is **unresolved**. Show every
 pre-registered reading, the failed ones included, because a judge reads a
 missing reading as a success. Count with one estimator per figure across
 slides, the readout and the README.
@@ -378,7 +378,7 @@ population and keep the verb.
 | Pitch word                                   | Earned by                                                  | When unearned, say                                                     |
 | -------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------- |
 | "improves", "Version N+1"                    | R1 at p ≤ 0.1                                              | the mean difference and its p, called unresolved at 6 categories       |
-| "leaner than shared notes"                   | R2's interval not below 0, beside tokens composed per pass | the interval and the token ratio as read                               |
+| "leaner than shared notes"                  | R2's lower bound above −`readout.r2_margin`, beside tokens composed per pass | the bound, the margin and the token ratio as read                      |
 | "forgets what went stale"                    | R3's counts ≥ 1, beside `c` and `α · c`                    | how many decisions the detector moved to `suspect`, and that none retired |
 | "the judge learns what to look at"           | R4 ≥ 1                                                     | that no minted lens cleared its floor                                  |
 | "you can walk away from it"                  | the pings and steers counted in the recorded run           | the counts                                                             |
@@ -1084,8 +1084,8 @@ Same worker pin and temperature, same eval, self-repair rule as in training.
 
 | Reading                  | Estimator                                                                                                                                                                                                 | Pre-registered claim                                     |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| R1 Version N+1           | per held-out category, the mean over reps of `loss(empty) − loss(journal)`; exact one-sided sign-flip test over the 6 category means (64 flips, smallest attainable p = 1/64); t-interval over categories | p ≤ 0.1                                                  |
-| R2 Lean and useful       | per category mean of `loss(notes) − loss(journal)`, same test; tokens composed per pass in each arm, reported                                                                                             | the 90 % t-interval over categories does not lie below 0 |
+| R1 Version N+1           | per held-out category, the mean over reps of `loss(empty) − loss(journal)`; exact one-sided sign-flip test over the 6 category means (64 flips, smallest attainable p = 1/64); the one-sided 90 % lower bound from inverting that same test | p ≤ 0.1 (the same event as the bound lying above 0)      |
+| R2 Lean and useful       | per category mean of `loss(notes) − loss(journal)`, same test and the same lower bound; tokens composed per pass in each arm, reported beside it and never part of the claim | the lower bound lies above −`readout.r2_margin` (−0.05)  |
 | R3 Earned forgetting     | count of decisions admitted before the drift round and retired after it; count admitted after it; candidates tested `c` and `α · c` beside them                                                           | each count ≥ 1                                           |
 | R4 The judge's eyes grow | kept lenses at the close that the lens minter proposed                                                                                                                                                    | ≥ 1                                                      |
 | Cost                     | dollars per admitted decision; total spend                                                                                                                                                                | reported                                                 |
@@ -1093,9 +1093,17 @@ Same worker pin and temperature, same eval, self-repair rule as in training.
 | How-to honesty           | per arm on V: the passed share of declared controls, the share of contract ids declared, silent controls per pass, the share of passes at each repair rung                                               | reported, no claim                                       |
 | Hook transfer            | held-out requests (unseen cells) on which at least one S\* decision fires, and R1's per-category difference beside each                                                                                  | reported, no claim                                       |
 
+**One estimator per figure.** A reading's bound comes from inverting its own
+test, never from a second method, so its p and its bound cannot disagree:
+R1's p ≤ 0.1 is exactly the event that its bound lies above 0
+(`readout.r1_p` must equal `1 − readout.interval_level`; the loader refuses
+otherwise). R2 is a non-inferiority claim: "not shown worse" is earned only
+when the bound rules out a loss worse than the margin, so a reading too
+noisy to tell reads unearned rather than earned by default.
+
 **Do:** state each reading with its population ("6 held-out categories × 4
-reps") and its interval or p.
-**Don't:** call a difference inside its interval a gain, or drop a reading
+reps") and its bound or p.
+**Don't:** call a difference whose bound does not clear its claim a gain, or drop a reading
 that failed; with 6 categories, small effects reach no resolution, and an
 unresolved R1 is reported as unresolved.
 
@@ -1140,7 +1148,7 @@ coding agents per block, against Appendix B's signatures.
 3. **Journal timeline (secondary):** status flips on the round axis, the
    drift round marked; click a decision to read its file and its Ledger
    account; the git log and the coordinator's round plans beside it.
-4. **Readout:** R1–R4 with their tests and intervals.
+4. **Readout:** R1–R4 with their tests and bounds.
 
 **Pitch, 3 minutes:** the problem (shared notes bloat and go stale, and no
 one can say if they help) → the gallery and one live build → the Journal: a

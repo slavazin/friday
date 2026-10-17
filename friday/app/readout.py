@@ -70,7 +70,8 @@ class ReadoutStores:
 @dataclass(frozen=True)
 class PairedClaim:
     """R1 or R2: per held-out category the mean over reps of loss(baseline) - loss(journal), then the
-    registered one-sided test and the two-sided t-interval over the category means."""
+    registered one-sided test and the one-sided lower bound from inverting that same test (one estimator
+    per figure, SPEC § 2: the bound is above 0 exactly when p <= readout.r1_p)."""
 
     reading: str
     baseline: str
@@ -81,8 +82,9 @@ class PairedClaim:
     per_category: Mapping[str, float]
     mean: float | None
     p: float | None
-    interval: tuple[float, float] | None
+    lower_bound: float | None                    # None: no bound attainable at this n (reads -inf)
     level: float
+    claim_above: float                            # the claim is earned when lower_bound lies above this
     verdict: str | None
 
 
@@ -229,14 +231,15 @@ def _reps_text(reps: Mapping[str, tuple[int, int]]) -> str:
 
 def _paired(
     reading: str, baseline: Arm, rows: Mapping[Arm, list[tuple[str, float]]], held_out: frozenset[str],
-    spec: RunSpec, verdict_of,
+    spec: RunSpec, verdict_of, claim_above: float,
 ) -> PairedClaim:
     level = spec.readout.interval_level
     base_rows, jour_rows = rows.get(baseline, []), rows.get(Arm.JOURNAL, [])
     common = {c for c, _ in base_rows} & {c for c, _ in jour_rows}
     unread = tuple(sorted(held_out - common))
     if not common:
-        return PairedClaim(reading, baseline.value, None, None, {}, unread, {}, None, None, None, level, None)
+        return PairedClaim(reading, baseline.value, None, None, {}, unread, {}, None, None, None, level, claim_above,
+                           None)
     b = [r for r in base_rows if r[0] in common]
     t = [r for r in jour_rows if r[0] in common]
     reps: dict[str, tuple[int, int]] = {}
@@ -247,7 +250,7 @@ def _paired(
     r = paired_reading(diffs, PAIRED_TESTS.build(spec.readout.test), level)
     population = f"{r.n_categories} held-out categories × {_reps_text(reps)}"
     return PairedClaim(reading, baseline.value, population, r.n_categories, reps, unread, r.per_category,
-                       r.mean, r.p, r.interval, level, verdict_of(r))
+                       r.mean, r.p, r.lower_bound, level, claim_above, verdict_of(r))
 
 
 def _admit_round(flips: Sequence[StatusFlip]) -> int | None:
@@ -378,18 +381,15 @@ def readings(stores: ReadoutStores, spec: RunSpec) -> Readout:
 
     tokens = {arm.value: _tokens(by_arm.get(arm, []), stores.composed_tokens) for arm in Arm}
 
-    def r2_verdict(r) -> str | None:
-        # Earned when the interval does not lie wholly below 0 (upper bound >= 0) and the journal arm composes
-        # fewer tokens per pass. Tokens unread in either arm leave the claim unread: its population is missing.
-        t_j, t_n = tokens[Arm.JOURNAL.value].mean, tokens[Arm.NOTES.value].mean
-        if t_j is None or t_n is None:
-            return None
-        if r.interval is None:
+    def r2_verdict(r) -> str:
+        # Non-inferiority (SPEC § 12): earned when the lower bound lies above -readout.r2_margin. Tokens composed
+        # per pass are reported beside the reading and never enter the verdict.
+        if r.lower_bound is None:
             return UNRESOLVED
-        return LEANER if r.interval[1] >= 0 and t_j < t_n else UNEARNED
+        return LEANER if r.lower_bound > -spec.readout.r2_margin else UNEARNED
 
-    r1 = _paired("R1", Arm.EMPTY, loss_rows, held_ids, spec, r1_verdict)
-    r2 = _paired("R2", Arm.NOTES, loss_rows, held_ids, spec, r2_verdict)
+    r1 = _paired("R1", Arm.EMPTY, loss_rows, held_ids, spec, r1_verdict, 0.0)
+    r2 = _paired("R2", Arm.NOTES, loss_rows, held_ids, spec, r2_verdict, -spec.readout.r2_margin)
     contracts = {r.id: r.contract for r in held}
     population = f"{len(held)} held-out categories × {spec.readout.reps} reps planned, regime {regime}"
     return Readout(
@@ -413,6 +413,10 @@ def _fmt(x: float | None, digits: int = 3) -> str:
     return "unread" if x is None else f"{x:.{digits}f}"
 
 
+def _bound(c: PairedClaim) -> str:
+    return f"{int(c.level * 100)} % lower bound " + ("-inf" if c.lower_bound is None else f"{c.lower_bound:.3f}")
+
+
 def lines(r: Readout) -> list[str]:
     """One line per reading, each with its population and its interval or p; failed readings included."""
     out = [f"Readout over {r.population}"]
@@ -422,16 +426,11 @@ def lines(r: Readout) -> list[str]:
         if c.population is None:
             out.append(f"{c.reading} loss({c.baseline}) - loss(journal): unread (no category scored in both arms)")
             continue
-        iv = "n/a" if c.interval is None else f"[{c.interval[0]:.3f}, {c.interval[1]:.3f}]"
         line = (f"{c.reading} loss({c.baseline}) - loss(journal) over {c.population}: mean {_fmt(c.mean)}, "
-                f"p {_fmt(c.p, 4)}, {int(c.level * 100)} % interval {iv}")
+                f"p {_fmt(c.p, 4)}, {_bound(c)}; claim needs the bound above {c.claim_above:g}")
         if c.reading == "R2":
-            line += (f"; tokens composed per pass journal {_fmt(t_j, 1)}, notes {_fmt(t_n, 1)}, "
-                     f"ratio {ratio}; claim needs the interval not wholly below 0")
-        verdict = "unread (tokens composed unread)" if c.verdict is None else c.verdict
-        if c.verdict == IMPROVES and c.interval is not None and c.interval[0] <= 0:
-            verdict += " (p <= readout.r1_p; the interval contains 0)"
-        out.append(f"{line}: {verdict}")
+            line += f"; tokens composed per pass journal {_fmt(t_j, 1)}, notes {_fmt(t_n, 1)}, ratio {ratio}"
+        out.append(f"{line}: {c.verdict}")
     f = r.r3
     if f.verdict is None:
         out.append("R3 earned forgetting: unread (no decision drafted)")

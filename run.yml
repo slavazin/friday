@@ -132,8 +132,9 @@ notes:
 readout:
   reps: 4
   regime: R2
-  r1_p: 0.1
-  interval_level: 0.90
+  r1_p: 0.1                     # R1 improves at p <= r1_p; must equal 1 - interval_level
+  r2_margin: 0.05               # R2 earned when its lower bound lies above -r2_margin (non-inferiority, loss units)
+  interval_level: 0.90          # one-sided lower bound by inverting `test` (SPEC § 12)
   test: sign_flip_exact         # registry key
 
 transport:

@@ -180,6 +180,7 @@ class ReadoutSection:
     reps: int
     regime: str
     r1_p: float
+    r2_margin: float
     interval_level: float
     test: str
 
@@ -312,6 +313,10 @@ class RunSpec:
             problems.append("detect.ablate_p must lie in [0, 1]")
         if self.lens.n_min > self.lens.window:
             problems.append("lens.n_min must not exceed lens.window")
+        if abs(self.readout.r1_p - (1.0 - self.readout.interval_level)) > 1e-9:
+            problems.append("readout.r1_p must equal 1 - readout.interval_level (R1's bound and p read as one)")
+        if not 0.0 <= self.readout.r2_margin < 1.0:
+            problems.append("readout.r2_margin must lie in [0, 1)")
         if self.readout.regime not in ("R1", "R2"):
             problems.append("readout.regime must be R1 or R2")
         levels = {"gate.quality_level": self.gate.quality_level, "detect.level": self.detect.level,

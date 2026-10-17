@@ -146,13 +146,14 @@ category; a scored pass did not fail for transport and has an eval.
 
 `r1`, `r2`: `reading`, `baseline`, `population` ("N held-out categories × K reps"), `n_categories`, `reps`
 (arm → [min, max] scored reps per category), `unread_categories`, `per_category` (category → mean
-difference over reps), `mean`, `p` (the `readout.test` one-sided p over the category means), `interval`
-(the two-sided `readout.interval_level` t-interval over category means), `level`, `verdict`. R1's verdict
-is `improves` at `p ≤ readout.r1_p`, else `unresolved`. R2's verdict is `leaner than shared notes` when its
-interval does not lie wholly below 0 and the journal arm composes fewer tokens per pass than the notes arm,
-`unresolved` with no interval, else `unearned`; `null` (unread) when tokens composed per pass are unread in
-either arm. R1's `improves` follows the pre-registered p threshold even when its interval contains 0; the
-readout line then says so beside the word.
+difference over reps), `mean`, `p` (the `readout.test` one-sided p over the category means), `lower_bound`
+(the one-sided `readout.interval_level` lower bound from inverting that same test; `null` when no bound is
+attainable at this many categories, read as −∞), `level`, `claim_above` (the claim is earned when
+`lower_bound` lies above it: 0 for R1, −`readout.r2_margin` for R2), `verdict`. R1's verdict is `improves`
+at `p ≤ readout.r1_p`, else `unresolved`; by construction this is the same event as `lower_bound > 0`.
+R2's verdict is `leaner than shared notes` when `lower_bound > −readout.r2_margin`, `unresolved` with no
+bound, else `unearned`. Tokens composed per pass are shown beside R2 (`readout.tokens_composed`) and never
+enter its verdict.
 
 `r3`: `population`, `drift_round`, `admitted_before_retired_after` (first admitted at a round close before
 `drift.round`, retired by the detector or by supersession at a close on or after it),

@@ -212,23 +212,31 @@ def _tokens_for(stores, journal_tokens, notes_tokens):
     return out
 
 
-def test_r2_earns_leaner_only_with_its_interval_not_below_zero_and_fewer_tokens():
+def test_r2_is_earned_on_its_bound_above_minus_margin_and_tokens_never_enter_the_verdict():
     s = make_stores()
     plant(s, [0.02, -0.01, 0.03, 0.0, 0.01, -0.02], baseline=Arm.NOTES)
     s = dataclasses.replace(s, composed_tokens=_tokens_for(s, 300, 8000))
     r = readings(s, SPEC)
-    assert r.r2.interval[0] < 0 < r.r2.interval[1]
+    assert -SPEC.readout.r2_margin < r.r2.lower_bound < 0 and r.r2.claim_above == -SPEC.readout.r2_margin
     assert r.r2.verdict == LEANER
     heavier = dataclasses.replace(s, composed_tokens=_tokens_for(s, 9000, 8000))
-    assert readings(heavier, SPEC).r2.verdict == UNEARNED
+    assert readings(heavier, SPEC).r2.verdict == LEANER          # tokens are reported beside, never a condition
 
 
-def test_r2_interval_wholly_below_zero_is_unearned():
+def test_r2_bound_below_minus_margin_is_unearned():
     s = make_stores()
     plant(s, [-0.2, -0.3, -0.25, -0.2, -0.22, -0.28], baseline=Arm.NOTES)
     s = dataclasses.replace(s, composed_tokens=_tokens_for(s, 300, 8000))
     r = readings(s, SPEC).r2
-    assert r.interval[1] < 0 and r.verdict == UNEARNED
+    assert r.lower_bound < -SPEC.readout.r2_margin and r.verdict == UNEARNED
+
+
+def test_r2_an_uninformative_reading_never_earns_non_inferiority_by_default():
+    # A wide spread: no harm is shown, but the bound sits far below -margin, so the claim is unearned.
+    s = make_stores()
+    plant(s, [0.4, -0.4, 0.3, -0.3, 0.2, -0.2], baseline=Arm.NOTES)
+    r = readings(s, SPEC).r2
+    assert r.lower_bound < -SPEC.readout.r2_margin and r.verdict == UNEARNED
 
 
 def test_tokens_composed_read_unread_when_any_pass_lacks_a_count():
@@ -239,17 +247,16 @@ def test_tokens_composed_read_unread_when_any_pass_lacks_a_count():
     s = dataclasses.replace(s, composed_tokens=tokens)
     out = readings(s, SPEC)
     assert None in (out.tokens_composed[Arm.JOURNAL.value].mean, out.tokens_composed[Arm.NOTES.value].mean)
-    assert out.r2.verdict is None
+    assert out.r2.verdict == LEANER
 
 
-def test_r2_reads_unread_not_unearned_when_tokens_composed_are_unread():
+def test_r2_line_shows_tokens_unread_without_changing_its_verdict():
     s = make_stores()                                  # composed_tokens left at its default: no counts stored
     plant(s, [0.1, 0.2, 0.05, 0.3, 0.15, 0.12], baseline=Arm.NOTES)
     out = readings(s, SPEC)
-    assert out.r2.interval is not None and out.r2.p == pytest.approx(1 / 64)
-    assert out.r2.verdict is None
+    assert out.r2.p == pytest.approx(1 / 64) and out.r2.verdict == LEANER
     r2 = next(line for line in lines(out) if line.startswith("R2"))
-    assert "unread (tokens composed unread)" in r2 and UNEARNED not in r2
+    assert "ratio unread" in r2 and r2.endswith(LEANER)
 
 
 def flip(events, sid, old, new, cause, round_):
@@ -415,22 +422,24 @@ def test_a_journal_arm_pass_composing_s_star_is_accepted():
     assert readings(s, SPEC).r1.n_categories == 6
 
 
-def test_r1_improves_with_an_interval_containing_zero_says_so_beside_the_word():
-    s = make_stores()
-    plant(s, [0.9, 0.01, 0.01, 0.01, 0.01, 0.01])
-    out = readings(s, SPEC)
-    assert out.r1.verdict == IMPROVES and out.r1.interval[0] < 0     # the pre-registered p threshold rules
-    r1 = next(line for line in lines(out) if line.startswith("R1"))
-    assert r1.endswith("improves (p <= readout.r1_p; the interval contains 0)")
+def test_r1_verdict_and_bound_never_disagree():
+    for diffs in ([0.9, 0.01, 0.01, 0.01, 0.01, 0.01], [0.9, -0.01, 0.01, 0.01, 0.01, 0.01],
+                  [0.1, -0.1, 0.1, -0.1, 0.1, 0.0], [0.0] * 6):
+        s = make_stores()
+        plant(s, diffs)
+        r1 = readings(s, SPEC).r1
+        assert (r1.verdict == IMPROVES) == (r1.lower_bound is not None and r1.lower_bound > 0), diffs
+        line = next(x for x in lines(readings(s, SPEC)) if x.startswith("R1"))
+        assert "interval" not in line and "claim needs the bound above 0" in line
 
 
-def test_r2_line_carries_the_token_ratio_and_the_not_wholly_below_zero_reading():
+def test_r2_line_carries_the_token_ratio_and_its_margin():
     s = make_stores()
     plant(s, [-0.2, -0.3, -0.25, -0.2, -0.22, -0.28], baseline=Arm.NOTES)
     s = dataclasses.replace(s, composed_tokens=_tokens_for(s, 300, 8000))
     r2 = next(line for line in lines(readings(s, SPEC)) if line.startswith("R2"))
     assert "journal 300.0, notes 8000.0, ratio 0.037" in r2
-    assert "interval not wholly below 0" in r2 and r2.endswith(UNEARNED)
+    assert "claim needs the bound above -0.05" in r2 and r2.endswith(UNEARNED)
     unread = make_stores()
     plant(unread, [-0.2] * 6, baseline=Arm.NOTES)
     assert "ratio unread" in next(x for x in lines(readings(unread, SPEC)) if x.startswith("R2"))
@@ -441,6 +450,6 @@ def test_every_reading_prints_with_population_and_interval_or_p():
     plant(s, [0.1, 0.2, 0.05, 0.3, 0.15, 0.12])
     out = lines(readings(s, SPEC))
     r1 = next(line for line in out if line.startswith("R1"))
-    assert "6 held-out categories × 4 reps" in r1 and "p 0.0156" in r1 and "90 % interval" in r1
+    assert "6 held-out categories × 4 reps" in r1 and "p 0.0156" in r1 and "90 % lower bound" in r1
     for tag in ("R2", "R3", "R4", "Cost", "Q empty", "Hook transfer"):
         assert any(line.startswith(tag) for line in out), tag
