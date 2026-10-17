@@ -6,7 +6,10 @@ adapters do not import roles) with `json.reasks` re-asks; an answer still unread
 `RubricUnreadable`. No score is ever defaulted.
 
 Scores are cached by (artifact hash, viewport, prompt hash, model id, request text). A cached answer is
-validated again on every read, so a corrupt or off-scale entry raises instead of scoring.
+validated again on every read, so a corrupt or off-scale entry raises instead of scoring, and each hit
+records a zero-cost cached spend row carrying the model string the service echoed for the stored answer.
+A call the client sent to, or the service answered from, a model other than the bound one raises and is
+never cached.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from friday.adapters.cache import request_key
 from friday.config import RunSpec
 from friday.domain.types import Viewport
 from friday.ports.models import ChatResult, Message, ModelClient, ResponseCache
+from friday.ports.stores import SpendLog
 
 ROLE = "rubric"
 TEMPLATE = "rubric.md"
@@ -61,9 +65,13 @@ class ModelRubric:
         questions: int,
         reasks: int,
         cache: ResponseCache | None = None,
+        spend: SpendLog | None = None,
     ) -> None:
         """`ask` and `rejected` are `friday.roles.ask.ask_json` and `friday.roles.ask.Rejected`; `model` is the
-        id the `rubric` role is bound to (after pin resolution), so a fallback model never reads a pin's cache."""
+        id the `rubric` role is bound to (after pin resolution), so a fallback model never reads a pin's cache.
+        `spend` receives the zero-cost row of each cache hit, so a `cache` needs one."""
+        if cache is not None and spend is None:
+            raise ValueError("a rubric cache needs a spend log: each cache hit records a zero-cost spend row")
         system, sep, user = template.partition("\n---\n")
         if not sep:
             raise ValueError("rubric template needs a '---' line between the instructions and the request part")
@@ -72,19 +80,19 @@ class ModelRubric:
             raise ValueError(f"rubric template asks {list(self._keys)}; eval.rubric_questions is {questions}")
         self._client, self._ask, self._rejected = client, ask, rejected
         self._system, self._user = Template(system.strip()), Template(user.strip())
-        self._model, self._scale, self._reasks, self._cache = model, scale, reasks, cache
+        self._model, self._scale, self._reasks, self._cache, self._spend = model, scale, reasks, cache, spend
         self.prompt_hash = hashlib.sha256(template.encode("utf-8")).hexdigest()
 
     @classmethod
     def from_spec(
         cls, spec: RunSpec, client: ModelClient, ask: AskJson, rejected: type[Exception], *, model: str,
-        prompts: Path, cache: ResponseCache | None = None,
+        prompts: Path, cache: ResponseCache | None = None, spend: SpendLog | None = None,
     ) -> ModelRubric:
         """The rubric on `eval.rubric_scale`, `eval.rubric_questions` and `json.reasks`, template from `prompts`."""
         return cls(
             client, ask, rejected, (prompts / TEMPLATE).read_text(encoding="utf-8"), model=model,
             scale=spec.eval.rubric_scale, questions=spec.eval.rubric_questions, reasks=spec.json.reasks,
-            cache=cache,
+            cache=cache, spend=spend,
         )
 
     @property
@@ -133,25 +141,28 @@ class ModelRubric:
         """The frozen questions' scores on the rubric scale for one viewport's screenshot.
 
         Raises `RubricUnreadable` when the answer is unreadable after the re-asks, and RuntimeError when the
-        client sent the call to a model other than the one this rubric is bound to.
+        client sent the call to, or the service echoed, a model other than the one this rubric is bound to.
+        A cache hit records a zero-cost cached spend row under the call's tag.
         """
         if not screenshot:
             raise ValueError("empty screenshot: an artifact that cannot render scores the floor in the evaluator")
         key = self.cache_key(artifact_hash, tuple(viewport), request_text)
+        w, h = viewport
+        tag = f"rubric:{artifact_hash[:12]}:{w}x{h}"
         if self._cache is not None:
             stored = self._cache.get(key)
             if stored is not None:
-                # Our own cache entry (written below), not model output.
-                return self._cached_scores(json.loads(stored))
-        w, h = viewport
+                return self._cache_hit(key, stored, tag)
         asked = self._ask(
             self._client, ROLE, self.messages(screenshot, request_text, viewport), self.validate,
-            reasks=self._reasks, tag=f"rubric:{artifact_hash[:12]}:{w}x{h}", schema=self.schema(),
+            reasks=self._reasks, tag=tag, schema=self.schema(),
         )
         for res in asked.results:
             sent = res.raw.get("sent") or res.raw.get("requested") or {}
             if "model" in sent and sent["model"] != self._model:
                 raise RuntimeError(f"rubric bound to {self._model} but the call went to {sent['model']}")
+            if res.model != self._model:
+                raise RuntimeError(f"rubric bound to {self._model} but the service echoed {res.model!r}")
         if asked.value is None:
             raise RubricUnreadable(f"rubric answer unreadable after {len(asked.results)} calls: {asked.failures}")
         scores: tuple[int, ...] = asked.value
@@ -163,8 +174,21 @@ class ModelRubric:
             }, sort_keys=True))
         return scores
 
-    def _cached_scores(self, entry: Any) -> tuple[int, ...]:
+    def _cache_hit(self, key: str, stored: str, tag: str) -> tuple[int, ...]:
+        """The stored scores, re-validated, after recording the hit's zero-cost spend row."""
+        # Our own cache entry (written in `score`), not model output, so plain json applies.
+        entry = json.loads(stored)
         try:
-            return self.validate(entry["scores"])
+            scores = self.validate(entry["scores"])
+            echoed = entry["echoed_model"]
         except (self._rejected, KeyError, TypeError) as e:
             raise RubricUnreadable(f"cached rubric entry is unreadable: {e}") from e
+        if echoed != self._model:
+            raise RubricUnreadable(f"cached rubric entry was answered by {echoed!r}, not the bound {self._model}")
+        if self._spend is None:
+            raise RuntimeError("rubric cache hit with no spend log")
+        self._spend.record(ROLE, tag, ChatResult(
+            text=stored, model=echoed, tokens_in=0, tokens_out=0, cost_usd=0.0, cached=True,
+            raw={"rubric_cache_key": key, "requested": {"model": self._model}},
+        ), ok=True)
+        return scores

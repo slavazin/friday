@@ -29,8 +29,11 @@ SHOT = b"\x89PNG fake screenshot"
 REQUEST = "A timer with #start and #time. Costs $5."
 
 
-def rubric(client, cache=None, model="fake/model"):
-    return ModelRubric.from_spec(SPEC, client, ask_json, Rejected, model=model, prompts=ROOT / "prompts", cache=cache)
+def rubric(client, cache=None, model="fake/model", spend=None):
+    if cache is not None and spend is None:
+        spend = MemorySpendLog()
+    return ModelRubric.from_spec(SPEC, client, ask_json, Rejected, model=model, prompts=ROOT / "prompts", cache=cache,
+                                 spend=spend)
 
 
 def test_template_asks_exactly_the_configured_number_of_questions():
@@ -116,12 +119,13 @@ def test_the_cache_key_moves_with_everything_that_changes_the_answer(tmp_path, c
         art = "b" * 64
     elif change == "model":
         r = rubric(client, cache, model="other/model")
+        client.model = "other/model"                                   # the service answers from the new binding
     elif change == "request":
         req = REQUEST + " It must work on a phone screen."
     else:
         text = (ROOT / "prompts/rubric.md").read_text().replace("Rate only", "Rate strictly only")
         r = ModelRubric(client, ask_json, Rejected, text, model="fake/model", scale=(1, 5), questions=3, reasks=1,
-                        cache=cache)
+                        cache=cache, spend=MemorySpendLog())
     r.score(SHOT, req, art, vp)
     assert len(client.calls) == 2
 
@@ -130,12 +134,51 @@ def test_a_corrupt_cached_answer_is_revalidated_and_raises(tmp_path):
     cache = FileResponseCache(tmp_path)
     r = rubric(ScriptedClient([]), cache)
     key = r.cache_key("a" * 64, VP, REQUEST)
-    cache.put(key, json.dumps({"scores": {"resembles": 9, "controls_visible": 5, "legible": 3}}))
+    cache.put(key, json.dumps({"scores": {"resembles": 9, "controls_visible": 5, "legible": 3},
+                               "echoed_model": "fake/model"}))
     with pytest.raises(RubricUnreadable, match="cached"):
         r.score(SHOT, REQUEST, "a" * 64, VP)
     cache.put(key, json.dumps({"other": 1}))
     with pytest.raises(RubricUnreadable, match="cached"):
         r.score(SHOT, REQUEST, "a" * 64, VP)
+
+
+def test_a_rubric_level_cache_hit_records_a_zero_cost_spend_row_with_the_echoed_model(tmp_path):
+    cache, spend = FileResponseCache(tmp_path), MemorySpendLog()
+    rubric(ScriptedClient([GOOD]), cache, spend=spend).score(SHOT, REQUEST, "a" * 64, VP)
+    assert spend.rows == []                                            # the live call's row is the client's to write
+    client = ScriptedClient([])
+    assert rubric(client, cache, spend=spend).score(SHOT, REQUEST, "a" * 64, VP) == (4, 5, 3)
+    assert client.calls == []
+    [(role, tag, result, ok, _)] = spend.rows
+    assert role == "rubric" and ok and tag.startswith("rubric:") and "1280x800" in tag
+    assert result.cached and result.cost_usd == 0.0 and result.model == "fake/model"
+
+
+def test_a_cache_without_a_spend_log_is_refused():
+    with pytest.raises(ValueError, match="spend"):
+        ModelRubric.from_spec(SPEC, ScriptedClient([]), ask_json, Rejected, model="m", prompts=ROOT / "prompts",
+                              cache=FileResponseCache(Path("/nonexistent")))
+
+
+def test_a_cached_entry_answered_by_another_model_raises(tmp_path):
+    cache = FileResponseCache(tmp_path)
+    r = rubric(ScriptedClient([]), cache)
+    cache.put(r.cache_key("a" * 64, VP, REQUEST), json.dumps({
+        "scores": {"resembles": 4, "controls_visible": 5, "legible": 3}, "echoed_model": "other/model"}))
+    with pytest.raises(RubricUnreadable, match="other/model"):
+        r.score(SHOT, REQUEST, "a" * 64, VP)
+
+
+def test_the_routing_check_compares_the_echoed_model_and_never_caches_a_differing_echo(monkeypatch, tmp_path):
+    client, _, posts = _crusoe(monkeypatch, [GOOD])                    # the mock service always echoes "m"
+    client.bind({"rubric": "n"})
+    cache = FileResponseCache(tmp_path)
+    r = rubric(client, cache, model="n")
+    with pytest.raises(RuntimeError, match="echoed 'm'"):
+        r.score(SHOT, REQUEST, "a" * 64, VP)
+    assert posts[0]["model"] == "n"                                    # the request itself went to the bound id
+    assert cache.get(r.cache_key("a" * 64, VP, REQUEST)) is None
 
 
 def test_an_empty_screenshot_is_refused_without_a_call():

@@ -1,13 +1,14 @@
 """The quality reading Q (SPEC § 5): ESLint errors over the inline script plus axe-core violations on the
 loaded page, from the local Node install, never read as 0 when a tool is missing or fails."""
 
+import json
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from friday.adapters import quality
-from friday.adapters.quality import NodeQualityProbe, QualityToolFailed, QualityUnavailable, inline_script
+from friday.adapters.quality import NodeQualityProbe, QualityToolFailed, QualityUnavailable, inline_code, inline_script
 from friday.config import load_spec
 from tests.fakes import FakeDom, FakePage
 
@@ -73,8 +74,9 @@ def test_inline_script_skips_src_scripts_and_json_data_and_keeps_handlers():
             '<script type="application/json" id="how-to-data">{"summary": 1}</script>'
             '<button onclick="go(event)">x</button><img src=x onerror="fail()"/><script type="module">b()</script>')
     code = inline_script(html)
-    assert "var a = 1;" in code and "b()" in code and "go(event)" in code and "fail()" in code
-    assert "ignored" not in code and "summary" not in code
+    assert "var a = 1;" in code and "go(event)" in code and "fail()" in code
+    assert "ignored" not in code and "summary" not in code and "b()" not in code
+    assert inline_code(html).modules == ("b()",)                       # a module is its own source
 
 
 def test_a_function_called_only_from_a_handler_attribute_is_not_unused(probe):
@@ -155,3 +157,61 @@ def test_node_modules_is_not_committed():
     tracked = subprocess.run(["git", "ls-files", "node_modules"], cwd=ROOT, capture_output=True, text=True,
                              check=True)
     assert tracked.stdout == ""
+
+
+# Review regressions: each piece the browser compiles on its own fails on its own.
+
+def _flawed_plus(extra: str) -> str:
+    return (DATA / "flawed.html").read_text().replace("</body>", extra + "\n</body>")
+
+
+def test_one_broken_handler_counts_once_and_leaves_the_rest_of_the_page_linted(probe):
+    # A mis-quoted handler: onclick="alert(" and the rest becomes junk attributes.
+    assert probe.eslint_errors(_flawed_plus('<button onclick="alert("hi")">x</button>')) == FLAWED_ESLINT + 1
+
+
+def test_a_valid_module_script_is_linted_as_a_module_and_does_not_collapse_the_count(probe):
+    assert probe.eslint_errors(_flawed_plus('<script type="module">export {};</script>')) == FLAWED_ESLINT
+    assert probe.eslint_errors(_flawed_plus('<script type="module">await Promise.resolve(); let q;</script>')) \
+        == FLAWED_ESLINT + 1
+
+
+def test_a_broken_module_or_classic_script_counts_once_and_the_others_are_still_linted(probe):
+    assert probe.eslint_errors(_flawed_plus('<script type="module">var = ;</script>')) == FLAWED_ESLINT + 1
+    assert probe.eslint_errors(_flawed_plus("<script>var = ;</script>")) == FLAWED_ESLINT + 1
+    # A redeclared `let` fails the second script in the browser, not the first.
+    assert probe.eslint_errors("<script>let a = 1; console.log(a);</script><script>let a = 2; missing();</script>") == 1
+
+
+def test_a_module_sees_classic_globals_and_a_classic_function_it_calls_reads_as_used(probe):
+    html = "<script>function go() { return 1; }</script><script type=module>go(); const unused = 1;</script>"
+    assert probe.eslint_errors(html) == 1
+
+
+def test_standard_browser_globals_are_not_counted_as_undefined(probe):
+    html = ("<script>console.log(atob('aGk='), btoa('x'), scrollY, scrollX, outerWidth);"
+            "console.log(document.body instanceof HTMLButtonElement);"
+            "speechSynthesis.speak(new SpeechSynthesisUtterance('hi'));"
+            "console.log(WheelEvent, DOMRect, Worker, customElements);</script>")
+    assert probe.eslint_errors(html) == 0
+    assert probe.eslint_errors("<script>console.log(notABrowserGlobal);</script>") == 1
+
+
+@pytest.mark.parametrize("attrs", [
+    "type='application/x-javascript'", "type='text/jscript'", "type='application/x-ecmascript'",
+    "type='text/livescript'", "type='text/javascript1.5'", "type=' Text/JavaScript '", "language='javascript'",
+])
+def test_legacy_javascript_mime_types_are_linted(probe, attrs):
+    assert probe.eslint_errors(f"<script {attrs}>var unused = 1;</script>") == 1
+
+
+@pytest.mark.parametrize("attrs", ["type='application/json'", "type='text/plain'", "type='text/javascript; x=1'",
+                                   "language='vbscript'"])
+def test_non_javascript_script_types_are_not_linted(probe, attrs):
+    assert probe.eslint_errors(f"<script {attrs}>var unused = 1;</script>") == 0
+
+
+def test_the_globals_package_is_a_pinned_dev_dependency():
+    pkg = json.loads((ROOT / "package.json").read_text())
+    assert pkg["devDependencies"]["globals"] == json.loads((ROOT / "node_modules/globals/package.json").read_text())[
+        "version"]

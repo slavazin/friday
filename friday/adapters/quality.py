@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
@@ -18,12 +19,17 @@ from typing import Any
 from friday.config import RunSpec
 from friday.ports.browser import Page
 
-# Script types the browser executes as JavaScript; any other type (e.g. application/json) is data.
-JS_TYPES = frozenset({"", "text/javascript", "application/javascript", "application/ecmascript",
-                      "text/ecmascript", "module"})
+# The HTML spec's "JavaScript MIME type essence" list: a `<script>` of one of these types runs as a classic
+# script; `module` runs as a module script; any other type (e.g. application/json) is data.
+JS_TYPES = frozenset({
+    "application/ecmascript", "application/javascript", "application/x-ecmascript", "application/x-javascript",
+    "text/ecmascript", "text/javascript", "text/javascript1.0", "text/javascript1.1", "text/javascript1.2",
+    "text/javascript1.3", "text/javascript1.4", "text/javascript1.5", "text/jscript", "text/livescript",
+    "text/x-ecmascript", "text/x-javascript",
+})
 ESLINT_SCRIPT = Path(__file__).with_name("eslint_count.mjs")
 AXE_RELATIVE = Path("node_modules/axe-core/axe.min.js")
-ESLINT_RELATIVE = Path("node_modules/eslint/package.json")
+NODE_PACKAGES = (Path("node_modules/eslint/package.json"), Path("node_modules/globals/package.json"))
 NODE_TIMEOUT_S = 60
 
 
@@ -35,14 +41,40 @@ class QualityToolFailed(RuntimeError):
     """ESLint or axe-core ran but did not return a count."""
 
 
+def script_kind(attrs: dict[str, str]) -> str | None:
+    """How the browser runs an inline `<script>` with these (lower-cased) attributes, as the HTML spec
+    prepares a script: "classic", "module", or None when it is data or loaded from `src`."""
+    if "src" in attrs:
+        return None
+    if "type" in attrs:
+        kind = attrs["type"].strip(" \t\n\f\r").lower()
+    elif attrs.get("language", ""):
+        kind = "text/" + attrs["language"].lower()
+    else:
+        kind = ""
+    if kind == "" or kind in JS_TYPES:
+        return "classic"
+    return "module" if kind == "module" else None
+
+
+@dataclass(frozen=True)
+class InlineCode:
+    """A page's inline JavaScript as the browser compiles it: classic pieces in document order (inline
+    classic scripts, then each `on*` handler body wrapped in its own function expression) and module bodies."""
+
+    classic: tuple[str, ...]
+    modules: tuple[str, ...]
+
+
 class _InlineCode(HTMLParser):
-    """Collects inline `<script>` bodies (no `src`, JavaScript types only) and inline `on*` handler bodies."""
+    """Collects inline `<script>` bodies by kind (no `src`, JavaScript types only) and inline `on*` handler bodies."""
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.scripts: list[str] = []
+        self.modules: list[str] = []
         self.handlers: list[str] = []
-        self._in_js = False
+        self._kind: str | None = None
         self._buf: list[str] = []
 
     def _attrs(self, attrs: list[tuple[str, str | None]]) -> dict[str, str]:
@@ -53,7 +85,7 @@ class _InlineCode(HTMLParser):
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         a = self._attrs(attrs)
         if tag == "script":
-            self._in_js = "src" not in a and a.get("type", "").strip().lower() in JS_TYPES
+            self._kind = script_kind(a)
             self._buf = []
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
@@ -61,30 +93,36 @@ class _InlineCode(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         if tag == "script":
-            if self._in_js:
+            if self._kind == "classic":
                 self.scripts.append("".join(self._buf))
-            self._in_js = False
+            elif self._kind == "module":
+                self.modules.append("".join(self._buf))
+            self._kind = None
 
     def handle_data(self, data: str) -> None:
-        if self._in_js:
+        if self._kind is not None:
             self._buf.append(data)
 
 
-def inline_script(html: str) -> str:
-    """The artifact's inline JavaScript as one source, in document order.
+def inline_code(html: str) -> InlineCode:
+    """The artifact's inline JavaScript, split as the browser compiles it.
 
-    Inline `<script>` bodies (no `src`; JavaScript types only, so the how-to JSON is left out) are
-    concatenated, since they share one global scope in the page. Each inline event-handler attribute
-    (`onclick="start()"`) follows wrapped in its own function expression, as the browser compiles it
-    (`event` is a declared global in the config): a function only a handler calls reads as used, and
-    handler code is linted too.
+    Classic inline scripts (no `src`; JavaScript MIME types only, so the how-to JSON is left out) share one
+    global scope. Each inline event-handler attribute (`onclick="start()"`) follows wrapped in its own
+    function expression, as the browser compiles it (`event` is a browser global): a function only a handler
+    calls reads as used, and handler code is linted too. Module scripts are kept apart, since each is its
+    own scope and source type.
     """
     parser = _InlineCode()
     parser.feed(html)
     parser.close()
-    parts = list(parser.scripts)
-    parts += [f"(function () {{\n{h}\n}});" for h in parser.handlers]
-    return "\n;\n".join(parts)
+    handlers = [f"(function () {{\n{h}\n}});" for h in parser.handlers]
+    return InlineCode(tuple(parser.scripts) + tuple(handlers), tuple(parser.modules))
+
+
+def inline_script(html: str) -> str:
+    """The artifact's classic inline JavaScript (scripts, then wrapped handlers) joined as one source."""
+    return "\n;\n".join(inline_code(html).classic)
 
 
 class NodeQualityProbe:
@@ -94,7 +132,7 @@ class NodeQualityProbe:
         if node is None:
             raise QualityUnavailable("node is not on PATH: Q needs a local Node install")
         self._node = node
-        for rel in (ESLINT_RELATIVE, AXE_RELATIVE):
+        for rel in (*NODE_PACKAGES, AXE_RELATIVE):
             if not (self._root / rel).is_file():
                 raise QualityUnavailable(f"{self._root / rel} is missing: run `npm ci` in {self._root}")
         if not ESLINT_SCRIPT.is_file():
@@ -113,8 +151,10 @@ class NodeQualityProbe:
         return cls(root, Path(spec.eval.eslint_config))
 
     def eslint_errors(self, html: str) -> int:
-        """ESLint error count (severity 2, a parse error counts once) over `inline_script(html)`."""
-        payload = json.dumps({"code": inline_script(html), "config": self._config})
+        """ESLint error count (severity 2) over `inline_code(html)`. A piece the browser would fail to compile
+        (one classic script, one handler, one module) counts once and is left out; the rest is still linted."""
+        code = inline_code(html)
+        payload = json.dumps({"classic": list(code.classic), "modules": list(code.modules), "config": self._config})
         proc = subprocess.run(
             [self._node, str(ESLINT_SCRIPT)], input=payload, capture_output=True, text=True,
             cwd=self._root, timeout=NODE_TIMEOUT_S, check=False,
