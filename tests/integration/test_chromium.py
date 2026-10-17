@@ -386,3 +386,28 @@ def test_an_animated_canvas_whose_arrow_key_moves_a_sprite_reads_responsive(chro
         page.goto("?test=1")
         r = probe.run(page, VP, "P1", (), 12, SETTLE, "abc 123")
     assert r.controls == 1 and r.responsive_ids == ("#g",)
+
+
+def test_a_start_whose_first_visible_change_is_the_first_1s_tick_reads_responsive(chromium):
+    """Finding: a Start that leaves its label unchanged changed nothing within settle_ms on a page at rest."""
+    with chromium.page(str(APPS / "timer_start_label_unchanged.html"), VP) as page:
+        page.goto("?test=1")
+        r = probe.run(page, VP, "P1", (), 12, SETTLE, "abc 123")
+    assert r.controls == 4 and r.responsive_ids == ("#start",)
+
+
+def test_a_2s_ticker_makes_no_dead_control_read_responsive(chromium):
+    """Finding: a timer slower than the tick window dropped out of own, and its next tick credited a dead control."""
+    with chromium.page(str(APPS / "ticker_2s_dead.html"), VP) as page:
+        page.goto("?test=1")
+        r = probe.run(page, VP, "P1", (), 12, SETTLE, "abc 123")
+    assert r.controls == 6 and r.responsive_ids == ()
+
+
+def test_a_starfield_canvas_whose_arrow_key_moves_a_sprite_reads_responsive(chromium):
+    """Finding: every tile of a full-canvas animated background was own, so the key that moved the player never
+    counted; a key handler that ran is the sign the input reached the game."""
+    with chromium.page(str(APPS / "canvas_starfield.html"), VP) as page:
+        page.goto("?test=1")
+        r = probe.run(page, VP, "P1", (), 12, SETTLE, "abc 123")
+    assert r.controls == 1 and r.responsive_ids == ("#g",)
