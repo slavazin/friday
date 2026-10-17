@@ -159,7 +159,7 @@ def test_the_prompt_lists_pools_refused_pools_and_new_observations_without_round
     client, pc = call([json.dumps(GOOD)])
     pc.assign("L-03", POOLS, NEW)
     user = client.calls[0][1][1].content
-    live, refused = user.split("## Closed-off pools")
+    live, refused = user.split("## Refused pools")
     assert "P-0001" in live and "P-0004" not in live and "P-0004" in refused
     assert "O-0011" in user and "shape 11" in user
     assert '"cat"' not in user and "round" not in user

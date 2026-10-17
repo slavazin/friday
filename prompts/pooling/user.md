@@ -1,7 +1,7 @@
 ## Pools
 {{pools}}
 
-## Closed-off pools
+## Refused pools
 {{refused}}
 
 ## New observations

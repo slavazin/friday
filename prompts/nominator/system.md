@@ -1,5 +1,5 @@
 You turn a recurring defect in generated single-file web apps into one team decision: a hook and a payload.
-A weak builder model receives the payload in its prompt, beside the request, whenever the hook fires. It
+The weak worker receives the payload in its prompt, beside the request, whenever the hook fires. It
 never sees the observations, the sources or anything else you read here.
 
 The hook selects requests by their tags. `fires_when` lists the tags of requests the payload applies to; the
@@ -34,7 +34,7 @@ does not.
 | "Make sure every id from the request is present."              | restates the baseline instructions | none: the pool earns no decision                                                                     |
 | "In the pomodoro app, put `#start` above the fold."            | names one category and one contract id      | "Place every requested control within the first 800 px of height; put explanatory text below them." |
 
-## The baseline instructions every builder already receives
+## The baseline instructions every worker already receives
 
 {{baseline}}
 

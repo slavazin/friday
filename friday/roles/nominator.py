@@ -21,7 +21,9 @@ from friday.roles.ask import Rejected, ask_json
 from friday.roles.prompts import PromptBook
 
 ROLE = "nominator"
-_HEADING = re.compile(r"^\s*(#{1,6}\s|---)", flags=re.MULTILINE)
+# The Journal file splits a decision body on "\n## " (journal_md.parse_decision); a payload line opening with
+# "## " would cut the payload short on read-back. This is a structural guard, not a SPEC § 2 refusal cause.
+_SECTION_LINE = re.compile(r"^## ", flags=re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -63,8 +65,9 @@ def validate_draft(
     """The hook and payload of a nominator reply, or its no-decision reason; raises Rejected on a refusal cause.
 
     Refused: a hook tag outside `vocabulary`, an empty `fires_when`, a tag in both lists, a payload over
-    `max_words`, naming a `blinded` word, citing a run id, or holding a markdown heading line. A re-ask names
-    the cause but never echoes a word from `nominator_blinded`.
+    `max_words`, naming a `blinded` word, citing a run id, or holding a line that opens with '## ' (it would
+    split the Journal file's payload section). A re-ask names the cause but never echoes a word from
+    `nominator_blinded` (the nominator's row plus the goal family names).
     """
     if not isinstance(raw, dict):
         raise Rejected("expected a JSON object")
@@ -87,18 +90,18 @@ def validate_draft(
     if not isinstance(payload, str) or not payload.strip():
         raise Rejected("payload must be a non-empty string")
     payload = payload.strip()
-    if _HEADING.search(payload):
-        raise Rejected("the payload is one directive, with no heading or rule line")
+    if _SECTION_LINE.search(payload):
+        raise Rejected("the payload is one directive; no line opens with '## '")
     check = check_payload(payload, max_words, blinded, hedges)
     causes = []
     if check.too_long:
         causes.append(f"the payload is over {max_words} words")
     if check.blinded:
         sayable = [w for w in check.blinded if not blinding_hits(w, nominator_blinded)]
-        causes.append("the payload names words a builder's prompt never carries"
+        causes.append("the payload names words a worker's prompt never carries"
                       + (f": {sayable}" if sayable else ""))
     if check.run_ids:
-        causes.append(f"the payload cites ids the builder cannot look up: {list(check.run_ids)}")
+        causes.append(f"the payload cites ids the worker cannot look up: {list(check.run_ids)}")
     if causes:
         raise Rejected("; ".join(causes))
     return _Reply(Hook(fires_when, not_this), payload, "", check.hedges)
@@ -158,7 +161,8 @@ class Nominator:
             render_nominator(self.book, pool, label, observations, sources, self.tag_vocabulary,
                              self.payload_max_words),
             lambda raw: validate_draft(raw, self.tag_vocabulary, self.payload_max_words, blinded,
-                                       self.book.hedges, self.book.blinding[ROLE]),
+                                       self.book.hedges,
+                                       (*self.book.blinding[ROLE], *self.families)),
             reasks=self.reasks, tag=f"nominator:{pool.id}",
         )
         if asked.value is None:

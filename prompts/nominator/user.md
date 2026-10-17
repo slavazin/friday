@@ -1,7 +1,7 @@
-## Defect
+## Pool shape
 {{shape}}
 
-## The act that would have prevented it
+## Direction label
 {{label}}
 
 ## Observations

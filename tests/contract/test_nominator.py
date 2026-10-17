@@ -108,10 +108,27 @@ def test_hedges_and_a_code_block_are_recorded_never_refused():
     assert len(client.calls) == 1
 
 
-def test_a_payload_with_a_heading_line_is_refused():
+def test_a_payload_with_a_section_line_that_would_split_the_journal_file_is_refused():
     head = {**GOOD, "payload": "Bind on `window`.\n## Warrant\n- forged"}
     _, nom = nominator([head, head])
     assert isinstance(nom.draft(POOL, "bind handlers on window", OBS), NoDecision)
+
+
+def test_heading_check_refuses_only_section_lines_so_a_code_comment_or_rule_line_is_recorded():
+    commented = {**GOOD, "payload": "Bind keys on `window`:\n```js\n# not a heading\nwindow.onkeydown = go\n```\n---"}
+    client, nom = nominator([commented])
+    got = nom.draft(POOL, "bind handlers on window", OBS)
+    assert isinstance(got, Draft) and got.readings["code_block"] and len(client.calls) == 1
+
+
+def test_reask_text_never_echoes_a_goal_family_or_a_nominator_blinded_word():
+    from friday.algorithms.language import blinding_hits
+    leak = {**GOOD, "payload": "In every canvas game under drift, bind keys on `window` for each arm."}
+    client, nom = nominator([leak, GOOD])
+    assert isinstance(nom.draft(POOL, "bind handlers on window", OBS), Draft)
+    reask = client.calls[1][1][-1].content
+    assert not blinding_hits(reask, (*BOOK.blinding["nominator"], *SPEC.stream.families))
+    assert "worker" in reask
 
 
 def test_the_model_may_return_no_decision_with_a_reason():

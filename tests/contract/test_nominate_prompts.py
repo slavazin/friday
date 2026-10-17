@@ -76,3 +76,13 @@ def test_templates_carry_no_hedge_outside_the_quoted_examples():
     texts = [t.replace(quoted_examples, "").replace('"Consider making keyboard controls work better."', "")
              for t in own]
     assert [word_hits(t, BOOK.hedges) for t in texts] == [[], [], [], []]
+
+
+def test_tier1_prompts_use_vocabulary_terms_not_synonyms():
+    """SPEC § 2 Vocabulary: refused pool (not closed-off), worker (not builder), pool shape and direction label."""
+    texts = {f: (ROOT / "prompts" / f).read_text().lower()
+             for f in ("pooling/system.md", "pooling/user.md", "nominator/system.md", "nominator/user.md")}
+    for f, text in texts.items():
+        assert "closed-off" not in text and "builder" not in text, f
+    assert "refused pool" in texts["pooling/system.md"] and "## refused pools" in texts["pooling/user.md"]
+    assert "## pool shape" in texts["nominator/user.md"] and "## direction label" in texts["nominator/user.md"]
