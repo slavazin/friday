@@ -225,7 +225,8 @@ class PassEnvFactory:
             book = PromptBook(repo / spec.paths.prompts)
             browser = PlaywrightBrowser(spec.eval.action_timeout_ms, spec.eval.load_timeout_ms, telemetry=tel)
             rubric = ModelRubric.from_spec(spec, client, ask_json, Rejected, model=models["rubric"],
-                                           prompts=book.root, telemetry=tel, cache=FileResponseCache(root / CACHE_DIR / "rubric"),
+                                           prompts=book.root, telemetry=tel,
+                                           cache=FileResponseCache(root / CACHE_DIR / "rubric"),
                                            spend=spend)
             evaluator = with_optional(Evaluator, browser=browser, rubric=rubric,
                                       quality=NodeQualityProbe.from_spec(spec, repo), **evaluator_settings(spec),

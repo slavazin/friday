@@ -619,7 +619,8 @@ class Runner:
         for p in self.stores.passes.passes():
             if p.category not in held:
                 continue
-            n = sum(approx_tokens(by_id[i].payload, self.spec.notes.chars_per_token) for i in p.composition.decision_ids)
+            cpt = self.spec.notes.chars_per_token
+            n = sum(approx_tokens(by_id[i].payload, cpt) for i in p.composition.decision_ids)
             if p.composition.notes and notes:
                 n += approx_tokens(notes, self.spec.notes.chars_per_token)
             out[p.id] = n
