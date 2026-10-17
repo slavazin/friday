@@ -6,18 +6,26 @@ only its own rows (pass, eval, lens answers, fires) and `artifacts/<pass_id>/`. 
 one process each, re-runs transport failures, and returns the paired deltas and the report call's
 observations. The Ledger, observations, pools, events and the Journal belong to the round close: nothing here
 writes them. A pass proposes; nothing it proposes is yet true.
+
+Telemetry (docs/telemetry.md, Pass): `run_pass` narrows the process's one log to the pass for the pass's
+duration, so every collaborator holding that log (the model client, the evaluator, the judge, the browser)
+writes under the pass's scope, and opens `pass` with `pass.compose`, `pass.worker` and `pass.repair` inside.
+`pass.outcome` is written by the pass for a scored or transport-failed pass, and by `run_round` for a pass
+that crashed, died or was terminated.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import multiprocessing
+import os
 import re
 import time
 import traceback
-from collections.abc import Callable, Collection, Mapping, Sequence
-from contextlib import AbstractContextManager, ExitStack
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from dataclasses import dataclass, field
 from multiprocessing.connection import wait
 from pathlib import Path
@@ -27,7 +35,7 @@ from friday.algorithms.composition import compose_pair, select_composed
 from friday.algorithms.exposure import assign_exposures
 from friday.algorithms.gate import select_in_flight
 from friday.app.ledger import pair_deltas
-from friday.app.notes import notes_text
+from friday.app.notes import approx_tokens, notes_text
 from friday.app.request_text import regime_of
 from friday.app.request_text import request_text as compose_request_text
 from friday.config import RunSpec
@@ -55,6 +63,7 @@ from friday.eval import probe
 from friday.ports.browser import Browser, Page
 from friday.ports.models import ChatResult, Message
 from friday.ports.stores import ExposureStore, Journal, JudgeStore, Ledger, PassStore
+from friday.ports.telemetry import Telemetry
 from friday.roles.judge import DraftObservation
 from friday.roles.prompts import PromptBook
 from friday.roles.worker import Worker, extract_html, render_composition, repair_message
@@ -62,6 +71,7 @@ from friday.stats.eprocess import BETTING, wealth
 
 JUDGED_LENS = frozenset({LensStatus.ACTIVE, LensStatus.HIDDEN})  # hidden lenses are answered and valued (§ 6)
 RERUN_SUFFIX = "-rr"
+TIMED_OUT = "timed out"      # the head of a terminated pass's crash reason
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -225,13 +235,18 @@ def round_tasks_for(
 ) -> list[PassTask]:
     """`round_tasks` with the regime, the drift constraint and the notes budget read from `spec`."""
     regime = regime_of(plan.round_, spec.drift.round)
-    notes = notes_text(notes_path, spec.notes.max_tokens)
+    notes = notes_text(notes_path, spec.notes.max_tokens, spec.notes.chars_per_token)
     return round_tasks(plan, requests, regime, spec.drift.constraint, decisions, lenses, notes)
 
 
 def round_limits(spec: RunSpec) -> tuple[int, int]:
     """(`run.max_parallel_passes`, `run.transport_reruns`): the `parallel` and `reruns` of `run_round`."""
     return spec.run.max_parallel_passes, spec.run.transport_reruns
+
+
+def pass_timeout(spec: RunSpec) -> float:
+    """`run.pass_timeout_s`: the `pass_timeout_s` of `run_round`, past which a pass process is terminated."""
+    return spec.run.pass_timeout_s
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -250,6 +265,7 @@ class PassSettings:
     repair_turns: int
     max_artifact_bytes: int
     viewports: Mapping[Regime, Viewport]   # the first viewport of each regime: where the repair load runs
+    chars_per_token: int                   # notes.chars_per_token: the token proxy of `Pass.composed_tokens`
 
     @classmethod
     def from_spec(cls, spec: RunSpec) -> PassSettings:
@@ -258,6 +274,7 @@ class PassSettings:
             repair_turns=spec.worker.repair_turns,
             max_artifact_bytes=spec.worker.max_artifact_bytes,
             viewports={Regime(k): tuple(v[0]) for k, v in spec.eval.viewports.items()},
+            chars_per_token=spec.notes.chars_per_token,
         )
 
 
@@ -275,6 +292,7 @@ class PassEnv:
     artifacts: Path
     settings: PassSettings
     transport_errors: tuple[type[BaseException], ...]              # adapters.crusoe.TransportFailure in the run
+    telemetry: Telemetry          # the process's one log, shared with the client, evaluator, judge and browser
     missing_ids: Callable[[Page, Collection[str]], list[str]] = page_missing_ids
 
 
@@ -333,8 +351,11 @@ def _turns(env: PassEnv, task: PassTask, messages: list[Message], artifact: Path
     A reply with no document is written as the worker sent it: it is what the worker built.
     A repair reply with no document leaves the previous file in place.
     """
-    first = env.worker.first_turn(messages, tag=task.pass_id)
-    results.append(first)
+    t = env.telemetry
+    with t.span("pass.worker") as span:
+        first = env.worker.first_turn(messages, tag=task.pass_id)
+        results.append(first)
+        span.set(model=first.model, tokens_in=first.tokens_in, tokens_out=first.tokens_out, cost_usd=first.cost_usd)
     found = extract_html(first.text)
     html = found if found is not None else first.text
     artifact.write_text(html)
@@ -348,8 +369,11 @@ def _turns(env: PassEnv, task: PassTask, messages: list[Message], artifact: Path
         ids = [i for i in (task.pass_id, task.rerun_of) if i]
         errors = [neutral_location(e, artifact, ids) for e in errors]
         msg = repair_message(env.book, errors, [i.lstrip("#") for i in missing])
-        reply = env.worker.repair_turn(convo, last, msg, tag=f"{task.pass_id}:{turn + 1}")
-        results.append(reply)
+        with t.span("pass.repair", turn=turn + 1, console_errors=len(errors), missing_ids=len(missing)) as span:
+            reply = env.worker.repair_turn(convo, last, msg, tag=f"{task.pass_id}:{turn + 1}")
+            results.append(reply)
+            span.set(model=reply.model, tokens_in=reply.tokens_in, tokens_out=reply.tokens_out,
+                     cost_usd=reply.cost_usd, extracted=extract_html(reply.text) is not None)
         repaired = True
         convo = [*convo, Message("assistant", last.text), msg]
         last = reply
@@ -384,7 +408,51 @@ def _meta(task: PassTask, results: Sequence[ChatResult], **extra: Any) -> dict[s
     }
 
 
+@contextmanager
+def narrowed(telemetry: Telemetry, *, round_: int, pass_id: str | None = None) -> Iterator[Telemetry]:
+    """`telemetry` itself, its scope narrowed to `round_` (and `pass_id`) until the block exits.
+
+    The process holds one log, and its collaborators (the model client, the browser) hold that same object, so
+    narrowing the object, not a copy, puts every row they write in the block under the block's scope.
+    """
+    prior = telemetry.scope
+    telemetry.scope = prior.at(round=round_, pass_id=pass_id)
+    try:
+        yield telemetry
+    finally:
+        telemetry.scope = prior
+
+
+def _pass_attrs(task: PassTask) -> dict[str, Any]:
+    c = task.composition
+    return {
+        "request_id": task.request.id, "cell": list(task.request.cell) if task.request.cell else None,
+        "arm": task.arm.value, "regime": task.regime.value, "pair_slot": task.slot, "exposed": c.exposed,
+        "ablated": c.ablated, "composed": list(c.decision_ids), "notes": c.notes, "rerun_of": task.rerun_of,
+        "process_pid": os.getpid(),
+    }
+
+
+def composed_tokens(book: PromptBook, task: PassTask, messages: Sequence[Message], chars_per_token: int) -> int:
+    """Tokens composed into the worker prompt: the user message's length beyond the bare request's, in
+    `notes.chars_per_token` characters per token (the decisions block and the notes block with their headings)."""
+    bare = render_composition(book, task.request_text, (), None)
+    extra = len(messages[-1].content) - len(bare[-1].content)
+    if extra < 0:
+        raise ValueError(f"{task.pass_id}: the composed prompt is shorter than the bare request")
+    return approx_tokens("x" * extra, chars_per_token)
+
+
 def run_pass(task: PassTask, env: PassEnv) -> PassOutcome:
+    """Runs one pass inside its `pass` span (the process's log narrowed to the pass); see `_run_pass`."""
+    with narrowed(env.telemetry, round_=task.round_, pass_id=task.pass_id) as t, \
+            t.span("pass", **_pass_attrs(task)) as span:
+        outcome = _run_pass(task, env)
+        span.set(worker_model=outcome.pass_.worker)
+        return outcome
+
+
+def _run_pass(task: PassTask, env: PassEnv) -> PassOutcome:
     """Runs one pass and writes its own rows and `artifacts/<pass_id>/`.
 
     The size bound: an artifact over `worker.max_artifact_bytes` is kept whole, recorded `oversize`, and
@@ -405,16 +473,23 @@ def run_pass(task: PassTask, env: PassEnv) -> PassOutcome:
     out_dir = env.artifacts / task.pass_id
     out_dir.mkdir(parents=True, exist_ok=False)
     artifact = out_dir / "index.html"
-    messages = render_composition(env.book, task.request_text, task.decisions,
-                                  task.notes if task.composition.notes else None)
+    t = env.telemetry
+    with t.span("pass.compose") as span:
+        messages = render_composition(env.book, task.request_text, task.decisions,
+                                      task.notes if task.composition.notes else None)
+        tokens = composed_tokens(env.book, task, messages, env.settings.chars_per_token)
+        prompt = "\n".join(m.content for m in messages)
+        span.set(prompt_sha=hashlib.sha256(prompt.encode()).hexdigest(),
+                 prompt_tokens_est=approx_tokens(prompt, env.settings.chars_per_token), composed_tokens=tokens)
     results: list[ChatResult] = []
     base = Pass(task.pass_id, task.round_, task.request.id, task.arm, "", task.composition, task.regime,
-                pair_slot=task.slot)
+                pair_slot=task.slot, composed_tokens=tokens)
     try:
         try:
             html, repaired, extracted = _turns(env, task, messages, artifact, results)
             size = len(html.encode())
             oversize = size > env.settings.max_artifact_bytes
+            t.metric("pass.artifact_bytes", size, "bytes", oversize=oversize)
             pass_ = dataclasses.replace(base, worker=results[0].model, artifact_path=str(artifact),
                                         repaired=repaired)
             report = env.evaluate(pass_, task.request, task.regime, task.request_text)
@@ -422,9 +497,11 @@ def run_pass(task: PassTask, env: PassEnv) -> PassOutcome:
             failed = dataclasses.replace(
                 base, worker=results[0].model if results else "",
                 artifact_path=str(artifact) if artifact.exists() else None, transport_failed=True,
+                failed=f"{type(e).__name__}: {e}"[:500],
             )
             env.passes.add_pass(failed)
             (out_dir / "pass.json").write_text(json.dumps(_meta(task, results, transport_error=str(e)), indent=1))
+            t.event("pass.outcome", outcome="transport_failed", error=failed.failed)
             return PassOutcome(failed, None, transport_error=f"{type(e).__name__}: {e}")
         if report.pass_id != pass_.id:
             raise ValueError(f"eval of {report.pass_id} returned for {pass_.id}")
@@ -444,6 +521,10 @@ def run_pass(task: PassTask, env: PassEnv) -> PassOutcome:
         task, results, bytes=size, oversize=oversize, extracted=extracted, repaired=repaired,
         dropped_calls=verdict.dropped,
     ), indent=1))
+    for name, value in (("pass.loss", report.loss), ("pass.A", report.A), ("pass.R", report.R), ("pass.P", report.P),
+                        ("pass.H", report.H), ("pass.C", report.C), ("pass.Q", report.Q)):
+        t.metric(name, value, "score")
+    t.event("pass.outcome", outcome="scored", error="", dropped_calls=list(verdict.dropped))
     return PassOutcome(pass_, report, verdict.observations, size, oversize, tuple(verdict.dropped))
 
 
@@ -592,7 +673,7 @@ def _run_processes(tasks: Sequence[PassTask], env_factory: EnvFactory, parallel:
                 proc.terminate()
                 proc.join()
                 conn.close()
-                crashed[task.pass_id] = f"timed out after {timeout_s} s (run.pass_timeout_s); terminated"
+                crashed[task.pass_id] = f"{TIMED_OUT} after {timeout_s} s (run.pass_timeout_s); terminated"
     return outcomes, crashed
 
 
@@ -607,7 +688,21 @@ def _run_in_process(tasks: Sequence[PassTask], env: PassEnv) -> tuple[list[PassO
     return outcomes, crashed
 
 
-def _record_crashed(env: PassEnv, round_: int, tasks: Mapping[str, PassTask], crashed: Collection[str]) -> None:
+def _reason(trace: str) -> str:
+    """The crash reason a pass row and `pass.outcome` carry: the traceback's last non-empty line, bounded."""
+    lines = [ln for ln in trace.strip().splitlines() if ln.strip()]
+    return (lines[-1] if lines else "crashed")[:500]
+
+
+def _record_outcomes(telemetry: Telemetry, round_: int, crashed: Mapping[str, str]) -> None:
+    """Writes `pass.outcome` for each pass that crashed, died or was terminated: its process wrote none."""
+    for pid in sorted(crashed):
+        trace = crashed[pid]
+        outcome = "timed_out" if trace.startswith(TIMED_OUT) else "crashed"
+        telemetry.scoped(round=round_, pass_id=pid).event("pass.outcome", outcome=outcome, error=_reason(trace))
+
+
+def _record_crashed(env: PassEnv, round_: int, tasks: Mapping[str, PassTask], crashed: Mapping[str, str]) -> None:
     """Writes the pass row, with no eval, of each crashed pass that has none: the store keeps the population.
 
     The row reads as a pass that never evaluated (its eval is unread); the reason is in `RoundResult.crashed`
@@ -619,13 +714,16 @@ def _record_crashed(env: PassEnv, round_: int, tasks: Mapping[str, PassTask], cr
             continue
         t = tasks[pid]
         artifact = env.artifacts / pid / "index.html"
+        messages = render_composition(env.book, t.request_text, t.decisions, t.notes if t.composition.notes else None)
         env.passes.add_pass(Pass(pid, t.round_, t.request.id, t.arm, "", t.composition, t.regime,
-                                 artifact_path=str(artifact) if artifact.exists() else None, pair_slot=t.slot))
+                                 artifact_path=str(artifact) if artifact.exists() else None, pair_slot=t.slot,
+                                 failed=_reason(crashed[pid]),
+                                 composed_tokens=composed_tokens(env.book, t, messages, env.settings.chars_per_token)))
 
 
 def run_round(
     round_: int, plans: Sequence[PairPlan], tasks: Sequence[PassTask], env_factory: EnvFactory, *,
-    parallel: int, reruns: int, in_process: bool = False, pass_timeout_s: float | None = None,
+    parallel: int, reruns: int, telemetry: Telemetry, in_process: bool = False, pass_timeout_s: float | None = None,
 ) -> RoundResult:
     """Runs every pass, re-runs each transport failure up to `reruns` times, and computes the paired deltas.
 
@@ -633,7 +731,8 @@ def run_round(
     with its own browser and store connections (`env_factory` opens them in the child). `pass_timeout_s`
     bounds each pass process; a pass past it is terminated and recorded as crashed (`None`: no bound; not
     enforced with `in_process`). `in_process` runs the passes one after another in this process with one
-    environment (tests and dry runs).
+    environment (tests and dry runs). `telemetry` is the parent's log: it receives the `pass.outcome` of every
+    pass that crashed, died or was terminated (a pass that ran to its end writes its own).
 
     A crashed pass is reported in `crashed`, gives no delta, is not re-run, and gets a pass row with no
     eval. Raises `RoundCrashed` when every first-attempt pass crashed. Raises before any pass runs when an
@@ -660,6 +759,7 @@ def run_round(
             return _run_processes(batch, env_factory, parallel, pass_timeout_s)
 
         outcomes, crashed = run(tasks)
+        _record_outcomes(telemetry, round_, crashed)
         task_of = {t.pass_id: t for t in tasks}
         failed = [o.pass_.id for o in outcomes if o.pass_.transport_failed]
         lost: list[str] = []                 # re-runs that crashed: their slot is still without an eval
@@ -669,6 +769,7 @@ def run_round(
             retry = [rerun_task(task_of[i], attempt) for i in failed]
             task_of.update((t.pass_id, t) for t in retry)
             more, more_crashed = run(retry)
+            _record_outcomes(telemetry, round_, more_crashed)
             outcomes += more
             crashed.update(more_crashed)
             lost += [t.pass_id for t in retry if t.pass_id in more_crashed]

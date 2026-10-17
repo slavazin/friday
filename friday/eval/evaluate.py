@@ -2,6 +2,8 @@
 
 Every reading runs at each of the regime's viewports (SPEC § 5, § 10) and P, H, C and R are averaged over them.
 
+Each step opens its `eval.*` span (docs/telemetry.md) on the injected telemetry log.
+
 Only a browser failure is scored: the Browser port's pages raise TimeoutError (the page did not answer in time)
 or ConnectionError (it failed to load or crashed). Any other exception is a programming error and raises.
 """
@@ -20,6 +22,7 @@ from friday.eval import how_to, probe
 from friday.eval.dsl import run_check
 from friday.ports.browser import Browser, QualityProbe
 from friday.ports.scoring import Rubric
+from friday.ports.telemetry import Telemetry
 
 BROWSER_FAILURES = probe.BROWSER_FAILURES   # TimeoutError, ConnectionError
 
@@ -37,6 +40,7 @@ class Evaluator:
     sample_text: str                               # probe.sample_text
     how_to_max_controls: int                       # how_to.max_controls
     repair_penalty: float                          # how_to.repair_penalty
+    telemetry: Telemetry                           # the process's log; every step's eval.* span
 
     def _probe(self, path: str, vp: Viewport, pass_id: str, declared_ids: Sequence[str]) -> ProbeReading:
         loaded = False
@@ -60,7 +64,9 @@ class Evaluator:
             try:
                 page = stack.enter_context(open_page())
                 errors = list(page.console_errors())
-                shot = page.screenshot()
+                with self.telemetry.span("eval.screenshot") as span:
+                    shot = page.screenshot()
+                    span.set(bytes=len(shot))
             except BROWSER_FAILURES as e:  # an artifact that cannot load is scored, not dropped
                 # Every check has already failed on load; the rubric's floor is the true reading of a page
                 # nothing renders on. Recorded in console_errors so the report call sees why.
@@ -74,6 +80,11 @@ class Evaluator:
 
     def run(self, pass_: Pass, request: Request, regime: Regime, request_text: str) -> EvalReport:
         """Scores one pass's artifact under `regime`. `request_text` is the text the worker read."""
+        with self.telemetry.span("eval", viewports=len(self.viewports.get(regime.value, ()))):
+            return self._run(pass_, request, regime, request_text)
+
+    def _run(self, pass_: Pass, request: Request, regime: Regime, request_text: str) -> EvalReport:
+        t = self.telemetry
         if pass_.artifact_path is None:
             raise ValueError(f"{pass_.id} has no artifact")
         path = pass_.artifact_path
@@ -94,23 +105,33 @@ class Evaluator:
             def open_page(vp: Viewport = vp):
                 return self.browser.page(path, vp)
 
-            tag = f"@{vp[0]}x{vp[1]}"
-            vp_results = [run_check(open_page, c) for c in checks]
-            results += [CheckResult(r.check_id + tag, r.passed, r.failing_step) for r in vp_results]
-            c_parts.append(self.loss_model.acceptance(vp_results))
-            readings.append(how_to.score(parsed, how_to.run(open_page, parsed), contract, self.repair_penalty,
-                                         pass_.id, vp))
-            probes.append(self._probe(path, vp, pass_.id, parsed.declared_ids))
-            shot, vp_errors, axe_page = self._screenshot(open_page, tag, read_axe=axe is None)
-            if axe is None and axe_page is not None:
-                axe = axe_page
-            errors += [e for e in vp_errors if e not in errors]
-            scores = (
-                (lo,) * self.loss_model.rubric_questions if shot is None
-                else tuple(self.rubric.score(shot, request_text, artifact_hash, vp))
-            )
-            rubric += scores
-            r_parts.append(self.loss_model.rubric(scores))
+            with t.span("eval.viewport", width=vp[0], height=vp[1]):
+                tag = f"@{vp[0]}x{vp[1]}"
+                with t.span("eval.checks", checks=len(checks)) as span:
+                    vp_results = [run_check(open_page, c) for c in checks]
+                    span.set(checks_passed=sum(r.passed for r in vp_results))
+                results += [CheckResult(r.check_id + tag, r.passed, r.failing_step) for r in vp_results]
+                c_parts.append(self.loss_model.acceptance(vp_results))
+                with t.span("eval.how_to", rung=int(parsed.rung)) as span:
+                    steps = how_to.run(open_page, parsed)
+                    span.set(steps=len(steps), steps_passed=sum(r.passed for r in steps))
+                    readings.append(how_to.score(parsed, steps, contract, self.repair_penalty, pass_.id, vp))
+                with t.span("eval.probe") as span:
+                    probes.append(self._probe(path, vp, pass_.id, parsed.declared_ids))
+                    span.set(controls_driven=probes[-1].controls, responsive=probes[-1].responsive,
+                             silent_controls=probes[-1].silent, loaded=probes[-1].loaded)
+                with t.span("eval.load") as span:
+                    shot, vp_errors, axe_page = self._screenshot(open_page, tag, read_axe=axe is None)
+                    span.set(console_errors=len(vp_errors), loaded=shot is not None)
+                if axe is None and axe_page is not None:
+                    axe = axe_page
+                errors += [e for e in vp_errors if e not in errors]
+                scores = (
+                    (lo,) * self.loss_model.rubric_questions if shot is None
+                    else tuple(self.rubric.score(shot, request_text, artifact_hash, vp))
+                )
+                rubric += scores
+                r_parts.append(self.loss_model.rubric(scores))
 
         n = len(viewports)
         p = sum(x.P for x in probes) / n
@@ -118,7 +139,9 @@ class Evaluator:
         c = sum(c_parts) / n
         r = sum(r_parts) / n
         a = self.loss_model.a_mix(p, h, c)
-        eslint = self.quality.eslint_errors(html)
+        with t.span("eval.quality") as span:
+            eslint = self.quality.eslint_errors(html)
+            span.set(eslint_errors=eslint, axe_violations=axe)   # axe None: no page loaded for axe to read
         axe_n = axe if axe is not None else 0   # never loaded: no page for axe to read; Q counts ESLint alone
         return EvalReport(
             pass_id=pass_.id, regime=regime, checks=tuple(results), console_errors=tuple(errors), A=a, R=r,

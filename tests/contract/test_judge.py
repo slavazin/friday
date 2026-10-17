@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from friday.adapters.telemetry import MemoryTelemetry
 from friday.algorithms.language import blinding_hits
 from friday.config import load_spec
 from friday.domain.types import (
@@ -21,6 +22,7 @@ from friday.domain.types import (
     ProbeReading,
     Regime,
 )
+from friday.ports.telemetry import Scope
 from friday.roles import eval_text
 from friday.roles.ask import Rejected
 from friday.roles.judge import Judge, fill, fires_for, validate_report
@@ -28,6 +30,8 @@ from friday.roles.lens_minter import LensMinter, LensProposal, ResidualItem, len
 from friday.roles.prompts import PromptBook
 from tests.fakes import ScriptedClient
 from tests.unit.builders import lens
+
+TEL = MemoryTelemetry(Scope("main"))
 
 ROOT = Path(__file__).resolve().parents[2]
 BOOK = PromptBook(ROOT / "prompts")
@@ -42,7 +46,7 @@ RESET_LINE = "document.getElementById('reset').addEventListener('click', () => {
 def judge(script, model="judge/served", given=None):
     """A Judge on a scripted client; `given` seeds the lenses pass x1's lens call was given."""
     client = ScriptedClient(list(script), model=model)
-    j = Judge(client, BOOK, SPEC.lens.flag_p, SPEC.judge.max_observations, SPEC.judge.quote_reasks)
+    j = Judge(client, BOOK, SPEC.lens.flag_p, SPEC.judge.max_observations, SPEC.judge.quote_reasks, telemetry=TEL)
     if given is not None:
         j.lenses_by_pass["x1"] = tuple(given)
     return j, client
@@ -97,14 +101,14 @@ def test_lens_call_input_carries_no_eval_report_text_while_the_report_call_does(
 
 
 def test_lens_call_templates_name_no_judge_lens_blinded_word():
-    rendered = Judge(ScriptedClient([]), BOOK, 0.5, 3, 1).lens_messages("", {}, "", [])
+    rendered = Judge(ScriptedClient([]), BOOK, 0.5, 3, 1, telemetry=TEL).lens_messages("", {}, "", [])
     text = "\n".join(m.content for m in rendered)
     raw = BOOK.text("judge/lens_system.md") + BOOK.text("judge/lens_user.md")
     assert blinding_hits(text + raw, (*BOOK.blinding["judge_lens"], *FAMILIES)) == []
 
 
 def test_report_call_templates_and_eval_text_labels_name_no_judge_report_blinded_word():
-    rendered = Judge(ScriptedClient([]), BOOK, 0.5, 3, 1).report_messages("", {}, "", [], "", LENSES)
+    rendered = Judge(ScriptedClient([]), BOOK, 0.5, 3, 1, telemetry=TEL).report_messages("", {}, "", [], "", LENSES)
     neutral = EvalReport("x", Regime.R2, (CheckResult("c", False, "s"),), ("e",), 0, 0, (1,), 0, 1.0,
                          probes=marked_report().probes, how_to=marked_report().how_to)
     labels = eval_text.render(neutral)

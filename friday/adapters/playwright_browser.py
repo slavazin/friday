@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from friday.domain.types import Control, ControlKind
+from friday.ports.telemetry import Telemetry
 
 
 def _wrapped(js: str) -> str:
@@ -361,9 +362,12 @@ _NO_WEBRTC_JS = """for (const k of ['RTCPeerConnection', 'webkitRTCPeerConnectio
 class PlaywrightBrowser:
     """One browser per process: the sync API is not thread-safe, so parallel passes use one process each."""
 
-    def __init__(self, action_timeout_ms: int, load_timeout_ms: int, headless: bool = True) -> None:
+    def __init__(self, action_timeout_ms: int, load_timeout_ms: int, headless: bool = True, *,
+                 telemetry: Telemetry) -> None:
+        """`telemetry` is the process's log: each page's context writes one `eval.browser_context` span."""
         from playwright.sync_api import sync_playwright
 
+        self._telemetry = telemetry
         self._action_ms, self._load_ms = action_timeout_ms, load_timeout_ms
         self._pw = sync_playwright().start()
         try:
@@ -375,7 +379,12 @@ class PlaywrightBrowser:
     @contextmanager
     def page(self, artifact_path: str, viewport: tuple[int, int]) -> Iterator[PlaywrightPage]:
         """A fresh context and page per call (no state shared between pages), closed on every path. A
-        Playwright failure while it is open raises as TimeoutError or ConnectionError (module docstring)."""
+        Playwright failure while it is open raises as TimeoutError or ConnectionError (module docstring).
+        The context's life is one `eval.browser_context` span."""
+        with self._telemetry.span("eval.browser_context", shared_server=False):
+            yield from self._page(artifact_path, viewport)
+
+    def _page(self, artifact_path: str, viewport: tuple[int, int]) -> Iterator[PlaywrightPage]:
         from playwright.sync_api import Error
         from playwright.sync_api import TimeoutError as PlaywrightTimeout
 

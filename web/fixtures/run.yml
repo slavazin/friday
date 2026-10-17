@@ -8,6 +8,7 @@ run:
   convergence_rounds: 3
   transport_reruns: 1
   ping_transport_share: 0.3333
+  pass_timeout_s: 600
 pilot:
   min_share_passing: 0.3
   max_mean_a: 0.85
@@ -145,6 +146,7 @@ nominator:
   reasks: 1
 notes:
   max_tokens: 8000
+  chars_per_token: 4
 readout:
   reps: 2
   regime: R2

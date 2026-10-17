@@ -12,6 +12,7 @@ from friday.eval import dsl
 from friday.ports.browser import Browser
 from friday.ports.goals import GoalSource, TagVocabulary
 from friday.ports.models import ModelClient
+from friday.ports.telemetry import Telemetry
 from friday.roles.goal_minter import DslCheck, GoalMinter, MintedGoals, MintParams, StubReading, stub_html
 from friday.roles.prompts import PromptBook
 from friday.roles.tagger import Tagger
@@ -73,9 +74,18 @@ def build_tagger(spec: RunSpec, client: ModelClient, book: PromptBook) -> Tagger
 
 
 def tag_round(tagger: Tagger, source: GoalSource, vocabulary: TagVocabulary, n: int,
-              max_new_tags: int) -> tuple[Mapping[str, frozenset[str]], list[TagGloss]]:
+              max_new_tags: int, *, telemetry: Telemetry) -> tuple[Mapping[str, frozenset[str]], list[TagGloss]]:
     """Tags round `n`'s requests and stores the new glosses and the tags. The round's minting budget is
-    `max_new_tags` less the tags already minted in round `n`, so a second call cannot exceed the bar."""
+    `max_new_tags` less the tags already minted in round `n`, so a second call cannot exceed the bar.
+    The step is one `goals.tag` span on `telemetry`."""
+    with telemetry.span("goals.tag", round=n) as span:
+        tags, new = _tag_round(tagger, source, vocabulary, n, max_new_tags)
+        span.set(requests=len(tags), new_tags=len(new))
+        return tags, new
+
+
+def _tag_round(tagger: Tagger, source: GoalSource, vocabulary: TagVocabulary, n: int,
+               max_new_tags: int) -> tuple[Mapping[str, frozenset[str]], list[TagGloss]]:
     requests = list(source.round(n))
     if not requests:
         raise ValueError(f"round {n} has no requests")
@@ -94,9 +104,18 @@ def tag_round(tagger: Tagger, source: GoalSource, vocabulary: TagVocabulary, n: 
 
 
 def tag_held_out(tagger: Tagger, source: GoalSource, vocabulary: TagVocabulary,
-                 close_round: int) -> Mapping[str, frozenset[str]]:
+                 close_round: int, *, telemetry: Telemetry) -> Mapping[str, frozenset[str]]:
     """Tags the held-out set with the frozen vocabulary, minting nothing. Raises ValueError before the
-    close: the held-out set is read only once every stream request of rounds 1..`close_round` is tagged."""
+    close: the held-out set is read only once every stream request of rounds 1..`close_round` is tagged.
+    The step is one `goals.tag` span on `telemetry` (`held_out` true)."""
+    with telemetry.span("goals.tag", held_out=True) as span:
+        tags = _tag_held_out(tagger, source, vocabulary, close_round)
+        span.set(requests=len(tags), new_tags=0)
+        return tags
+
+
+def _tag_held_out(tagger: Tagger, source: GoalSource, vocabulary: TagVocabulary,
+                  close_round: int) -> Mapping[str, frozenset[str]]:
     for n in range(1, close_round + 1):
         stream = list(source.round(n))
         if not stream:

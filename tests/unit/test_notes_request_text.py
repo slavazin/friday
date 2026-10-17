@@ -51,12 +51,12 @@ def test_notes_text_keeps_the_most_recent_whole_lines_within_the_budget(tmp_path
     path = tmp_path / "notes.md"
     lines = [f"- observation number {i:03d} with some words" for i in range(50)]
     path.write_text("\n".join(lines) + "\n")
-    per_line = approx_tokens(lines[0] + "\n")
-    text = notes_text(path, per_line * 3 + 1)
+    per_line = approx_tokens(lines[0] + "\n", SPEC.notes.chars_per_token)
+    text = notes_text(path, per_line * 3 + 1, SPEC.notes.chars_per_token)
     assert text == "\n".join(lines[-3:])
-    assert notes_text(path, per_line * 100) == "\n".join(lines)
-    assert notes_text(tmp_path / "absent.md", SPEC.notes.max_tokens) is None
-    assert notes_text(path, 1) is None
+    assert notes_text(path, per_line * 100, SPEC.notes.chars_per_token) == "\n".join(lines)
+    assert notes_text(tmp_path / "absent.md", SPEC.notes.max_tokens, SPEC.notes.chars_per_token) is None
+    assert notes_text(path, 1, SPEC.notes.chars_per_token) is None
 
 
 def test_r2_appends_the_constraint_once_and_r1_never():

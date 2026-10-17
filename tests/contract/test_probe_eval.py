@@ -4,11 +4,15 @@ from contextlib import contextmanager
 
 import pytest
 
+from friday.adapters.telemetry import MemoryTelemetry
 from friday.algorithms.loss import LossModel
 from friday.domain.types import Arm, Check, Composition, ControlKind, HowToRung, Pass, Regime, Request
 from friday.eval import how_to, probe
 from friday.eval.evaluate import Evaluator
+from friday.ports.telemetry import Scope
 from tests.fakes import FakeDom, FakePage, page_factory
+
+TEL = MemoryTelemetry(Scope("main"))
 
 VP = (1280, 800)
 
@@ -167,7 +171,8 @@ def make_eval(browser, rubric=None):
         browser=browser, rubric=rubric or Rubric(), quality=Quality(),
         loss_model=LossModel(0.75, 0.25, (1, 5), 3, {"probe": 0.3, "how_to": 0.3, "checks": 0.4}),
         viewports={"R1": ((1280, 800),), "R2": ((1280, 800), (375, 812))}, test_query="?test=1",
-        probe_max_controls=12, settle_ms=500, sample_text="abc 123", how_to_max_controls=12, repair_penalty=0.1)
+        probe_max_controls=12, settle_ms=500, sample_text="abc 123", how_to_max_controls=12, repair_penalty=0.1,
+        telemetry=TEL)
 
 
 def fixture(tmp_path, html):

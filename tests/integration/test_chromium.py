@@ -6,11 +6,15 @@ from pathlib import Path
 
 import pytest
 
+from friday.adapters.telemetry import MemoryTelemetry
 from friday.algorithms.loss import LossModel
 from friday.domain.types import Arm, Check, Composition, ControlKind, HowToRung, Pass, Regime, Request
 from friday.eval import how_to, probe
 from friday.eval.evaluate import Evaluator
 from friday.ports import browser as port
+from friday.ports.telemetry import Scope
+
+TEL = MemoryTelemetry(Scope("main"))
 
 APPS = Path(__file__).resolve().parents[1] / "data" / "apps"
 VP = (1280, 800)
@@ -21,7 +25,7 @@ SETTLE = 150
 def _open(load_ms):
     try:
         from friday.adapters.playwright_browser import PlaywrightBrowser
-        return PlaywrightBrowser(action_timeout_ms=1500, load_timeout_ms=load_ms)
+        return PlaywrightBrowser(action_timeout_ms=1500, load_timeout_ms=load_ms, telemetry=TEL)
     except Exception as e:  # noqa: BLE001 - no Playwright or no Chromium: the browser tests skip
         pytest.skip(f"Chromium unavailable: {type(e).__name__}: {e}")
 
@@ -56,7 +60,8 @@ def evaluator(b, rubric=None):
         browser=b, rubric=rubric or Rubric(), quality=Quality(),
         loss_model=LossModel(0.75, 0.25, (1, 5), 3, {"probe": 0.3, "how_to": 0.3, "checks": 0.4}),
         viewports={"R1": ((1280, 800),), "R2": ((1280, 800), (375, 812))}, test_query="?test=1",
-        probe_max_controls=12, settle_ms=SETTLE, sample_text="abc 123", how_to_max_controls=12, repair_penalty=0.1)
+        probe_max_controls=12, settle_ms=SETTLE, sample_text="abc 123", how_to_max_controls=12, repair_penalty=0.1,
+        telemetry=TEL)
 
 
 def case(name, regime=Regime.R1):

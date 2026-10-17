@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from typing import Any, TypeVar
 
 from friday.ports.models import ChatResult, Message, ModelClient
-from friday.support.json_repair import decode
+from friday.ports.telemetry import Telemetry
+from friday.support.json_repair import Decoded, decode
 
 T = TypeVar("T")
 
@@ -23,10 +24,24 @@ class Asked[T]:
     attempts: int
     results: tuple[ChatResult, ...]
     failures: tuple[str, ...]
+    # How the last reply decoded: `strict`, the json_repair repairs applied joined by `+`, or `failed`
+    repair_rung: str = ""
 
     @property
     def ok(self) -> bool:
         return self.value is not None
+
+
+def _rung(decoded: Decoded) -> str:
+    if not decoded.ok:
+        return "failed"
+    return "+".join(decoded.repairs) or "strict"
+
+
+def record_json(telemetry: Telemetry, role: str, tag: str, asked: Asked[Any]) -> None:
+    """Writes the `model.json` event of one `ask_json` call: its repair rung, its re-asks and whether it held."""
+    telemetry.event("model.json", role=role, tag=tag, repair_rung=asked.repair_rung,
+                    reasks=max(0, asked.attempts - 1), ok=asked.ok)
 
 
 def ask_json[T](
@@ -44,6 +59,7 @@ def ask_json[T](
     convo = list(messages)
     results: list[ChatResult] = []
     failures: list[str] = []
+    rung = ""
     for attempt in range(reasks + 1):
         res = client.chat(role, convo, json_schema=schema, tag=tag if attempt == 0 else f"{tag}:reask{attempt}")
         results.append(res)
@@ -51,8 +67,9 @@ def ask_json[T](
         try:
             if not decoded.ok:
                 raise Rejected(f"invalid JSON ({decoded.error})")
-            return Asked(validate(decoded.value), attempt + 1, tuple(results), tuple(failures))
+            return Asked(validate(decoded.value), attempt + 1, tuple(results), tuple(failures), _rung(decoded))
         except Rejected as why:
             failures.append(str(why))
+            rung = _rung(decoded)
             convo = [*convo, Message("assistant", res.text), Message("user", reask_text(str(why)))]
-    return Asked(None, reasks + 1, tuple(results), tuple(failures))
+    return Asked(None, reasks + 1, tuple(results), tuple(failures), rung)

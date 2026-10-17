@@ -19,7 +19,8 @@ from typing import Any
 from friday.algorithms.language import quote_in
 from friday.domain.types import FREE_LENS, Disposition, Fire, Lens, LensAnswer, LensStatus
 from friday.ports.models import Message, ModelClient
-from friday.roles.ask import Asked, Rejected, ask_json
+from friday.ports.telemetry import Telemetry
+from friday.roles.ask import Asked, Rejected, ask_json, record_json
 from friday.roles.prompts import PromptBook
 
 ROLE = "judge"
@@ -221,6 +222,7 @@ class Judge:
     flag_p: float
     max_observations: int
     quote_reasks: int
+    telemetry: Telemetry                    # the process's log: `judge.lens_call`, `judge.report_call`, `model.json`
     calls: list[JudgeCall] = field(default_factory=list)
     # The lenses each pass's lens call was given, recorded before the model call so that the report call
     # renders them even when the lens call was dropped (SPEC § 6: the report call has everything the lens
@@ -258,22 +260,27 @@ class Judge:
         Each answer records the model string the service echoed on the reply that validated. With no lens to
         answer, returns [] and makes no call. Raises ValueError when given a retired or superseded lens.
         """
-        stale = [x.id for x in lenses if x.status not in ANSWERABLE]
-        if stale:
-            raise ValueError(f"lens call given lenses that are not active or hidden: {stale}")
-        self.lenses_by_pass[pass_id] = tuple(lenses)
-        if not lenses:
-            return []
-        asked = ask_json(
-            self.client, ROLE, self.lens_messages(request_text, composed, source, lenses),
-            lambda raw: validate_lens_answers(raw, pass_id, lenses, source, self.flag_p, ""),
-            reasks=self.quote_reasks, tag=f"judge:lens:{pass_id}", schema=LENS_SCHEMA,
-        )
-        self._record(pass_id, "lens", asked)
-        if asked.value is None:
-            return None
-        served = asked.results[-1].model
-        return [replace(a, judge_model=served) for a in asked.value]
+        with self.telemetry.span("judge.lens_call", lenses=len(lenses)) as span:
+            stale = [x.id for x in lenses if x.status not in ANSWERABLE]
+            if stale:
+                raise ValueError(f"lens call given lenses that are not active or hidden: {stale}")
+            self.lenses_by_pass[pass_id] = tuple(lenses)
+            if not lenses:
+                span.set(answered=0, reasks=0)
+                return []
+            tag = f"judge:lens:{pass_id}"
+            asked = ask_json(
+                self.client, ROLE, self.lens_messages(request_text, composed, source, lenses),
+                lambda raw: validate_lens_answers(raw, pass_id, lenses, source, self.flag_p, ""),
+                reasks=self.quote_reasks, tag=tag, schema=LENS_SCHEMA,
+            )
+            record_json(self.telemetry, ROLE, tag, asked)
+            self._record(pass_id, "lens", asked)
+            span.set(answered=None if asked.value is None else len(asked.value), reasks=asked.attempts - 1)
+            if asked.value is None:
+                return None
+            served = asked.results[-1].model
+            return [replace(a, judge_model=served) for a in asked.value]
 
     def report_call(self, pass_id: str, request_text: str, composed: Mapping[str, str], source: str,
                     answers: Sequence[LensAnswer], eval_report_text: str, lens_ids: Sequence[str],
@@ -283,16 +290,23 @@ class Judge:
         Renders the lenses this pass's lens call was given (those named in `lens_ids`). Raises ValueError when
         `lens_ids` names a lens the pass's lens call was not given: the report call would pool blind.
         """
-        given = {x.id: x for x in self.lenses_by_pass.get(pass_id, ())}
-        missing = [i for i in lens_ids if i not in given]
-        if missing:
-            raise ValueError(f"report call names lenses the lens call of {pass_id} was not given: {missing}")
-        lenses = [given[i] for i in lens_ids]
-        asked = ask_json(
-            self.client, ROLE,
-            self.report_messages(request_text, composed, source, answers, eval_report_text, lenses),
-            lambda raw: validate_report(raw, lens_ids, sorted(composed), source, self.max_observations),
-            reasks=self.quote_reasks, tag=f"judge:report:{pass_id}", schema=REPORT_SCHEMA,
-        )
-        self._record(pass_id, "report", asked)
-        return asked.value
+        with self.telemetry.span("judge.report_call") as span:
+            given = {x.id: x for x in self.lenses_by_pass.get(pass_id, ())}
+            missing = [i for i in lens_ids if i not in given]
+            if missing:
+                raise ValueError(f"report call names lenses the lens call of {pass_id} was not given: {missing}")
+            lenses = [given[i] for i in lens_ids]
+            tag = f"judge:report:{pass_id}"
+            asked = ask_json(
+                self.client, ROLE,
+                self.report_messages(request_text, composed, source, answers, eval_report_text, lenses),
+                lambda raw: validate_report(raw, lens_ids, sorted(composed), source, self.max_observations),
+                reasks=self.quote_reasks, tag=tag, schema=REPORT_SCHEMA,
+            )
+            record_json(self.telemetry, ROLE, tag, asked)
+            self._record(pass_id, "report", asked)
+            if asked.value is None:
+                span.set(observations=None, fires=None, quote_reasks=asked.attempts - 1)
+            else:
+                span.set(observations=len(asked.value[0]), fires=len(asked.value[1]), quote_reasks=asked.attempts - 1)
+            return asked.value

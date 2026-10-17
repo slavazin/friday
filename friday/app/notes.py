@@ -13,12 +13,14 @@ from pathlib import Path
 
 from friday.domain.types import FREE_LENS, Arm, Observation
 
-CHARS_PER_TOKEN = 4  # the notes budget's token count is this character proxy; no tokenizer is pinned
 
+def approx_tokens(text: str, chars_per_token: int) -> int:
+    """Tokens `text` is counted as against `notes.max_tokens`: ceil(characters / `notes.chars_per_token`).
 
-def approx_tokens(text: str) -> int:
-    """Tokens `text` is counted as against `notes.max_tokens`: ceil(characters / CHARS_PER_TOKEN)."""
-    return math.ceil(len(text) / CHARS_PER_TOKEN)
+    The character proxy stands in for a tokenizer; none is pinned."""
+    if chars_per_token < 1:
+        raise ValueError("notes.chars_per_token must be positive")
+    return math.ceil(len(text) / chars_per_token)
 
 
 def note_line(observation: Observation) -> str:
@@ -64,7 +66,7 @@ def append_free(path: str | Path, observations: Sequence[Observation], arm_of: M
     return written
 
 
-def notes_text(path: str | Path, max_tokens: int) -> str | None:
+def notes_text(path: str | Path, max_tokens: int, chars_per_token: int) -> str | None:
     """The most recent whole lines of the notes file within `max_tokens`, oldest first; None when none fit.
 
     Lines are kept whole: a line that would cross the budget is left out together with every older line.
@@ -74,7 +76,7 @@ def notes_text(path: str | Path, max_tokens: int) -> str | None:
     kept: list[str] = []
     used = 0
     for line in reversed(_read_lines(Path(path))):
-        cost = approx_tokens(line + "\n")
+        cost = approx_tokens(line + "\n", chars_per_token)
         if used + cost > max_tokens:
             break
         kept.append(line)

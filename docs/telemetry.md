@@ -45,13 +45,13 @@ readout read only the evidence stores. The demo page and the timing fit (CARRY_F
 
 | Row | Kind | Attributes / value |
 | --- | --- | --- |
-| `pass` | span | `request_id`, `cell`, `arm`, `regime`, `pair_slot`, `exposed`, `ablated`, `composed` (decision ids), `notes`, `worker_model`, `process_pid` |
-| `pass.compose` | span | `prompt_sha`, `prompt_tokens_est` |
+| `pass` | span | `request_id`, `cell`, `arm`, `regime`, `pair_slot`, `exposed`, `ablated`, `composed` (decision ids), `notes`, `rerun_of`, `worker_model`, `process_pid` |
+| `pass.compose` | span | `prompt_sha`, `prompt_tokens_est`, `composed_tokens` (the tokens `Pass.composed_tokens` records) |
 | `pass.worker` | span | the first build turn; `model`, `tokens_in`, `tokens_out`, `cost_usd` |
-| `pass.repair` | span | the self-repair turn, when it runs |
-| `pass.artifact_bytes` | metric (bytes) | `truncated` |
+| `pass.repair` | span | the self-repair turn, when it runs; `turn`, `console_errors`, `missing_ids` (counts), `model`, `tokens_in`, `tokens_out`, `cost_usd`, `extracted` |
+| `pass.artifact_bytes` | metric (bytes) | `oversize` (over `worker.max_artifact_bytes`; the artifact is kept whole, never truncated) |
 | `pass.loss` | metric (score) | also `pass.A`, `pass.R`, `pass.P`, `pass.H`, `pass.C`, `pass.Q`: one metric each |
-| `pass.outcome` | event | `scored`, `transport_failed`, `crashed`, `timed_out`; `error` |
+| `pass.outcome` | event | `outcome`: `scored`, `transport_failed`, `crashed`, `timed_out`; `error`; `dropped_calls` on a scored pass. The pass writes `scored` and `transport_failed`; the parent writes `crashed` and `timed_out` |
 
 ## Eval (inside `pass`)
 
@@ -59,13 +59,13 @@ readout read only the evidence stores. The demo page and the timing fit (CARRY_F
 | --- | --- | --- |
 | `eval` | span | `viewports` |
 | `eval.viewport` | span | `width`, `height` |
-| `eval.load` | span | page load; `console_errors` |
-| `eval.probe` | span | `controls_found`, `controls_driven`, `silent_controls` |
+| `eval.load` | span | the plain load that screenshots the page and reads axe; `console_errors` (count), `loaded` |
+| `eval.probe` | span | `controls_driven` (controls operated, at most `probe.max_controls`), `responsive`, `silent_controls`, `loaded` |
 | `eval.how_to` | span | `rung` (1–4), `steps`, `steps_passed` |
 | `eval.checks` | span | `checks`, `checks_passed` |
 | `eval.screenshot` | span | `bytes` |
-| `eval.rubric` | span | `model`, `questions` |
-| `eval.quality` | span | `eslint_errors`, `axe_violations` |
+| `eval.rubric` | span | `model` (bound), `questions`, `cached` |
+| `eval.quality` | span | `eslint_errors`, `axe_violations` (null when no viewport loaded) |
 | `eval.browser_context` | span | context create to close; `shared_server` (true when the shared browser server served it) |
 
 ## Judge (inside `pass`)
@@ -79,7 +79,7 @@ readout read only the evidence stores. The demo page and the timing fit (CARRY_F
 
 | Row | Kind | Attributes / value |
 | --- | --- | --- |
-| `model.call` | span | `role`, `tag`, `model` (served), `attempts`, `retry_statuses`, `backoff_s`, `tokens_in`, `tokens_out`, `cost_usd`, `cached`, `structured` (response_format sent) |
+| `model.call` | span | `role`, `tag`, `requested` (bound model sent), `model` (served), `attempts`, `retry_statuses`, `backoff_s`, `tokens_in`, `tokens_out`, `cost_usd`, `cached`, `structured` (response_format sent) |
 | `model.json` | event | `role`, `tag`, `repair_rung`, `reasks`, `ok` (from `ask_json` / `json_repair.decode`) |
 
 ## Round close
@@ -87,17 +87,17 @@ readout read only the evidence stores. The demo page and the timing fit (CARRY_F
 | Row | Kind | Attributes / value |
 | --- | --- | --- |
 | `close` | span | the whole close |
-| `close.<phase>` | span | one per phase in SPEC § 9 order: `steers`, `lens_curation`, `observations`, `pooling`, `nomination`, `gate`, `detector`, `pings`; each with its counts (`observations`, `pools_new`, `pools_merged`, `nominated`, `fast_tracked`, `admitted`, `rejected`, `retired`, `suspect`, `lenses_minted`, `lenses_folded`) |
-| `close.wealth` | metric (score) | per candidate under test: `decision_id`, `n`, `mean_d` |
-| `close.lens_value` | metric (score) | per lens: `lens_id`, `n` |
-| `close.commit` | event | `subject_id`, `sha`, `cause` |
+| `close.<phase>` | span | one per phase in SPEC § 9 order: `steers`, `lens_curation`, `observations`, `pooling`, `nomination`, `gate`, `detector`, `pings`; each with its counts: steers `flipped`, `notes`; lens_curation `lens_flips`, `lenses_minted`, `lenses_folded`, `lenses_retired`; observations `observations`, `observations_rerun`, `expired`; pooling `pools_new`, `pools_merged`; nomination `nominated`, `no_decision`; gate `admitted`, `rejected`, `expired`, `retired`; detector `suspect`, `retired`, `cleared`, `successors_nominated`; pings `pings`, `halt` |
+| `close.wealth` | metric (score) | per candidate under test: `decision_id`, `n`, `mean_d`, `action` |
+| `close.lens_value` | metric (score) | per lens: `lens_id`, `n`, `floor` |
+| `close.commit` | event | `subject_id`, `sha` (null: the Journal and LensSet ports return no sha), `cause` |
 
 ## Goals, tagging, readout, critic
 
 | Row | Kind | Attributes / value |
 | --- | --- | --- |
 | `goals.mint` | span | one minted request; `cell`, `attempts`, `check_regenerations`, `refused` |
-| `goals.tag` | span | one round's tagging; `requests`, `new_tags` |
+| `goals.tag` | span | one round's tagging (or the held-out set's, `held_out`); `round`, `requests`, `new_tags` |
 | `readout` | span | the readout runner; `passes`, `reps`. It and the readout's `pass` rows carry the readout passes' `Pass.round` (one past the last round that ran); the readout round has no `round` span |
 | `readout.reading` | event | `reading` (R1–R4 …), `population`, `estimate`, `lower_bound`, `claim_above`, `p`, `verdict` |
 | `critic.pass` | span | under `run = critic`; `requests_made`, `requests_honored` |

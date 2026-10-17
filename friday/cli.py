@@ -17,12 +17,15 @@ def _doctor(args: argparse.Namespace) -> int:
     """Reports key presence (never values) and how each role's pin resolves against /v1/models."""
     from friday.adapters.crusoe import CrusoeClient
     from friday.adapters.memory import MemorySpendLog
+    from friday.adapters.telemetry import MemoryTelemetry
     from friday.app.pins import resolve
+    from friday.ports.telemetry import Scope
 
     spec = load_spec(args.spec)
     for env in (spec.models.endpoint.api_key_env, spec.search.api_key_env):
         print(f"{env}: {'present' if os.environ.get(env) else 'MISSING'}")
-    client = CrusoeClient(spec.models, spec.transport, MemorySpendLog())
+    # doctor makes no chat call (list_models opens no span), so no telemetry row is written or lost
+    client = CrusoeClient(spec.models, spec.transport, MemorySpendLog(), telemetry=MemoryTelemetry(Scope("main")))
     served = client.list_models()
     for role, res in resolve(spec.models.roles, served).items():
         note = f"  (fallback; wanted {', '.join(res.wanted)})" if res.replaced else ""
@@ -40,14 +43,21 @@ def _goal_paths(spec, goals_dir: str | None) -> tuple[Path, Path, Path, Path]:
     return paths[0], paths[1], paths[2], paths[0].parent / "stubs"
 
 
-def _bound_client(spec, roles: tuple[str, ...]):
+def _telemetry(spec):
+    """This process's run telemetry log over `paths.db` (docs/telemetry.md)."""
+    from friday.adapters.telemetry import open_run_telemetry
+
+    return open_run_telemetry(spec.paths.db, "main", busy_timeout_ms=spec.telemetry.busy_timeout_ms)
+
+
+def _bound_client(spec, roles: tuple[str, ...], telemetry):
     """A metered Crusoe client with `roles` bound to their resolved pins, and its spend log."""
     from friday.adapters.crusoe import CrusoeClient
     from friday.adapters.memory import MemorySpendLog
     from friday.app.pins import resolve
 
     spend = MemorySpendLog()
-    client = CrusoeClient(spec.models, spec.transport, spend)
+    client = CrusoeClient(spec.models, spec.transport, spend, telemetry=telemetry)
     resolved = resolve({r: spec.models.roles[r] for r in roles}, client.list_models())
     client.bind({r: res.model for r, res in resolved.items()})
     return client, spend
@@ -71,8 +81,9 @@ def _mint_goals(args: argparse.Namespace) -> int:
     for p in (stream_p, held_p):
         if p.exists():
             raise SystemExit(f"{p} exists; minted requests are frozen")
-    client, spend = _bound_client(spec, ("goal_minter",))
-    browser = PlaywrightBrowser(spec.eval.action_timeout_ms, spec.eval.load_timeout_ms)
+    telemetry = _telemetry(spec)
+    client, spend = _bound_client(spec, ("goal_minter",), telemetry)
+    browser = PlaywrightBrowser(spec.eval.action_timeout_ms, spec.eval.load_timeout_ms, telemetry=telemetry)
 
     def write_stub(request_id: str, html: str) -> str:
         return str(goals_json.write_stub(stubs, request_id, html))
@@ -134,14 +145,16 @@ def _tag_round(args: argparse.Namespace) -> int:
     stream_p, held_p, tags_p, _ = _goal_paths(spec, args.goals_dir)
     vocab = JsonTagVocabulary(tags_p)
     source = JsonGoalSource(stream_p, held_p, vocab)
-    client, spend = _bound_client(spec, ("tagger",))
+    telemetry = _telemetry(spec)
+    client, spend = _bound_client(spec, ("tagger",), telemetry)
     tagger = build_tagger(spec, client, PromptBook(Path(spec.paths.prompts)))
     try:
         if args.which == "held-out":
-            tags = tag_held_out(tagger, source, vocab, spec.run.rounds)
+            tags = tag_held_out(tagger, source, vocab, spec.run.rounds, telemetry=telemetry)
             new = []
         else:
-            tags, new = tag_round(tagger, source, vocab, int(args.which), spec.stream.max_new_tags)
+            tags, new = tag_round(tagger, source, vocab, int(args.which), spec.stream.max_new_tags,
+                                  telemetry=telemetry)
     finally:
         print(f"spend ${spend.total_usd():.4f} over {len(spend.rows)} calls")
     for rid in sorted(tags):

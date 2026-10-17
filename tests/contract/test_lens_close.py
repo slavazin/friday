@@ -10,12 +10,14 @@ import pytest
 from friday.adapters.git import RecordingVcs
 from friday.adapters.lens_md import MarkdownLensSet
 from friday.adapters.memory import MemoryEventLog, MemoryJudgeStore, MemoryObservationStore, MemoryPassStore
+from friday.adapters.telemetry import MemoryTelemetry
 from friday.app.lens_close import LensClose
 from friday.app.render import FlipRenderer
 from friday.app.wiring import build_mechanics, flip_constants
 from friday.config import load_spec
 from friday.domain.lifecycle import FlipCause
 from friday.domain.types import Arm, Composition, EvalReport, Lens, LensAnswer, LensStatus, Pass, Regime
+from friday.ports.telemetry import Scope
 from friday.roles.lens_minter import LensMinter, LensProposal
 from friday.roles.prompts import PromptBook
 from tests.fakes import ScriptedClient
@@ -51,6 +53,7 @@ class World:
             observations=self.obs, renderer=RENDERER, params=m.curation, scorer=m.lens_value,
             correlation=m.fold_correlation, seed=SPEC.run.seed, window=ln.window, mint_every=ln.mint_every,
             residual_min_passes=ln.residual_min_passes, mint_max=ln.mint_max, minter=self.minter,
+            telemetry=MemoryTelemetry(Scope("main")),
             residual_source=lambda p: (f"request {p.category}", "<canvas id=board>"), constants=flip_constants(SPEC),
         )
 

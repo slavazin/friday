@@ -8,6 +8,10 @@ With a `ResponseCache`, a call at temperature 0 is looked up by `request_key(bod
 returns the stored reply (with the model string the service echoed when it was stored) and records a
 zero-cost spend row marked cached. A call at a temperature above 0 is never cached: a sampled role (the
 worker, the drafting roles) must draw a fresh reply each time.
+
+Every chat opens one `model.call` span (docs/telemetry.md) around the whole call, cache lookup and retries
+included: the attempts, the retry statuses, the backoff slept, tokens, cost, the served model and whether a
+response_format was sent. A failed call closes the span failed and raises.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from friday.adapters.cache import request_key
 from friday.config import ModelsSection, RolePin, TransportSection
 from friday.ports.models import ChatResult, Message, ModelInfo, ResponseCache
 from friday.ports.stores import SpendLog
+from friday.ports.telemetry import SpanHandle, Telemetry
 
 
 class TransportFailure(RuntimeError):
@@ -77,7 +82,9 @@ class CrusoeClient:
         sleep: Callable[[float], None] = time.sleep,
         rng: random.Random | None = None,
         cache: ResponseCache | None = None,
+        telemetry: Telemetry,
     ) -> None:
+        """`telemetry` is the process's log; every chat writes its `model.call` span there."""
         key = os.environ.get(models.endpoint.api_key_env)
         if not key:
             raise RuntimeError(f"environment variable {models.endpoint.api_key_env} is not set")
@@ -89,6 +96,7 @@ class CrusoeClient:
         )
         self._sleep, self._rng = sleep, rng or random.Random()
         self._cache = cache
+        self._telemetry = telemetry
         self._role_models: dict[str, str] = {}
         self._catalog: dict[str, ModelInfo] = {}
 
@@ -118,8 +126,20 @@ class CrusoeClient:
         self, role: str, messages: Sequence[Message], *, json_schema: dict[str, Any] | None = None,
         max_tokens: int | None = None, tag: str = "",
     ) -> ChatResult:
+        """The reply to `messages` on `role`'s bound model, inside one `model.call` span."""
+        with self._telemetry.span("model.call", role=role, tag=tag) as span:
+            result = self._chat(role, messages, json_schema, max_tokens, tag, span)
+            span.set(model=result.model, tokens_in=result.tokens_in, tokens_out=result.tokens_out,
+                     cost_usd=result.cost_usd, cached=result.cached)
+            return result
+
+    def _chat(
+        self, role: str, messages: Sequence[Message], json_schema: dict[str, Any] | None, max_tokens: int | None,
+        tag: str, span: SpanHandle,
+    ) -> ChatResult:
         pin: RolePin = self._models.roles[role]
         model = self.model_for(role)
+        span.set(requested=model, structured=False, attempts=0, retry_statuses=[], backoff_s=0.0)
         body: dict[str, Any] = {
             "model": model,
             "messages": [{"role": m.role, "content": _content(m)} for m in messages],
@@ -133,13 +153,14 @@ class CrusoeClient:
         if json_schema is not None and info is not None and info.structured_output:
             schema = {"name": (tag or role).replace(":", "_"), "schema": json_schema}
             body["response_format"] = {"type": "json_schema", "json_schema": schema}
+        span.set(structured="response_format" in body)
         key = request_key(body) if self._cache is not None and body["temperature"] == 0 else None
         if key is not None:
             hit = self._cache_hit(role, tag, key, body)
             if hit is not None:
                 return hit
         try:
-            resp = self._request("POST", "/chat/completions", body)
+            resp = self._request("POST", "/chat/completions", body, span)
         except TransportFailure as e:
             self._spend.record(role, tag, None, ok=False, error=str(e))
             raise
@@ -196,14 +217,31 @@ class CrusoeClient:
             return None
         return (t_in * p_in + t_out * p_out) / 1e6
 
-    def _request(self, method: str, path: str, body: dict[str, Any] | None) -> dict[str, Any]:
+    def _request(self, method: str, path: str, body: dict[str, Any] | None,
+                 span: SpanHandle | None = None) -> dict[str, Any]:
+        """The JSON reply, after retries; with `span`, records `attempts`, `retry_statuses` and `backoff_s` on it
+        as each attempt ends, so a call that fails still carries what it tried."""
         t = self._transport
         last = ""
+        statuses: list[int | str] = []
+        slept = 0.0
+
+        def note(attempt: int) -> None:
+            if span is not None:
+                span.set(attempts=attempt + 1, retry_statuses=list(statuses), backoff_s=slept)
+
+        def pause(s: float) -> None:
+            nonlocal slept
+            self._sleep(s)
+            slept += s
+
         for attempt in range(t.max_tries):
+            note(attempt)
             try:
                 r = self._http.request(method, path, json=body)
             except httpx.TransportError as e:
                 last = f"{type(e).__name__}: {e}"
+                statuses.append(type(e).__name__)
             else:
                 if r.status_code < 400:
                     try:
@@ -212,12 +250,15 @@ class CrusoeClient:
                         last = f"HTTP {r.status_code}: body is not JSON"
                         raise TransportFailure(last) from None
                 last = f"HTTP {r.status_code}: {r.text[:200]}"
+                statuses.append(r.status_code)
+                note(attempt)
                 if r.status_code not in t.retry_status:
                     raise TransportFailure(last)
                 retry_after = _price(r.headers.get("retry-after"))
                 if retry_after is not None and attempt + 1 < t.max_tries:
-                    self._sleep(min(retry_after, t.backoff_cap_s))
+                    pause(min(retry_after, t.backoff_cap_s))
                     continue
             if attempt + 1 < t.max_tries:
-                self._sleep(self._rng.uniform(0, min(t.backoff_cap_s, t.backoff_base_s * 2**attempt)))
+                pause(self._rng.uniform(0, min(t.backoff_cap_s, t.backoff_base_s * 2**attempt)))
+        note(t.max_tries - 1)
         raise TransportFailure(f"{t.max_tries} tries: {last}")

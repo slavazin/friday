@@ -20,6 +20,7 @@ from friday.adapters.memory import (
     MemoryLedger,
     MemoryPassStore,
 )
+from friday.adapters.telemetry import MemoryTelemetry
 from friday.algorithms.language import blinding_hits
 from friday.app import pipeline
 from friday.app.pipeline import (
@@ -56,6 +57,7 @@ from friday.domain.types import (
     Regime,
     Request,
 )
+from friday.ports.telemetry import Scope
 from friday.roles.judge import DraftObservation, Judge
 from friday.roles.prompts import PromptBook
 from friday.roles.worker import Worker
@@ -68,6 +70,7 @@ BOOK = PromptBook(ROOT / "prompts")
 SPEC = load_spec(ROOT / "run.yml")
 HELP = "Bind the start control to a click listener that writes HELPED into the status line."
 HURT = "Draw everything on one canvas with no element ids."
+TEL = MemoryTelemetry(Scope("main"))
 
 
 def spec_with(**sections):
@@ -165,9 +168,11 @@ def scripted_judge(monkeypatch, log: JudgeLog, report_result="ok"):
 def env(tmp_path, client, *, browser=None, evaluate=scripted_eval, spec=SPEC) -> PassEnv:
     return PassEnv(
         worker=Worker(client, BOOK), book=BOOK, browser=browser or FileBrowser(), evaluate=evaluate,
-        judge=Judge(client, BOOK, spec.lens.flag_p, spec.judge.max_observations, spec.judge.quote_reasks),
+        judge=Judge(client, BOOK, spec.lens.flag_p, spec.judge.max_observations, spec.judge.quote_reasks,
+                    TEL),
         passes=MemoryPassStore(), judge_store=MemoryJudgeStore(), artifacts=tmp_path / "artifacts",
         settings=PassSettings.from_spec(spec), transport_errors=(TransportFailure,), missing_ids=page_ids_missing,
+        telemetry=TEL,
     )
 
 
@@ -200,7 +205,8 @@ def test_a_round_of_two_requests_leaves_ledger_rows(tmp_path, monkeypatch):
     reqs, j, ledger, store, plan, tasks = two_request_round(tmp_path, spec)
     e = env(tmp_path, ScriptedClient(replies()), spec=spec)
     parallel, reruns = round_limits(spec)
-    result = run_round(1, store.plans(1), tasks, factory(e), parallel=parallel, reruns=reruns, in_process=True)
+    result = run_round(1, store.plans(1), tasks, factory(e), parallel=parallel, reruns=reruns, in_process=True,
+                       telemetry=TEL)
 
     assert result.crashed == {} and result.transport_failed == ()
     assert len(e.passes.passes(1)) == 6 and all(e.passes.eval_of(p.id) for p in e.passes.passes(1))
@@ -336,7 +342,7 @@ def test_a_transport_failed_slot_yields_no_delta(tmp_path, monkeypatch):
         return html_for(messages)
 
     e = env(tmp_path, ScriptedClient(replies(fn=flaky)))
-    result = run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True)
+    result = run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True, telemetry=TEL)
     failed = [p for p in e.passes.passes(1) if p.transport_failed]
     assert sorted(p.id for p in failed) == sorted([f"{failed[0].id.removesuffix('-rr')}",
                                                    f"{failed[0].id.removesuffix('-rr')}-rr"])
@@ -358,7 +364,7 @@ def test_a_rerun_reuses_the_plan_and_composition_and_gives_the_delta(tmp_path, m
         return html_for(messages)
 
     e = env(tmp_path, ScriptedClient(replies(fn=once_flaky)))
-    result = run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True)
+    result = run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True, telemetry=TEL)
     assert len(seen) == 2 and seen[0] == seen[1]
     by_id = {p.id: p for p in e.passes.passes(1)}
     rr = next(p for p in by_id.values() if p.id.endswith("-rr"))
@@ -526,7 +532,7 @@ def test_a_programming_error_in_a_pass_loses_only_that_pass(tmp_path, monkeypatc
     plan = plan_round(1, reqs, journal(), MemoryLedger(), SPEC.run.seed, SPEC, MemoryExposureStore())
     tasks = round_tasks(plan, reqs, Regime.R1, SPEC.drift.constraint, {}, [], None)
     e = env(tmp_path, ScriptedClient(replies()))
-    result = run_round(1, plan.plans, tasks, factory(e), parallel=1, reruns=1, in_process=True)
+    result = run_round(1, plan.plans, tasks, factory(e), parallel=1, reruns=1, in_process=True, telemetry=TEL)
     assert sorted(result.crashed) == [t.pass_id for t in tasks if t.request.id == "Q-0001"]
     assert all("RuntimeError" in tb for tb in result.crashed.values())
     assert {o.pass_.category for o in result.outcomes} == {"Q-0002"}
@@ -553,11 +559,12 @@ class ProcessEnvFactory:
     @contextmanager
     def __call__(self):
         client = ScriptedClient(replies())
+        tel = MemoryTelemetry(Scope("main"))
         yield PassEnv(
             worker=Worker(client, BOOK), book=BOOK, browser=FileBrowser(), evaluate=scripted_eval,
-            judge=ProcessJudge(client, BOOK, 0.5, 3, 1), passes=MemoryPassStore(), judge_store=MemoryJudgeStore(),
+            judge=ProcessJudge(client, BOOK, 0.5, 3, 1, tel), passes=MemoryPassStore(), judge_store=MemoryJudgeStore(),
             artifacts=Path(self.artifacts), settings=PassSettings.from_spec(SPEC),
-            transport_errors=(TransportFailure,), missing_ids=page_ids_missing,
+            transport_errors=(TransportFailure,), missing_ids=page_ids_missing, telemetry=tel,
         )
 
 
@@ -567,7 +574,8 @@ def test_passes_run_in_their_own_processes_and_a_hard_crash_loses_only_that_pass
     plan = plan_round(1, reqs, j, MemoryLedger(), SPEC.run.seed, SPEC, MemoryExposureStore())
     tasks = round_tasks(plan, reqs, Regime.R1, SPEC.drift.constraint, {d.id: d for d in j.decisions()},
                         [lens("L-01")], None)
-    result = run_round(1, plan.plans, tasks, ProcessEnvFactory(str(tmp_path / "artifacts")), parallel=4, reruns=1)
+    result = run_round(1, plan.plans, tasks, ProcessEnvFactory(str(tmp_path / "artifacts")), parallel=4, reruns=1,
+                       telemetry=TEL)
     assert sorted(result.crashed) == [t.pass_id for t in tasks if t.request.id == "Q-0002"]
     assert all("exit code 3" in tb for tb in result.crashed.values())
     assert sorted(o.pass_.id for o in result.outcomes) == [t.pass_id for t in tasks if t.request.id == "Q-0001"]
@@ -656,7 +664,7 @@ def test_a_rubric_failure_leaves_a_pass_row_with_no_eval_and_no_delta(tmp_path, 
         return scripted_eval(pass_, request_, regime, text)
 
     e = env(tmp_path, ScriptedClient(replies()), evaluate=evaluate)
-    result = run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True)
+    result = run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True, telemetry=TEL)
     assert list(result.crashed) == ["r01-Q-0001-journal-0"] and "rubric" in result.crashed["r01-Q-0001-journal-0"]
     rows = {p.id: p for p in e.passes.passes(1)}
     assert set(rows) == {t.pass_id for t in tasks}            # the store keeps the whole population
@@ -672,7 +680,7 @@ def test_a_report_call_breaking_its_contract_leaves_no_orphan_eval_answers_or_fi
     spec = spec_with(detect={"ablate_p": 1.0})
     _, _, _, store, _, tasks = two_request_round(tmp_path, spec)
     e = env(tmp_path, ScriptedClient(replies()), spec=spec)
-    result = run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True)
+    result = run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True, telemetry=TEL)
     lost = {t.pass_id for t in tasks if t.composition.decision_ids}
     assert lost and set(result.crashed) == lost and result.deltas == ()
     assert all(e.passes.eval_of(i) is None for i in lost)
@@ -690,7 +698,7 @@ def test_a_round_where_every_pass_crashes_raises(tmp_path, monkeypatch):
 
     e = env(tmp_path, ScriptedClient(replies()), evaluate=evaluate)
     with pytest.raises(RoundCrashed, match="every pass crashed"):
-        run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True)
+        run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True, telemetry=TEL)
     assert {p.id for p in e.passes.passes(1)} == {t.pass_id for t in tasks}
 
 
@@ -708,7 +716,7 @@ def test_a_crashed_rerun_is_counted_as_still_failed(tmp_path, monkeypatch):
         return html_for(messages)
 
     e = env(tmp_path, ScriptedClient(replies(fn=flaky_then_crash)))
-    result = run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True)
+    result = run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True, telemetry=TEL)
     (rr,) = result.transport_failed
     assert rr.endswith("-rr") and rr in result.crashed
     assert [d for d in result.deltas if d.category == "Q-0001"] == []
@@ -718,11 +726,11 @@ def test_re_entering_a_round_raises_before_any_pass_runs(tmp_path, monkeypatch):
     scripted_judge(monkeypatch, JudgeLog([], []))
     _, _, _, store, _, tasks = two_request_round(tmp_path)
     e = env(tmp_path, ScriptedClient(replies()))
-    run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True)
+    run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True, telemetry=TEL)
     client = ScriptedClient(replies())
     again = env(tmp_path, client)
     with pytest.raises(ValueError, match="entered before"):
-        run_round(1, store.plans(1), tasks, factory(again), parallel=1, reruns=1, in_process=True)
+        run_round(1, store.plans(1), tasks, factory(again), parallel=1, reruns=1, in_process=True, telemetry=TEL)
     assert client.calls == [] and again.passes.passes(1) == []
 
 
@@ -734,7 +742,7 @@ def test_a_hung_pass_process_is_terminated_after_pass_timeout_s(tmp_path):
                         [lens("L-01")], None)
     t0 = time.monotonic()
     result = run_round(1, plan.plans, tasks, ProcessEnvFactory(str(tmp_path / "artifacts")), parallel=6, reruns=1,
-                       pass_timeout_s=8)
+                       telemetry=TEL, pass_timeout_s=8)
     assert time.monotonic() - t0 < 60
     assert sorted(result.crashed) == [t.pass_id for t in tasks if t.request.id == "Q-0002"]
     assert all("timed out" in tb for tb in result.crashed.values())
