@@ -1,0 +1,34 @@
+{
+  "clean": {
+    "model": "nvidia/NVIDIA-Nemotron-3.5-Super-VL",
+    "text": "{\"resembles\": 5, \"controls_visible\": 5, \"legible\": 5}",
+    "scores": [
+      5,
+      5,
+      5
+    ],
+    "cached": false,
+    "cost_usd": 0.00029570000000000003,
+    "prompt_hash": "4fa14d0eba2f2a746397e8f3e11a4fcd5925cdd580b958609d462b7de9d33386",
+    "tokens": [
+      1225,
+      433
+    ]
+  },
+  "flawed": {
+    "model": "nvidia/NVIDIA-Nemotron-3.5-Super-VL",
+    "text": "{\"resembles\": 2, \"controls_visible\": 2, \"legible\": 5}",
+    "scores": [
+      2,
+      2,
+      5
+    ],
+    "cached": false,
+    "cost_usd": 0.0006865,
+    "prompt_hash": "4fa14d0eba2f2a746397e8f3e11a4fcd5925cdd580b958609d462b7de9d33386",
+    "tokens": [
+      1225,
+      1410
+    ]
+  }
+}

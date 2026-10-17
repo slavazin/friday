@@ -1,5 +1,23 @@
 {
-  "comment": "Fixed ESLint config for the quality reading Q (SPEC § 5). Frozen before round 1.",
-  "languageOptions": { "ecmaVersion": 2022, "sourceType": "script", "globals": { "window": "readonly", "document": "readonly", "localStorage": "readonly", "location": "readonly", "console": "readonly", "requestAnimationFrame": "readonly", "setTimeout": "readonly", "setInterval": "readonly", "clearTimeout": "readonly", "clearInterval": "readonly", "Date": "readonly", "Math": "readonly", "Audio": "readonly", "AudioContext": "readonly" } },
-  "rules": { "no-undef": "error", "no-unused-vars": "error", "no-unreachable": "error", "no-dupe-keys": "error", "no-redeclare": "error", "no-constant-condition": "error", "no-empty": "error" }
+  "comment": "Fixed ESLint config for the quality reading Q (SPEC § 5). Frozen before round 1. The 'comment' key is dropped before linting. ES built-ins come from ecmaVersion; browser globals come from the pinned `globals` package's browser set (merged in friday/adapters/eslint_count.mjs, under the list here); 'event' is the handler attribute's event. Module scripts are linted with sourceType 'module'. Inline eslint comments are ignored, so artifact code cannot switch a rule off. no-redeclare ignores built-in globals: a top-level `const status` or `function close` is legal in a browser and shadows the window property. A script that fails to compile counts as one error and its body is not linted (accepted: SPEC § 5 does not weigh a fatal piece; P and C catch the broken page).",
+  "languageOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "script",
+    "globals": {
+      "event": "readonly"
+    }
+  },
+  "linterOptions": {
+    "noInlineConfig": true,
+    "reportUnusedDisableDirectives": "off"
+  },
+  "rules": {
+    "no-undef": "error",
+    "no-unused-vars": "error",
+    "no-unreachable": "error",
+    "no-dupe-keys": "error",
+    "no-redeclare": ["error", {"builtinGlobals": false}],
+    "no-constant-condition": "error",
+    "no-empty": "error"
+  }
 }
