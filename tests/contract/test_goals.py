@@ -1,4 +1,3 @@
-import dataclasses
 
 """The goal minter, the contract stub check validation (real Chromium) and the goals/*.json adapters (SPEC § 4)."""
 
@@ -47,8 +46,8 @@ SPEC = load_spec(ROOT / "run.yml")
 BOOK = PromptBook(ROOT / "prompts")
 # The stream was minted under the 14-round plan (drift at 8); the run reads rounds 1-3 and 8-11 of it
 # (goals/cells.json "remap"). The planner is tested at the shape it minted.
-MINTED = dataclasses.replace(SPEC, run=dataclasses.replace(SPEC.run, rounds=14),
-                             drift=dataclasses.replace(SPEC.drift, round=8))
+MINTED = replace(SPEC, run=replace(SPEC.run, rounds=14),
+                 drift=replace(SPEC.drift, round=8))
 PARAMS = mint_params(MINTED)
 DSL = dsl_validator(SPEC.eval.max_wait_ms)
 
