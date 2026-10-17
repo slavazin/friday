@@ -236,6 +236,25 @@ def create_app(spec: RunSpec, db_path: str | Path, export_path: str | Path, arti
         return Response(with_esc_relay(path.read_bytes()), media_type="text/html; charset=utf-8",
                         headers={"Content-Security-Policy": APP_CSP, "Cross-Origin-Resource-Policy": "same-origin"})
 
+    def whatif_ids() -> list[str]:
+        f = None if whatif is None else whatif / "whatif.json"
+        if f is None or not f.is_file():
+            return []
+        return [b["id"] for b in json.loads(f.read_text()).get("builds", []) if b.get("built")]
+
+    whatif_posters = None if whatif is None else Posters(whatif / "posters", whatif / "apps", whatif_ids)
+    if render_posters and whatif_posters is not None:
+        whatif_posters.start()
+
+    @app.get("/whatif/posters/{build_id}")
+    def get_whatif_poster(build_id: str) -> Response:
+        if whatif_posters is None or not PASS_ID.match(build_id) or build_id not in set(whatif_ids()):
+            raise HTTPException(404, "unknown build")
+        path = whatif_posters.path(build_id)
+        if not path.is_file():
+            return Response(PENDING_GIF, media_type="image/gif", headers={"X-Poster": "pending"})
+        return FileResponse(path, media_type="image/jpeg")
+
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app
 

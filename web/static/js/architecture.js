@@ -543,7 +543,7 @@ export class ArchitecturePage {
     this.drawer = h("aside", { class: "arch-drawer", "aria-hidden": "true", tabindex: "-1" });
     this.backdrop = h("div", { class: "arch-backdrop", onclick: () => this.close() });
 
-    this.root.replaceChildren(head, stage, this.legend(), this.backdrop, this.drawer);
+    this.root.replaceChildren(head, stage, this.tuples(), this.legend(), this.backdrop, this.drawer);
   }
 
   diagram() {
@@ -676,6 +676,59 @@ export class ArchitecturePage {
     this.drawer.setAttribute("aria-hidden", "true");
     for (const n of this.root.querySelectorAll(".arch-node.arch-sel")) n.classList.remove("arch-sel");
     if (this.lastFocus && this.root.contains(this.lastFocus)) this.lastFocus.focus();
+  }
+
+  // ---- the two records: observation and decision, five fields each ------------------------------------------
+
+  tuples() {
+    const OBS = [
+      ["lens", "which lens the judge was answering, or free", "L-α  (or free)"],
+      ["category", "the request category the pass built", "⟨category of the request⟩"],
+      ["shape", "one sentence naming what went wrong", "“control ⟨x⟩ is drawn but no handler changes anything”"],
+      ["direction", "what would have lowered the loss", "“bind ⟨x⟩ to a real user action”"],
+      ["quote", "evidence copied from the pass (code, how-to or screenshot reading)", "“<button id=x>…</button>  // no listener”"],
+    ];
+    const DEC = [
+      ["hook", "activation: fires on a request iff it carries ≥ 1 fires_when tag and no not_this tag",
+        "fires_when: [tag₁, tag₂] · not_this: [tag₃]"],
+      ["payload", "the directive the worker sees: imperative, ≤ 60 words, frozen at drafting",
+        "“Do ⟨action⟩ whenever ⟨how the request presents⟩.”"],
+      ["warrant", "what grounds it, never shown to the worker: observation ids, You.com sources, Ledger account",
+        "O-a, O-b, O-c (pool P-k, lens L-α) · 1 source · n pairs, mean d, wealth W"],
+      ["enforcement", "what checks it is followed, and its residue: what nothing checks",
+        "judge disposition per composed pass: applied | not-applicable | contradicted"],
+      ["lifecycle", "its status and the falsifiers that end it",
+        "candidate → admitted → suspect → retired; or expired / refused"],
+    ];
+    const FALS = [
+      ["refuse", "the mirror e-process on −d reaches 1/α: the decision measurably hurts"],
+      ["expire", "n_max pairs with neither bar reached: no effect distinguishable from noise"],
+      ["suspect", "after admission, the detector reads the ablation pairs turning against it"],
+      ["retire", "suspect, no successor admitted, and the confirmation pairs hold; or a steer"],
+      ["moot", "no request left in the stream or the held-out set carries a fires_when tag"],
+    ];
+    const table = (rows) => h("div", { class: "arch-tup-rows" }, ...rows.map(([k, gloss, ex], i) =>
+      h("div", { class: "arch-tup-row" },
+        h("span", { class: "arch-tup-i" }, String(i + 1)),
+        h("div", {}, h("b", {}, k), h("span", { class: "muted" }, ` ${gloss}`)),
+        h("code", { class: "arch-tup-ex" }, ex))));
+    const card = (title, sub, rows, foot) => h("div", { class: "arch-tup" },
+      h("h3", {}, title), h("p", { class: "muted small" }, sub), table(rows), foot);
+    return h("div", { class: "arch-tuples" },
+      h("h2", {}, "Two five-field records"),
+      h("p", { class: "lede" }, "Everything the decision loop learns travels in two records. An observation is cheap ",
+        "and untrusted; a decision is drafted only from a pool of them that clears the recurrence bar, and it is ",
+        "admitted only by its own paired evidence. Examples are abstract."),
+      h("div", { class: "arch-tup-grid" },
+        card("Observation  ⟨lens, category, shape, direction, quote⟩",
+          "Filed by the judge in its report call. Lowest trust: it never becomes a decision alone.", OBS,
+          h("p", { class: "muted small arch-tup-foot" }, "Then: pooled by shape under one lens (P-NNNN, ≤ 2 direction ",
+            "labels) → recurrence bar or fast-track → nominator drafts one decision, grounded by one search.")),
+        h("div", { class: "arch-tup-arrow", "aria-hidden": "true" }, "→"),
+        card("Decision  ⟨hook, payload, warrant, enforcement, lifecycle⟩",
+          "One Journal entry D-NNNN. Text frozen at drafting; only its status flips, each flip one git commit.", DEC,
+          h("div", { class: "arch-tup-fals" }, h("b", {}, "Falsifiers"),
+            ...FALS.map(([k, v]) => h("div", { class: "arch-tup-f" }, h("code", {}, k), h("span", { class: "muted" }, v)))))));
   }
 
   // ---- legend ---------------------------------------------------------------------------------------------

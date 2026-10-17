@@ -37,7 +37,7 @@ export class WhatIfPage {
         const b = built.get(`${r.id}-${arm}`);
         return h("div", { class: "whatif-side" }, h("div", { class: "pair-label" }, label),
           b?.built ? h("div", { class: "frame-wrap whatif-frame" }, frozenApp(b.id, `${r.id} ${label}`, "app-frame",
-            "/whatif/apps/", null)) : emptyState("This build produced no app.", ""));
+            "/whatif/apps/", "/whatif/posters/")) : emptyState("This build produced no app.", ""));
       };
       return h("div", { class: "whatif-row" },
         h("div", { class: "whatif-req" }, h("b", {}, r.id), r.cell ? h("span", { class: "muted" }, ` · ${r.cell}`) : null,
@@ -46,5 +46,6 @@ export class WhatIfPage {
     });
     this.root.replaceChildren(head, h("h2", {}, "The would-be decisions"), list,
       h("h2", {}, "The same requests, bare and with them"), ...rows);
+    for (const img of this.root.querySelectorAll("img[data-src]")) img.src = img.dataset.src;   // ten stills: load them all
   }
 }

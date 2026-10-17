@@ -422,3 +422,18 @@ ul.flips { margin: 0; padding-left: 18px; font-size: 14.5px; }
 .arch-layer-adapters { color: #ff8a3d; }
 .arch-layer-app { color: #ffd166; }
 @media (max-width: 1100px) { .arch-legend { grid-template-columns: 1fr; } }
+.arch-tuples { margin-top: 18px; }
+.arch-tuples h2 { margin: 0 0 4px; }
+.arch-tup-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.15fr); gap: 12px; align-items: start; margin-top: 10px; }
+.arch-tup { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 4px 16px 14px; }
+.arch-tup h3 { margin: 10px 0 2px; font-size: 16px; }
+.arch-tup-arrow { align-self: center; font-size: 28px; color: var(--accent); }
+.arch-tup-row { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 2px 8px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.arch-tup-i { grid-row: span 2; color: var(--accent); font-weight: 700; }
+.arch-tup-ex { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: #cfe3ff; background: #0b0d12;
+  border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; overflow-wrap: anywhere; }
+.arch-tup-foot { margin: 8px 0 0; }
+.arch-tup-fals { margin-top: 10px; padding-top: 6px; border-top: 1px dashed var(--line); font-size: 14px; }
+.arch-tup-f { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 8px; margin: 4px 0; }
+.arch-tup-f code { color: #ff8a3d; }
+@media (max-width: 1100px) { .arch-tup-grid { grid-template-columns: 1fr; } .arch-tup-arrow { transform: rotate(90deg); justify-self: center; } }
