@@ -23,7 +23,10 @@ async function loadExport() {
   }
   try {
     const sp = await getJSON("/api/spans?run=main&name_prefix=pass");
-    cells = new Map(sp.spans.filter((x) => x.name === "pass" && x.attrs.cell).map((x) => [x.pass_id, x.attrs.cell]));
+    // A pass span records its cell as a list ([family, mode]); the page reads one string per cell.
+    const cellText = (c) => (Array.isArray(c) ? c.join(" / ") : c);
+    cells = new Map(sp.spans.filter((x) => x.name === "pass" && x.attrs.cell && x.attrs.cell.length)
+      .map((x) => [x.pass_id, cellText(x.attrs.cell)]));
   } catch {
     cells = new Map();   // the gallery then reads "cell unread"
   }

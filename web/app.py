@@ -11,7 +11,7 @@ Endpoints:
   code: `pass_id` must be a pass of the export with an artifact, and the file must sit inside its folder.
 
 Run: `uv run --extra web python -m web.app [--spec run.yml --db friday.db --export export.json
---artifacts artifacts]`; with no arguments it serves the fixtures under `web/fixtures/`.
+--artifacts artifacts]` or `--root <run root>`; with no run path it serves the fixtures under `web/fixtures/`.
 """
 
 from __future__ import annotations
@@ -167,21 +167,47 @@ def create_app(spec: RunSpec, db_path: str | Path, export_path: str | Path, arti
     return app
 
 
+REPO_SPEC = WEB.parent / "run.yml"
+EXPORT_FILE = "export.json"           # the runner writes it under the run root
+
+
+def resolve_paths(args: argparse.Namespace) -> tuple[Path, Path, Path, Path]:
+    """Returns (spec, db, export, artifacts): the fixtures only when no run path is given; otherwise the
+    repository run.yml (unless --spec) and, under --root, that run root's db, export.json and artifacts."""
+    if args.root is None and args.db is None and args.export is None and args.artifacts is None:
+        return (args.spec or FIXTURES / "run.yml", FIXTURES / "telemetry.db", FIXTURES / "export.json",
+                FIXTURES / "artifacts")
+    spec = args.spec or REPO_SPEC
+    under: dict[str, Path] = {}
+    if args.root is not None:
+        paths = load_spec(spec).paths
+        under = {"db": args.root / paths.db, "export": args.root / EXPORT_FILE,
+                 "artifacts": args.root / paths.artifacts}
+    out = []
+    for what in ("db", "export", "artifacts"):
+        given = getattr(args, what)
+        if given is None and what not in under:
+            raise SystemExit(f"--{what} is required without --root")
+        out.append(given if given is not None else under[what])
+    return (spec, *out)
+
+
 def main(argv: list[str] | None = None) -> None:
-    """Serves the demo page; defaults to the fixtures under web/fixtures/."""
+    """Serves the demo page; with no run path given it serves the fixtures under web/fixtures/."""
     import uvicorn
 
     ap = argparse.ArgumentParser(description="Friday demo page")
-    ap.add_argument("--spec", type=Path, default=FIXTURES / "run.yml")
-    ap.add_argument("--db", type=Path, default=FIXTURES / "telemetry.db")
-    ap.add_argument("--export", type=Path, default=FIXTURES / "export.json")
-    ap.add_argument("--artifacts", type=Path, default=FIXTURES / "artifacts")
+    ap.add_argument("--spec", type=Path, default=None)
+    ap.add_argument("--root", type=Path, default=None, help="a run root: its db, export.json and artifacts")
+    ap.add_argument("--db", type=Path, default=None)
+    ap.add_argument("--export", type=Path, default=None)
+    ap.add_argument("--artifacts", type=Path, default=None)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8765)
     args = ap.parse_args(argv)
-    app = create_app(load_spec(args.spec), args.db, args.export, args.artifacts)
+    spec, db, export, artifacts = resolve_paths(args)
+    app = create_app(load_spec(spec), db, export, artifacts)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
-
 
 if __name__ == "__main__":
     main()
