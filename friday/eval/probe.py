@@ -4,16 +4,20 @@ P is the mean of three probes: the page loaded; it logged no console error; the 
 default action changes the visible state within `settle_ms`. A control that changes nothing scores 0, and a
 page with no controls has responsive share 0, never "not applicable".
 
-`Page.snapshot()` is a JSON object mapping each node of the visible state to a digest of it, so the probe
-compares node by node. Before any control is operated, the page is watched with no input over a window longer
-than the slowest common timer tick (`TICK_WINDOW_MS`, a clock's 1 Hz), sampled every half `settle_ms`; every
-node that changes there is the page's own (a clock, a countdown). Each control then gets a control of its own:
-the page is watched for `settle_ms` with no input just before it is operated, and nodes that change there are
-moving too. A control is responsive when its action changes a node that is not moving. When it changes only
-moving nodes, or nothing, on a page that was moving, it is responsive only when its action brings the page to
-rest: no node changes over a further full watch window (a stopwatch's stop button). A control whose only effect
-is on a node the page also changes by itself reads unresponsive (residue), and so does a dead control on a page
-whose timer ticks slower than `TICK_WINDOW_MS` and first ticks inside its action window (residue).
+`Page.snapshot()` is a JSON object mapping each node of the visible state to a digest of it (a canvas is a grid of
+tiles, one node each), so the probe compares node by node. Before any control is operated, the page is watched
+with no input over a window longer than the slowest common timer tick (`TICK_WINDOW_MS`, a clock's 1 Hz),
+sampled every half `settle_ms`; every node that changes there is the page's own (a clock, a countdown, an
+animated tile). Before each control the page is watched again with no input: over a full window when it has
+nodes of its own or the last control read responsive (that control may have started a timer), and the nodes
+that changed there are its own from then on while nodes still for the whole window leave `own` (an animation
+that ended); else over `settle_ms`. A control is responsive when its action changes a node that is not its
+own. When it changes only the page's own nodes, or nothing, it is responsive only when the page was still
+moving at the end of that watch and its action brings the page to rest: no node changes over a further full
+window (a stopwatch's stop button). A control whose only effect is on a node the page also changes by itself
+reads unresponsive (residue), and so does a dead control on a page whose timer ticks slower than
+`TICK_WINDOW_MS` and first ticks inside its action window (residue), and a stop button on a timer that
+ticks once per window and last ticked early in it (residue).
 """
 
 from __future__ import annotations
@@ -67,32 +71,72 @@ def _changed(a: dict[str, str], b: dict[str, str]) -> set[str]:
     return {k for k in a.keys() | b.keys() if a.get(k) != b.get(k)}
 
 
-def _watch(page: Page, start: dict[str, str], settle_ms: int) -> tuple[set[str], dict[str, str]]:
-    """Watches the page with no input over more than `TICK_WINDOW_MS` and 2 x `settle_ms`, sampling every half
-    `settle_ms`: the nodes that changed between any two samples, and the last sample."""
+class _Watch:
+    """What a watch with no input saw: the nodes that changed between any two samples, the last sample, the
+    time from the last change to the end of the watch, and the longest gap between two changes (None when at
+    most one change was seen)."""
+
+    def __init__(self, moved: set[str], last: dict[str, str], quiet_ms: int, max_gap_ms: int | None):
+        self.moved, self.last, self.quiet_ms, self.max_gap_ms = moved, last, quiet_ms, max_gap_ms
+
+    def was_moving_at_end(self) -> bool:
+        """True when a node was still due to change when the watch ended: the time since its last change is
+        shorter than the longest gap seen between changes (`TICK_WINDOW_MS` when one change was seen). A page
+        whose own animation ended inside the watch reads False."""
+        if not self.moved:
+            return False
+        return self.quiet_ms < (self.max_gap_ms if self.max_gap_ms is not None else TICK_WINDOW_MS)
+
+
+def _watch(page: Page, start: dict[str, str], settle_ms: int, window_ms: int | None = None) -> _Watch:
+    """Watches the page with no input, sampling every half `settle_ms`, over `window_ms` (default: more than
+    `TICK_WINDOW_MS` and 2 x `settle_ms`)."""
     step = max(1, settle_ms // 2)
-    window = max(TICK_WINDOW_MS, 2 * settle_ms) + step
+    window = window_ms if window_ms is not None else max(TICK_WINDOW_MS, 2 * settle_ms) + step
     moved: set[str] = set()
+    changes: list[int] = []
     prev, waited = start, 0
     while waited < window:
         page.wait(step)
         waited += step
         cur = _snap(page)
-        moved |= _changed(prev, cur)
+        diff = _changed(prev, cur)
+        if diff:
+            moved |= diff
+            changes.append(waited)
         prev = cur
-    return moved, prev
+    gaps = [b - a for a, b in zip(changes, changes[1:], strict=False)]
+    quiet = waited - changes[-1] if changes else waited
+    return _Watch(moved, prev, quiet, max(gaps) if gaps else None)
 
 
-def _responsive(page: Page, control: Control, own: set[str], settle_ms: int, sample_text: str) -> bool:
+class _State:
+    """What the probe carries from control to control: the nodes the page changes by itself (`own`), and
+    whether the next control needs a full watch first (the last control read responsive, so it may have
+    started a timer)."""
+
+    def __init__(self, own: set[str]):
+        self.own = own
+        self.full_next = False
+
+
+def _responsive(page: Page, control: Control, state: _State, settle_ms: int, sample_text: str) -> bool:
     """True when the control's action changes a node that is not moving, or brings a moving page to rest.
 
-    `own` holds the nodes the page changes by itself. Raises _Stuck when a snapshot fails: the page no longer
-    answers, so no later control can be read.
+    Before the action the page is watched with no input: over a full tick window when it has nodes of its own
+    or the last control read responsive (the nodes that changed there become `own`, and nodes still for that
+    whole window leave it), else over `settle_ms`. Rest is credited only when a node was still due to change
+    at the end of that watch and none changes over a further full window after the action. Raises _Stuck when
+    a snapshot fails: the page no longer answers, so no later control can be read.
     """
-    idle = _snap(page)
-    page.wait(settle_ms)
-    before = _snap(page)
-    moving = own | _changed(idle, before)
+    if state.own or state.full_next:
+        idle = _watch(page, _snap(page), settle_ms)
+        state.own = set(idle.moved)
+    else:
+        idle = _watch(page, _snap(page), settle_ms, window_ms=settle_ms)
+        state.own |= idle.moved
+    state.full_next = False
+    before, moving = idle.last, set(state.own)
     try:
         _operate(page, control, sample_text)
         page.wait(settle_ms)
@@ -100,11 +144,16 @@ def _responsive(page: Page, control: Control, own: set[str], settle_ms: int, sam
         return False
     after = _snap(page)
     if _changed(before, after) - moving:
+        state.full_next = True
         return True
-    if not moving:
+    if not idle.was_moving_at_end():
         return False
-    moved, _ = _watch(page, after, settle_ms)
-    return not moved
+    rest = _watch(page, after, settle_ms)
+    state.own |= rest.moved
+    if rest.moved:
+        return False
+    state.full_next = True
+    return True
 
 
 def _p(loaded: bool, errors: Collection[str], responsive: int, controls: int) -> float:
@@ -122,10 +171,10 @@ def run(page: Page, viewport: Viewport, pass_id: str, declared_ids: Collection[s
     stuck: tuple[str, ...] = ()
     at = "the first watch"
     try:
-        own, _ = _watch(page, _snap(page), settle_ms) if controls else (set(), {})
+        state = _State(_watch(page, _snap(page), settle_ms).moved if controls else set())
         for c in controls:
             at = c.selector
-            if _responsive(page, c, own, settle_ms, sample_text):
+            if _responsive(page, c, state, settle_ms, sample_text):
                 responsive.append(c)
     except _Stuck as e:
         stuck = (f"page stopped answering at {at}: {e}",)   # every control not yet read stays unresponsive

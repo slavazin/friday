@@ -107,8 +107,10 @@ _CONTROLS_JS = """() => {
 
 # The visible state, node by node: {key: value}. Text of visible text nodes (editable fields excluded: what is
 # typed into a field is the input, not its effect), values of fields the user does not edit directly (readonly
-# or disabled), each element's visibility, and each canvas's pixels. A key names its node by its element path.
+# or disabled), each element's visibility, and each canvas's pixels as a grid of tile hashes. A key names its
+# node by its element path.
 _SNAPSHOT_JS = """() => {
+  const CANVAS_GRID = 8;   // a canvas is CANVAS_GRID x CANVAS_GRID tiles, one node each ('c:<path>:<tile>')
   const vis = (e) => e.checkVisibility ? e.checkVisibility() : e.getClientRects().length > 0;
   const all = Array.from(document.body ? document.body.querySelectorAll('*') : []);
   const idCount = {};
@@ -139,7 +141,21 @@ _SNAPSHOT_JS = """() => {
     out['v:' + k] = vis(e) ? '1' : '0';
     if ((e.tagName === 'INPUT' || e.tagName === 'TEXTAREA') && (e.readOnly || e.disabled)) out['f:' + k] = e.value;
     if (e.tagName === 'CANVAS') {
-      try { out['c:' + k] = e.toDataURL(); } catch (err) { out['c:' + k] = 'unreadable'; }
+      try {
+        const w = e.width, h = e.height, G = CANVAS_GRID;
+        const o = document.createElement('canvas'); o.width = Math.max(1, w); o.height = Math.max(1, h);
+        const x = o.getContext('2d'); if (w && h) x.drawImage(e, 0, 0);
+        const d = new Uint32Array(x.getImageData(0, 0, o.width, o.height).data.buffer);
+        for (let ty = 0; ty < G; ty++) for (let tx = 0; tx < G; tx++) {
+          const x0 = Math.floor(tx * w / G), x1 = Math.floor((tx + 1) * w / G);
+          const y0 = Math.floor(ty * h / G), y1 = Math.floor((ty + 1) * h / G);
+          let f = 2166136261;
+          for (let y = y0; y < y1; y++) for (let i = y * o.width + x0, j = y * o.width + x1; i < j; i++) {
+            f = Math.imul(f ^ d[i], 16777619);
+          }
+          out['c:' + k + ':' + (ty * G + tx)] = (f >>> 0) + '/' + (x1 - x0) + 'x' + (y1 - y0);
+        }
+      } catch (err) { out['c:' + k] = 'unreadable'; }
     }
   }
   return out;

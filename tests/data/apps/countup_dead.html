@@ -1,0 +1,10 @@
+<!doctype html><html><body>
+<h1>Our stats</h1><p><span id="users">0</span> users</p>
+<button id="d1">Sign up</button><button id="d2">Learn more</button><button id="d3">Pricing</button>
+<script>
+const t0 = performance.now();
+const step = () => { const f = Math.min(1, (performance.now() - t0) / 2200);
+  document.getElementById('users').textContent = String(Math.round(f * 10000));
+  if (f < 1) requestAnimationFrame(step); };
+requestAnimationFrame(step);
+</script></body></html>

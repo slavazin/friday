@@ -362,3 +362,27 @@ def test_an_in_page_read_returns_even_when_the_page_hangs_right_after_it(chromiu
         with pytest.raises(TimeoutError):
             page.snapshot()    # the page now hangs: a page method raises the builtin, not a Playwright error
     assert time.monotonic() - t0 < 30
+
+
+def test_a_load_time_count_up_makes_no_later_dead_control_read_responsive(chromium):
+    """Finding: once the page's own 2 s count-up stopped, every later dead control read as bringing it to rest."""
+    with chromium.page(str(APPS / "countup_dead.html"), VP) as page:
+        page.goto("?test=1")
+        r = probe.run(page, VP, "P1", (), 12, SETTLE, "abc 123")
+    assert r.controls == 3 and r.responsive_ids == ()
+
+
+def test_a_1hz_timer_started_by_a_control_makes_no_later_dead_control_read_responsive(chromium):
+    """Finding: own came only from the first watch, so a click-started 1 Hz countdown made dead controls read."""
+    with chromium.page(str(APPS / "pomodoro_dead.html"), VP) as page:
+        page.goto("?test=1")
+        r = probe.run(page, VP, "P1", (), 12, SETTLE, "abc 123")
+    assert r.controls == 8 and r.responsive_ids == ("#start",)
+
+
+def test_an_animated_canvas_whose_arrow_key_moves_a_sprite_reads_responsive(chromium):
+    """Finding: a canvas redrawn every frame was one moving node, so the key that moved the player never counted."""
+    with chromium.page(str(APPS / "canvas_game_animated.html"), VP) as page:
+        page.goto("?test=1")
+        r = probe.run(page, VP, "P1", (), 12, SETTLE, "abc 123")
+    assert r.controls == 1 and r.responsive_ids == ("#g",)
