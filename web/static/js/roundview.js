@@ -3,7 +3,7 @@
 
 import { term } from "./glossary.js";
 import { PHASES, PHASE_LABEL, STEPS } from "./runstate.js";
-import { armChip, fmt, h, lossColor, lossLegend, setClass, setText } from "./util.js";
+import { armChip, cellText, fmt, h, lossColor, lossLegend, setClass, setText } from "./util.js";
 
 const STEP_INDEX = Object.fromEntries(STEPS.map(([k], i) => [k, i]));
 const STEP_LABEL = Object.fromEntries(STEPS.map(([k, label]) => [k, label]));
@@ -158,7 +158,7 @@ export class RoundView {
     const root = h("div", { class: "card", "data-pass": card.id },
       h("div", { class: "card-top" }, h("span", { class: "card-req" }, a.request_id ?? card.id),
         h("span", { class: "card-arm" }, armChip(a.arm ?? "?"), h("span", { class: "muted" }, slot))),
-      h("div", { class: "card-cell muted" }, a.cell ?? ""),
+      h("div", { class: "card-cell muted" }, cellText(a.cell) ?? ""),
       pips, step, h("div", { class: "card-result" }, loss, lossLabel), tags);
     if (a.exposed) tags.append(h("span", { class: "chip exp" }, `exposed ${a.exposed}`));
     if (a.ablated) tags.append(h("span", { class: "chip abl" }, `ablated ${a.ablated}`));

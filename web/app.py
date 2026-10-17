@@ -1,7 +1,8 @@
 """The demo page's server (SPEC § 13): FastAPI over the export document and the telemetry log.
 
 Endpoints:
-- `GET /`: the page shell; `GET /static/...`: its scripts and styles (from `web/static/` only).
+- `GET /` and `GET /stage`: the page shell (`/stage` opens the Stage, `?deck=` its
+  playlist); `GET /static/...`: its scripts and styles (from `web/static/` only).
 - `GET /api/export`: the export document (`docs/export-schema.md`), read from the export file.
 - `GET /api/telemetry`: raw telemetry rows, filtered; a live view polls it with `after_seq`.
 - `GET /api/spans`: one row per span (`TelemetryReader.spans`).
@@ -9,6 +10,7 @@ Endpoints:
 - `GET /api/config`: the run constants the live view reads, from the RunSpec.
 - `GET /apps/{pass_id}`: one pass's built HTML, under a strict CSP that also sandboxes it. Model-written
   code: `pass_id` must be a pass of the export with an artifact, and the file must sit inside its folder.
+  The served HTML carries one prepended script (ESC_RELAY) that hands Escape back to the Stage.
 
 Run: `uv run --extra web python -m web.app [--spec run.yml --db friday.db --export export.json
 --artifacts artifacts]` or `--root <run root>`; with no run path it serves the fixtures under `web/fixtures/`.
@@ -42,6 +44,11 @@ APP_CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-in
 # The page itself loads only its own files.
 PAGE_CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
             "frame-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+# Prepended to each served app: forwards Escape to the page (a fixed message, nothing else), so a presenter
+# who focused an app on the Stage gets the page's keys back. The app keeps the event; the sandbox is unchanged.
+ESC_RELAY = (b"<script>window.addEventListener('keydown',function(e){if(e.key==='Escape')"
+             b"window.parent.postMessage('friday:stage-escape','*');},true);</script>")
+_HEAD = re.compile(rb"<head[^>]*>|<html[^>]*>|<!doctype[^>]*>", re.IGNORECASE)
 PASS_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 MAX_ROWS = 5000   # one page of /api/telemetry; a reader pages on with after_seq
 
@@ -90,6 +97,13 @@ class _Log:
         return self._reader
 
 
+def with_esc_relay(html: bytes) -> bytes:
+    """`html` with ESC_RELAY placed after its first <head>, <html> or doctype tag (else at the start)."""
+    m = _HEAD.search(html)
+    at = m.end() if m else 0
+    return html[:at] + ESC_RELAY + html[at:]
+
+
 def create_app(spec: RunSpec, db_path: str | Path, export_path: str | Path, artifacts_dir: str | Path) -> FastAPI:
     """The demo app over one run's telemetry log, export file and artifacts folder."""
     export = _ExportFile(Path(export_path))
@@ -109,6 +123,10 @@ def create_app(spec: RunSpec, db_path: str | Path, export_path: str | Path, arti
 
     @app.get("/")
     def index() -> FileResponse:
+        return FileResponse(STATIC / "index.html", media_type="text/html")
+
+    @app.get("/stage")
+    def stage() -> FileResponse:
         return FileResponse(STATIC / "index.html", media_type="text/html")
 
     @app.get("/api/export")
@@ -160,7 +178,7 @@ def create_app(spec: RunSpec, db_path: str | Path, export_path: str | Path, arti
         path = (artifacts / pass_id / "index.html").resolve()
         if not path.is_relative_to(artifacts) or not path.is_file():
             raise HTTPException(404, "no artifact for this pass")
-        return Response(path.read_bytes(), media_type="text/html; charset=utf-8",
+        return Response(with_esc_relay(path.read_bytes()), media_type="text/html; charset=utf-8",
                         headers={"Content-Security-Policy": APP_CSP, "Cross-Origin-Resource-Policy": "same-origin"})
 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")

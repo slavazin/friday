@@ -120,6 +120,12 @@ export function emptyState(title, detail) {
   return h("div", { class: "empty" }, h("div", { class: "empty-title" }, title), h("div", { class: "muted" }, detail));
 }
 
+// A pass span records its cell as a list ([family, mode]); the page reads one "family / mode" string per cell.
+export function cellText(c) {
+  if (c === null || c === undefined) return null;
+  return Array.isArray(c) ? (c.length ? c.join(" / ") : null) : String(c);
+}
+
 export function armChip(arm) {
   return h("span", { class: `chip arm arm-${arm}` }, arm);
 }

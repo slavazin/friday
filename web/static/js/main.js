@@ -6,9 +6,10 @@ import { LivePage } from "./live.js";
 import { ReadoutPage } from "./readout.js";
 import { ReplayPage } from "./replay.js";
 import { TimelinePage } from "./timeline.js";
-import { emptyState, getJSON, h } from "./util.js";
+import { StagePage } from "./stage.js";
+import { cellText, emptyState, getJSON, h } from "./util.js";
 
-const TABS = ["gallery", "live", "replay", "timeline", "readout"];
+const TABS = ["stage", "gallery", "live", "replay", "timeline", "readout"];
 const pages = {};
 let cfg = null;
 let doc = null;
@@ -23,10 +24,20 @@ async function loadExport() {
   }
   try {
     const sp = await getJSON("/api/spans?run=main&name_prefix=pass");
-    // A pass span records its cell as a list ([family, mode]); the page reads one string per cell.
-    const cellText = (c) => (Array.isArray(c) ? c.join(" / ") : c);
-    cells = new Map(sp.spans.filter((x) => x.name === "pass" && x.attrs.cell && x.attrs.cell.length)
-      .map((x) => [x.pass_id, cellText(x.attrs.cell)]));
+    const passSpans = sp.spans.filter((x) => x.name === "pass");
+    cells = new Map(passSpans.filter((x) => cellText(x.attrs.cell)).map((x) => [x.pass_id, cellText(x.attrs.cell)]));
+    // A pass whose span records no cell (readout spans before the runner wrote it) takes the cell another
+    // span of the same request recorded, matched through the export's category (the request id).
+    if (doc) {
+      const byRequest = new Map();
+      for (const x of passSpans) {
+        const c = cellText(x.attrs.cell);
+        if (c && x.attrs.request_id && !byRequest.has(x.attrs.request_id)) byRequest.set(x.attrs.request_id, c);
+      }
+      for (const p of doc.passes) {
+        if (!cells.has(p.id) && byRequest.has(p.category)) cells.set(p.id, byRequest.get(p.category));
+      }
+    }
   } catch {
     cells = new Map();   // the gallery then reads "cell unread"
   }
@@ -44,6 +55,7 @@ function build(tab) {
   if (tab === "live") pages.live = new LivePage(el, cfg);
   else if (tab === "replay") pages.replay = new ReplayPage(el, cfg);
   else if (!needsExport(el)) return null;
+  else if (tab === "stage") pages.stage = new StagePage(el, cfg, doc, cells);
   else if (tab === "gallery") pages.gallery = new GalleryPage(el, cfg, doc, cells);
   else if (tab === "timeline") pages.timeline = new TimelinePage(el, cfg, doc);
   else if (tab === "readout") pages.readout = new ReadoutPage(el, cfg, doc);
@@ -51,16 +63,18 @@ function build(tab) {
 }
 
 function show() {
-  const tab = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "gallery";
+  const fromHash = location.hash.slice(1);
+  const tab = TABS.includes(fromHash) ? fromHash : (location.pathname === "/stage" ? "stage" : "gallery");
   for (const t of TABS) {
     const on = t === tab;
     document.getElementById(`page-${t}`).classList.toggle("on", on);
     document.querySelector(`.tabs [data-tab="${t}"]`).classList.toggle("on", on);
   }
-  for (const t of ["live", "replay"]) if (t !== tab) pages[t]?.stop();
+  for (const t of ["live", "replay", "stage"]) if (t !== tab) pages[t]?.stop();
   const page = build(tab);
   if (tab === "live") page.start();
   if (tab === "replay") page.load();
+  if (tab === "stage") page?.start();
   document.body.dataset.tab = tab;
 }
 
