@@ -182,8 +182,15 @@ it that way.
 Build round 1's requests once, outside the run, and apply the worker pin rule with `pilot.*` (SPEC § 5).
 Read the premises "headroom" and "how-to readable" (SPEC § 16).
 
-**Done when:** the pin is recorded in `docs/spec-findings.md` with the pilot's mean A, P, H and the share
-of passes at each rung.
+Measure one pass end to end (worker turns, eval, both judge calls) and one round close, and fit the run
+to the 17:00 deadline. Rounds × (round time) + readout time must end the run, readout included, by 15:30.
+If it doesn't fit, change `stream.per_round` or `run.rounds` once, before round 1, and record the timing.
+
+**Done when:**
+- the pin is recorded in `docs/spec-findings.md`, with the pilot's mean A, P, H and the share of passes at
+  each rung;
+- the measured pass time, round time and the resulting `run.rounds` / `stream.per_round` are recorded
+  there too.
 
 **Don't:** pick any other constant from pilot output.
 
