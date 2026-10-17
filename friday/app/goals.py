@@ -92,7 +92,16 @@ def tag_round(tagger: Tagger, source: GoalSource, vocabulary: TagVocabulary, n: 
 
 def tag_held_out(tagger: Tagger, source: GoalSource, vocabulary: TagVocabulary,
                  close_round: int) -> Mapping[str, frozenset[str]]:
-    """Tags the held-out set with the frozen vocabulary, minting nothing."""
+    """Tags the held-out set with the frozen vocabulary, minting nothing. Raises ValueError before the
+    close: the held-out set is read only once every stream request of rounds 1..`close_round` is tagged."""
+    for n in range(1, close_round + 1):
+        stream = list(source.round(n))
+        if not stream:
+            raise ValueError(f"round {n} has no requests; the held-out set is tagged at the close only")
+        untagged = sorted(r.id for r in stream if vocabulary.tags_of(r.id) is None)
+        if untagged:
+            raise ValueError(f"round {n} requests not yet tagged: {untagged}; "
+                             "the held-out set is tagged at the close only")
     requests = list(source.held_out())
     tagged = sorted(r.id for r in requests if vocabulary.tags_of(r.id) is not None)
     if tagged:

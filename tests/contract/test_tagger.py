@@ -11,7 +11,7 @@ from friday.app.goals import build_tagger, tag_held_out, tag_round
 from friday.config import load_spec
 from friday.domain.types import Check, Regime, Request, TagGloss
 from friday.roles.prompts import PromptBook
-from friday.roles.tagger import Tagger, TaggingRefused, near_duplicate
+from friday.roles.tagger import Tagger, TaggingRefused, names_family, near_duplicate
 from tests.fakes import ScriptedClient
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -125,8 +125,9 @@ def test_held_out_tagging_mints_nothing():
     t = tagger([])
     with pytest.raises(ValueError, match="mints nothing"):
         t.tag(held, VOCAB, SPEC.run.rounds, 1)
-    vocab = MemoryTagVocabulary(list(VOCAB))
-    source = MemoryGoalSource(held)
+    stream = [request(f"G-{n:03d}", f"request {n}", round_=n) for n in range(1, SPEC.run.rounds + 1)]
+    vocab = MemoryTagVocabulary(list(VOCAB), {r.id: frozenset({"keyboard", "timer"}) for r in stream})
+    source = MemoryGoalSource(stream + held)
     minting = reply({"H-01": ["table", "keyboard"]}, ["table"])
     with pytest.raises(TaggingRefused, match="at most 0"):
         tag_held_out(tagger([minting, minting]), source, vocab, SPEC.run.rounds)
@@ -191,3 +192,39 @@ def test_a_plural_hyphenated_or_joined_family_tag_is_refused(make):
         bad = reply({"G-001": ["keyboard", bad_tag], "G-002": ["timer", "keyboard"]}, [bad_tag])
         with pytest.raises(TaggingRefused, match="kind label"):
             tagger([bad, bad]).tag([SNAKE, TIMER], VOCAB, 2, MAX_NEW)
+
+
+def test_held_out_tagging_before_the_close_is_refused_and_leaves_the_close_tagging_possible():
+    """Finding: held-out tagging had no close guard; an early call froze the held-out tags."""
+    held = [request("H-01", "a budget table with totals per month", held_out=True)]
+    stream = [request(f"G-{n:03d}", f"request {n}", round_=n) for n in range(1, SPEC.run.rounds + 1)]
+    vocab = MemoryTagVocabulary(list(VOCAB), {stream[0].id: frozenset({"keyboard", "timer"})})
+
+    class Watched(MemoryGoalSource):
+        held_reads = 0
+
+        def held_out(self):
+            Watched.held_reads += 1
+            return super().held_out()
+
+    source = Watched(stream + held)
+    t = tagger([reply({"H-01": ["keyboard", "timer"]})])
+    with pytest.raises(ValueError, match="close only"):
+        tag_held_out(t, source, vocab, SPEC.run.rounds)
+    assert Watched.held_reads == 0 and vocab.tags_of("H-01") is None and t.client.calls == []
+    vocab.set_tags({r.id: frozenset({"keyboard", "timer"}) for r in stream[1:]})
+    tags = tag_held_out(t, source, vocab, SPEC.run.rounds)
+    assert tags["H-01"] == {"keyboard", "timer"} and Watched.held_reads == 1
+
+
+@pytest.mark.parametrize("spelled", [
+    "forms or calculators", "timers or trackers", "Timer-or-Trackers", "form_or_calculator", "canvasgames",
+    "data tools",
+])
+def test_names_family_finds_a_family_with_every_word_inflected_or_joined(spelled):
+    """Finding: names_family missed 'X or Y' families when each word was pluralized."""
+    assert names_family(f"a list of {spelled} here", SPEC.stream.families)
+
+
+def test_names_family_does_not_fire_on_one_word_of_a_multi_word_family():
+    assert not names_family("a timer that beeps and a form to fill", SPEC.stream.families)

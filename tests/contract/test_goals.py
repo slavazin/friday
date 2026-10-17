@@ -148,6 +148,25 @@ def test_a_draft_that_includes_the_constraint_itself_is_rejected():
         validate_draft(json.loads(draft(text="a counter. " + SPEC.drift.constraint)), Regime.R2, PARAMS, DSL)
 
 
+def test_a_draft_with_a_partial_copy_of_the_constraint_is_rejected():
+    """Finding: the constraint guard matched only the full constraint, so a partial copy doubled it."""
+    with pytest.raises(Rejected, match="phone-screen"):
+        validate_draft(json.loads(draft(text="a tip splitter. It must work on a PHONE screen")),
+                       Regime.R2, PARAMS, DSL)
+
+
+@pytest.mark.parametrize(("contract", "where"), [
+    ({"#add": "button that adds one", "#count": "display of the canvas game score"}, "#count"),
+    ({"#add": "button that loads the data tools", "#count": "display of the running count"}, "#add"),
+    ({"#add": "button that adds one", "#count": "display of the running count", "#timer-or-tracker":
+      "display of the elapsed time"}, "#timer-or-tracker"),
+])
+def test_a_contract_role_or_id_naming_a_goal_family_is_rejected(contract, where):
+    """Finding: contract roles were not screened for family names, so a label reached the worker."""
+    with pytest.raises(Rejected, match=f"{where}.*kind label"):
+        validate_draft(json.loads(draft(contract=contract)), Regime.R1, PARAMS, DSL)
+
+
 def test_a_draft_naming_a_goal_family_is_rejected_and_no_family_reaches_the_written_request(tmp_path):
     fam = SPEC.stream.families[1]
     with pytest.raises(Rejected, match="kind label"):

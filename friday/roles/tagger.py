@@ -12,7 +12,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from friday.algorithms.language import word_hits
+from friday.algorithms.language import INFLECTIONS
 from friday.domain.types import Request, TagGloss
 from friday.ports.models import Message, ModelClient
 from friday.roles.ask import Rejected, ask_json
@@ -45,11 +45,19 @@ def near_duplicate(a: str, b: str) -> bool:
     return bool(_forms(a) & _forms(b))
 
 
+def _family_pattern(family: str) -> re.Pattern[str]:
+    """A family in any spelling: each word may carry an inflection, and words are joined by spaces,
+    hyphens, underscores or nothing ('forms or calculators', 'canvas-games', 'canvasgames')."""
+    words = family.split()
+    body = r"[\s_-]*".join(re.escape(w) + INFLECTIONS for w in words)
+    return re.compile(rf"(?<![^\W_]){body}(?![^\W_])", re.IGNORECASE)
+
+
 def names_family(text: str, families: Sequence[str]) -> bool:
-    """True when `text` (a tag or a request text) names a goal family in any spelling: inflected
-    ('data tools'), hyphenated ('canvas-games') or joined ('canvasgames')."""
-    joined = [f.replace(" ", "") for f in families]
-    return bool(word_hits(text.replace("-", " "), families, inflected=True) or word_hits(text, joined, inflected=True))
+    """True when `text` (a tag, a request text, a contract role or id) names a goal family in any spelling:
+    inflected after any word ('data tools', 'forms or calculators'), hyphenated ('canvas-games'),
+    underscored ('canvas_game') or joined ('canvasgames')."""
+    return any(_family_pattern(f).search(text) for f in families)
 
 
 def validate_tagging(

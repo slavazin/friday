@@ -274,7 +274,8 @@ def validate_draft(raw: Any, regime: Regime, p: MintParams, dsl_check: DslCheck)
         raise Rejected("'text' must be one line")
     if names_family(text, p.families):
         raise Rejected("'text' must describe the app in the user's words, not name a kind label")
-    if p.constraint.strip() in text:
+    lead = re.split(r"[:.]", p.constraint.strip(), maxsplit=1)[0].strip().lower()
+    if p.constraint.strip() in text or (lead and lead in text.lower()):
         raise Rejected("'text' must not include the phone-screen sentence; it is added after your text")
     timed = raw.get("timed")
     if not isinstance(timed, bool):
@@ -289,6 +290,8 @@ def validate_draft(raw: Any, regime: Regime, p: MintParams, dsl_check: DslCheck)
             raise Rejected(f"contract key {sel!r} must be an id with '#', such as '#start'")
         if not isinstance(role, str) or not role.strip():
             raise Rejected(f"contract role of {sel} must be a non-empty phrase")
+        if names_family(role, p.families) or names_family(str(sel).lstrip("#"), p.families):
+            raise Rejected(f"contract entry {sel}: name the element's job, not a kind label")
         words = re.findall(r"[a-z]+", role.lower())
         if not words or words[0] not in ELEMENT_KINDS:
             raise Rejected(f"contract role of {sel} must begin with its element kind, one of {list(ELEMENT_KINDS)}")
