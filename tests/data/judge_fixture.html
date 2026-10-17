@@ -1,0 +1,34 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Countdown</title>
+<style>body{font-family:sans-serif;margin:2rem} #time{font-size:3rem}</style>
+</head>
+<body>
+<div id="time">25:00</div>
+<button id="start">Start</button>
+<button id="reset">Reset</button>
+<script>
+let left = 25 * 60;
+let timer = null;
+function show() {
+  const m = String(Math.floor(left / 60)).padStart(2, '0');
+  const s = String(left % 60).padStart(2, '0');
+  document.getElementById('time').textContent = m + ':' + s;
+}
+document.getElementById('start').addEventListener('click', () => {
+  if (timer) return;
+  timer = setInterval(() => { left -= 1; show(); }, 1000);
+});
+document.getElementById('reset').addEventListener('click', () => {
+  clearInterval(timer);
+  show();
+});
+</script>
+<section id="how-to"><p>A 25-minute countdown. Start begins it; Reset stops it and returns it to 25:00.</p></section>
+<script type="application/json" id="how-to-data">
+{"summary": "A 25-minute countdown timer.", "controls": [
+ {"id": "#start", "does": "starts the countdown", "action": {"click": "#start"}, "effect": {"text_changed": "#time"}},
+ {"id": "#reset", "does": "returns the timer to 25:00", "action": {"click": "#reset"}, "effect": {"text_changed": "#time"}}]}
+</script>
+</body>
+</html>
