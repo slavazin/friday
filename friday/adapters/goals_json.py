@@ -16,13 +16,17 @@ from typing import Any
 from friday.domain.types import Check, Regime, Request, TagGloss
 
 
-def request_to_json(r: Request) -> dict[str, Any]:
-    """The JSON object a request is stored as (tags live in tags.json, not here)."""
-    return {
+def request_to_json(r: Request, *, with_cell: bool = False) -> dict[str, Any]:
+    """The JSON object a request is stored as (tags live in tags.json, not here). The cell names the goal
+    family, so it is written only to generator-side files (`with_cell`), never to the stream the loop reads."""
+    out = {
         "id": r.id, "text": r.text, "round": r.round, "held_out": r.held_out, "contract": dict(r.contract),
         "checks": {reg.value: [{"id": c.id, "steps": list(c.steps), "expect": dict(c.expect)} for c in cs]
                    for reg, cs in r.checks.items()},
     }
+    if with_cell:
+        out["cell"] = None if r.cell is None else list(r.cell)
+    return out
 
 
 def request_from_json(obj: Mapping[str, Any], tags: frozenset[str] = frozenset()) -> Request:
@@ -30,7 +34,8 @@ def request_from_json(obj: Mapping[str, Any], tags: frozenset[str] = frozenset()
     checks = {Regime(reg): tuple(Check(str(c["id"]), tuple(c["steps"]), dict(c["expect"])) for c in cs)
               for reg, cs in obj["checks"].items()}
     return Request(str(obj["id"]), str(obj["text"]), tags, {str(k): str(v) for k, v in obj["contract"].items()},
-                   checks, held_out=bool(obj["held_out"]), round=obj["round"])
+                   checks, held_out=bool(obj["held_out"]), round=obj["round"],
+                   cell=None if obj.get("cell") is None else (str(obj["cell"][0]), str(obj["cell"][1])))
 
 
 def _write_atomic(path: Path, text: str) -> None:
@@ -159,7 +164,7 @@ class JsonlMintJournal:
 
     def record(self, minted: Any) -> None:
         """Appends one minted position as a single line and flushes it to disk."""
-        line = json.dumps({"request": request_to_json(minted.request), "family": minted.family,
+        line = json.dumps({"request": request_to_json(minted.request, with_cell=True), "family": minted.family,
                            "draft_text": minted.draft_text, "stub": minted.stub,
                            "report": list(minted.report)}) + "\n"
         self._path.parent.mkdir(parents=True, exist_ok=True)

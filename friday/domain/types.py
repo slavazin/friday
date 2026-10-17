@@ -83,6 +83,7 @@ class Request:
     checks: dict[Regime, tuple[Check, ...]]
     held_out: bool = False
     round: int | None = None                       # the goal stream position; None when held out
+    cell: tuple[str, str] | None = None            # (goal family, interaction mode); generator-side, never shown
 
     def checks_for(self, regime: Regime) -> tuple[Check, ...]:
         return self.checks[regime]

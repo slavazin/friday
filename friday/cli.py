@@ -58,7 +58,7 @@ def _mint_goals(args: argparse.Namespace) -> int:
     from friday.adapters import goals_json
     from friday.adapters.playwright_browser import PlaywrightBrowser
     from friday.app.goals import build_minter
-    from friday.roles.goal_minter import MintedGoals, MintFailed, plan_slots
+    from friday.roles.goal_minter import MintedGoals, MintFailed, grid_cells, mark_incoherent, plan_slots
     from friday.roles.prompts import PromptBook
 
     spec = load_spec(args.spec)
@@ -80,10 +80,27 @@ def _mint_goals(args: argparse.Namespace) -> int:
             goals_json.write_stub(stubs, rid, html)
         goals_json.write_requests(stream_p, minted.stream)
         goals_json.write_requests(held_p, minted.held_out)
+        grid = json.loads(cells_p.read_text())
+        grid["requests"] = {r.id: list(r.cell) for r in (*minted.stream, *minted.held_out) if r.cell is not None}
+        cells_p.write_text(json.dumps(grid, indent=1) + "\n")
         report_p.write_text(json.dumps(minted.report, indent=1) + "\n")
 
+    book = PromptBook(Path(spec.paths.prompts))
+    cells_p = stream_p.parent / "cells.json"          # the grid as minted: dropped cells, then the withheld draw
+    if cells_p.exists():
+        incoherent = [tuple(c["cell"]) for c in json.loads(cells_p.read_text())["incoherent"]]
+    else:
+        marked = mark_incoherent(client, book, spec.stream.families, spec.stream.modes, spec.json.reasks)
+        incoherent = list(marked)
     try:
-        minter = build_minter(spec, client, PromptBook(Path(spec.paths.prompts)), browser, write_stub, sink)
+        minter = build_minter(spec, client, book, browser, write_stub, sink, incoherent)
+        train, withheld = grid_cells(minter.params)
+        if not cells_p.exists():
+            cells_p.parent.mkdir(parents=True, exist_ok=True)
+            cells_p.write_text(json.dumps({
+                "incoherent": [{"cell": list(c), "why": marked[c]} for c in sorted(marked)],
+                "training": [list(c) for c in train], "withheld": [list(c) for c in withheld],
+            }, indent=1) + "\n")
         minter.journal = goals_json.JsonlMintJournal(stream_p.parent / "mint_journal.jsonl")
         if args.only:
             wanted = set(args.only.split(","))

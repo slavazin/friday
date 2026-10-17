@@ -14,6 +14,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from friday.algorithms.split import Cell, draw_held_out_cells
 from friday.domain.types import Check, Regime, Request
 from friday.ports.models import Message, ModelClient
 from friday.roles.ask import Rejected, ask_json
@@ -59,6 +60,10 @@ class MintParams:
     max_wait_ms: int
     reasks: int
     expect_verbs: frozenset[str]    # the check DSL's expectation verbs (the eval owns the table)
+    modes: tuple[str, ...] = ()
+    held_out_cells: int = 0
+    split_max_draws: int = 1
+    incoherent: frozenset[Cell] = frozenset()   # cells the coherence call dropped (SPEC § 4 The grid)
 
 
 @dataclass(frozen=True)
@@ -70,6 +75,11 @@ class Slot:
     pos: int
     regime: Regime
     family: str
+    mode: str = ""
+
+    @property
+    def cell(self) -> Cell:
+        return (self.family, self.mode)
 
 
 @dataclass(frozen=True)
@@ -157,24 +167,85 @@ def _assign(positions: Sequence[tuple[Any, ...]], families: Sequence[str], share
     return out
 
 
-def plan_slots(p: MintParams) -> list[Slot]:
-    """Every stream position in stream order, then the held-out positions, each with its drawn family.
+def grid_cells(p: MintParams) -> tuple[tuple[Cell, ...], tuple[Cell, ...]]:
+    """(training cells, withheld cells): the coherent cells of families x modes, with `held_out_cells` withheld
+    under the run seed so every family and every mode keeps a training cell (SPEC § 4). Raises when no draw
+    within `split_max_draws` qualifies."""
+    coherent = [(f, m) for f in p.families for m in p.modes if (f, m) not in p.incoherent]
+    drawn = draw_held_out_cells(p.families, p.modes, coherent, p.held_out_cells, p.seed, p.split_max_draws)
+    if drawn is None:
+        raise ValueError(f"no draw of {p.held_out_cells} withheld cells keeps every family and mode in training "
+                         f"within {p.split_max_draws} draws ({len(coherent)} coherent cells)")
+    return drawn[0], drawn[1]
 
-    Within a regime the family counts match the regime's goal mix to within one request; the held-out set
-    is drawn from the R2 mix alone. The draw reads only the seed and the positions.
+
+def _assign_modes(positions: Sequence[tuple[Any, ...]], family: str, train: Sequence[Cell],
+                  seed: int) -> dict[tuple[Any, ...], str]:
+    """Modes for one family's `positions`, evenly over the modes whose cell with `family` is a training cell."""
+    modes = sorted(m for f, m in train if f == family)
+    if not modes:
+        raise ValueError(f"family {family!r} has no training cell")
+    ranked = sorted(positions, key=lambda k: (derive(seed, "mode", family, *k).random(), k))
+    out: dict[tuple[Any, ...], str] = {}
+    i = 0
+    for mode, count in zip(modes, quotas(len(positions), [1 / len(modes)] * len(modes)), strict=True):
+        for k in ranked[i:i + count]:
+            out[k] = mode
+        i += count
+    return out
+
+
+def mark_incoherent(client: ModelClient, book: PromptBook, families: Sequence[str], modes: Sequence[str],
+                    reasks: int) -> dict[Cell, str]:
+    """The cells no plain request fits, each with the model's one-sentence reason (SPEC § 4 The grid).
+    Raises MintFailed when the reply stays unusable after `reasks` re-asks."""
+    cells = [(f, m) for f in families for m in modes]
+    listing = "\n".join(f"{i}. {f}, operated by {m}" for i, (f, m) in enumerate(cells, start=1))
+
+    def validate(raw: Any) -> dict[Cell, str]:
+        if not isinstance(raw, dict) or not isinstance(raw.get("incoherent"), list):
+            raise Rejected('the reply must be an object with an "incoherent" list')
+        out: dict[Cell, str] = {}
+        for item in raw["incoherent"]:
+            if not isinstance(item, dict) or not isinstance(item.get("n"), int) or not 1 <= item["n"] <= len(cells):
+                raise Rejected(f"each entry needs a number n from 1 to {len(cells)}")
+            out[cells[item["n"] - 1]] = str(item.get("why", ""))
+        return out
+
+    messages = [Message("system", book.text("goal_minter/system.md")),
+                Message("user", book.text("goal_minter/coherence.md").format(cells=listing))]
+    asked = ask_json(client, ROLE, messages, validate, reasks=reasks, tag=f"{ROLE}:coherence")
+    if asked.value is None:
+        raise MintFailed("the coherence call stayed unusable: " + "; ".join(asked.failures))
+    return asked.value
+
+
+def plan_slots(p: MintParams) -> list[Slot]:
+    """Every stream position in stream order, then one held-out position per withheld cell.
+
+    A stream position's family is drawn in its regime's goal mix (within one request), and its mode evenly
+    among the modes whose cell with that family is a training cell, per regime; training never draws a
+    withheld cell. The draw reads only the seed, the positions and the grid.
     """
     if not 1 < p.drift_round <= p.rounds:
         raise ValueError(f"drift round {p.drift_round} outside 2..{p.rounds}")
+    if p.held_out != p.held_out_cells:
+        raise ValueError("held_out must equal held_out_cells: the held-out set is one request per withheld cell")
+    train, withheld = grid_cells(p)
     stream = [(r, pos) for r in range(1, p.rounds + 1) for pos in range(p.per_round)]
     fam: dict[tuple[Any, ...], str] = {}
+    mode: dict[tuple[Any, ...], str] = {}
     for regime in (Regime.R1, Regime.R2):
         positions = [k for k in stream if regime_of(k[0], p.drift_round) is regime]
-        fam.update(_assign(positions, p.families, p.mix[regime.value], p.seed))
-    held = [("held_out", pos) for pos in range(p.held_out)]
-    fam.update(_assign(held, p.families, p.mix[Regime.R2.value], p.seed))
-    slots = [Slot(f"G-{i:03d}", r, pos, regime_of(r, p.drift_round), fam[(r, pos)])
+        assigned = _assign(positions, p.families, p.mix[regime.value], p.seed)
+        fam.update(assigned)
+        for f in p.families:
+            mine = [k for k in positions if assigned[k] == f]
+            if mine:
+                mode.update(_assign_modes(mine, f, train, p.seed))
+    slots = [Slot(f"G-{i:03d}", r, pos, regime_of(r, p.drift_round), fam[(r, pos)], mode[(r, pos)])
              for i, (r, pos) in enumerate(stream, start=1)]
-    slots += [Slot(f"H-{pos + 1:02d}", None, pos, Regime.R2, fam[k]) for pos, k in enumerate(held)]
+    slots += [Slot(f"H-{pos + 1:02d}", None, pos, Regime.R2, f, m) for pos, (f, m) in enumerate(withheld)]
     return slots
 
 
@@ -331,8 +402,8 @@ def validate_regenerated(raw: Any, rejected: Check, others: Sequence[Check], con
 def _check_resumed(minted: MintedSlot, slot: Slot) -> None:
     """Raises ValueError when a journaled position does not match the plan (another seed, mix or regime)."""
     r = minted.request
-    if (r.id, r.round, r.held_out, minted.family, set(r.checks)) != (
-            slot.id, slot.round, slot.round is None, slot.family, {slot.regime}):
+    if (r.id, r.round, r.held_out, minted.family, set(r.checks), r.cell) != (
+            slot.id, slot.round, slot.round is None, slot.family, {slot.regime}, slot.cell):
         raise ValueError(f"the mint journal's {r.id} does not match the plan's {slot}; mint into a fresh goals dir")
 
 
@@ -405,8 +476,10 @@ class GoalMinter:
             text = request_text(draft.text, slot.regime, p.constraint)
             kept = self._validated_checks(slot, text, draft, out)
             if kept:
-                req = Request(slot.id, text, frozenset(), dict(draft.contract), {slot.regime: tuple(kept)},
-                              held_out=slot.round is None, round=slot.round)
+                # Stored text never carries the drift constraint: the pass pipeline appends it once under R2
+                # (friday/app/request_text.py). The checks were validated against the text with it.
+                req = Request(slot.id, draft.text, frozenset(), dict(draft.contract), {slot.regime: tuple(kept)},
+                              held_out=slot.round is None, round=slot.round, cell=slot.cell)
                 return req, draft.text, stub_html(draft.contract)
             out.note(slot.id, "", "request_regenerated", "no check failed on the contract stub")
             retry = "no_behaviour"
@@ -461,7 +534,7 @@ class GoalMinter:
         retry_block = {None: "", "refused": self.book.text("goal_minter/retry_refused.md"),
                        "no_behaviour": self.book.text("goal_minter/retry_block.md")}[retry]
         user = self.book.text("goal_minter/request.md").format(
-            family=slot.family, lo=lo, hi=hi, test_query=p.test_query, max_wait_ms=p.max_wait_ms,
+            family=slot.family, mode=slot.mode, lo=lo, hi=hi, test_query=p.test_query, max_wait_ms=p.max_wait_ms,
             phone_block=phone, retry_block=retry_block,
             prior="\n".join(f"- {t}" for t in prior) or "- none yet",
         )

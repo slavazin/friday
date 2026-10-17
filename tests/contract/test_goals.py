@@ -24,6 +24,7 @@ from friday.roles.goal_minter import (
     Slot,
     StubReading,
     element_kind,
+    grid_cells,
     plan_slots,
     quotas,
     request_text,
@@ -55,7 +56,7 @@ def regen(check) -> str:
     return json.dumps({"check": check})
 
 
-R1_SLOT = Slot("G-001", 1, 0, Regime.R1, SPEC.stream.families[0])
+R1_SLOT = Slot("G-001", 1, 0, Regime.R1, SPEC.stream.families[0], SPEC.stream.modes[0])
 R2_SLOT = Slot("G-071", SPEC.drift.round, 0, Regime.R2, SPEC.stream.families[1])
 
 
@@ -85,19 +86,47 @@ def test_family_shares_per_regime_match_the_mix_within_one_request_on_the_full_s
             assert abs(counts[fam] - share * len(mine)) <= 1, (regime, fam, counts[fam])
 
 
-def test_regime_follows_the_drift_round_and_the_held_out_set_is_drawn_from_the_r2_mix_only():
+def test_regime_follows_the_drift_round_and_the_held_out_set_is_one_request_per_withheld_cell():
     slots = plan_slots(PARAMS)
     for s in slots:
         if s.round is not None:
             assert s.regime is (Regime.R2 if s.round >= SPEC.drift.round else Regime.R1)
     held = [s for s in slots if s.round is None]
+    train, withheld = grid_cells(PARAMS)
     assert len(held) == SPEC.stream.held_out and all(s.regime is Regime.R2 for s in held)
-    counts = Counter(s.family for s in held)
-    for fam, share in zip(SPEC.stream.families, SPEC.stream.mix["R2"], strict=True):
-        assert abs(counts[fam] - share * len(held)) <= 1
-    # a mix that would differ between R1 and R2 for the held-out set shows the draw reads R2
-    swapped = replace(PARAMS, mix={"R1": PARAMS.mix["R2"], "R2": PARAMS.mix["R1"]})
-    assert Counter(s.family for s in plan_slots(swapped) if s.round is None) != counts
+    assert sorted(s.cell for s in held) == sorted(withheld) and len(set(withheld)) == len(withheld)
+    stream_cells = {s.cell for s in slots if s.round is not None}
+    assert not stream_cells & set(withheld)                         # training never draws a withheld cell
+    assert {f for f, _ in stream_cells} == set(SPEC.stream.families)
+    assert {m for _, m in stream_cells} == set(SPEC.stream.modes)
+
+
+def test_family_mix_holds_per_regime_and_modes_are_even_within_each_family():
+    slots = [s for s in plan_slots(PARAMS) if s.round is not None]
+    train, _ = grid_cells(PARAMS)
+    for regime in (Regime.R1, Regime.R2):
+        mine = [s for s in slots if s.regime is regime]
+        counts = Counter(s.family for s in mine)
+        for fam, share in zip(SPEC.stream.families, SPEC.stream.mix[regime.value], strict=True):
+            assert abs(counts[fam] - share * len(mine)) <= 1
+            modes = Counter(s.mode for s in mine if s.family == fam)
+            allowed = {m for f, m in train if f == fam}
+            assert set(modes) <= allowed
+            if counts[fam] >= len(allowed):
+                assert max(modes.values()) - min(modes[m] for m in allowed) <= 1
+
+
+def test_an_incoherent_cell_is_never_drawn():
+    dropped = (SPEC.stream.families[4], SPEC.stream.modes[2])
+    slots = plan_slots(replace(PARAMS, incoherent=frozenset({dropped})))
+    assert dropped not in {s.cell for s in slots}
+
+
+def test_the_written_stream_carries_no_cell_while_the_journal_does(tmp_path):
+    out = minter([draft(checks=(BEHAVIOUR, BEHAVIOUR_2))], fails_on_stub).mint_requests([R1_SLOT])
+    assert out.stream[0].cell == R1_SLOT.cell
+    goals_json.write_requests(tmp_path / "s.json", out.stream)
+    assert "cell" not in json.loads((tmp_path / "s.json").read_text())[0]
 
 
 def test_family_sequence_is_a_function_of_the_seed_alone():
@@ -132,13 +161,13 @@ def test_quotas_sum_to_n_and_reject_a_mix_that_does_not_sum_to_one():
 # --- request text, leakage, the constraint ----------------------------------------------------------------
 
 
-def test_drift_constraint_is_appended_exactly_once_and_only_under_r2():
+def test_stored_text_never_carries_the_constraint_and_only_the_r2_prompt_states_it():
     m = minter([draft(checks=(BEHAVIOUR, BEHAVIOUR_2)), draft(checks=(BEHAVIOUR, BEHAVIOUR_2))], fails_on_stub)
     out = m.mint_requests([R1_SLOT, R2_SLOT])
     r1, r2 = out.stream
     c = SPEC.drift.constraint
     assert c not in r1.text and r1.checks.keys() == {Regime.R1}
-    assert r2.text.count(c) == 1 and r2.text.endswith(c) and r2.checks.keys() == {Regime.R2}
+    assert c not in r2.text and r2.checks.keys() == {Regime.R2}           # the pipeline appends it under R2
     # the R2 draft prompt states the constraint; the R1 prompt does not
     assert c in m.client.calls[1][1][1].content and c not in m.client.calls[0][1][1].content
 
@@ -221,12 +250,12 @@ def test_a_draft_outside_the_dsl_or_the_check_count_is_rejected():
         validate_draft(json.loads(draft(contract={"add": "button"})), Regime.R1, PARAMS, DSL)
 
 
-def test_held_out_requests_carry_r2_checks_no_round_and_the_constraint():
+def test_held_out_requests_carry_r2_checks_no_round_and_no_stored_constraint():
     held = next(s for s in plan_slots(PARAMS) if s.round is None)
     out = minter([draft(checks=(BEHAVIOUR, BEHAVIOUR_2))], fails_on_stub).mint_requests([held])
     (r,) = out.held_out
     assert out.stream == [] and r.held_out and r.round is None
-    assert r.checks.keys() == {Regime.R2} and r.text.endswith(SPEC.drift.constraint)
+    assert r.checks.keys() == {Regime.R2} and SPEC.drift.constraint not in r.text
 
 
 # --- the contract stub ------------------------------------------------------------------------------------
@@ -367,12 +396,14 @@ def test_goal_source_round_trips_requests_and_reads_the_held_out_file_only_when_
     out = _minted()
     goals_json.write_requests(tmp_path / "stream.json", out.stream)
     src = JsonGoalSource(tmp_path / "stream.json", tmp_path / "missing_held_out.json")
-    assert list(src.round(1)) == [out.stream[0]]
-    assert list(src.round(SPEC.drift.round)) == [out.stream[1]]
+    loop_view = [replace(r, cell=None) for r in out.stream]      # the stream the loop reads carries no cell
+    assert list(src.round(1)) == [loop_view[0]]
+    assert list(src.round(SPEC.drift.round)) == [loop_view[1]]
     with pytest.raises(FileNotFoundError):
         src.held_out()
     goals_json.write_requests(tmp_path / "held.json", out.held_out)
-    assert list(JsonGoalSource(tmp_path / "stream.json", tmp_path / "held.json").held_out()) == out.held_out
+    held_view = [replace(r, cell=None) for r in out.held_out]
+    assert list(JsonGoalSource(tmp_path / "stream.json", tmp_path / "held.json").held_out()) == held_view
 
 
 def test_minted_requests_are_frozen_once_written(tmp_path):
@@ -418,7 +449,7 @@ def test_request_text_helper_matches_the_minted_text():
 
 REFUSED = json.dumps({"text": ""})
 REFUSALS_PER_POSITION = (PARAMS.request_regenerations + 1) * (PARAMS.reasks + 1)
-SMALL = replace(PARAMS, rounds=2, per_round=1, held_out=1, drift_round=2)      # G-001 (R1), G-002, H-01 (R2)
+SMALL = replace(PARAMS, rounds=2, per_round=1, held_out=1, held_out_cells=1, drift_round=2)  # G-001, G-002, H-01
 
 
 def test_a_failed_position_does_not_discard_the_minted_ones_and_a_rerun_resumes_from_the_journal(tmp_path):
@@ -502,3 +533,13 @@ def test_mint_goals_only_refuses_to_write_into_the_frozen_goal_paths():
 
     with pytest.raises(SystemExit, match="--only needs --goals-dir"):
         main(["--spec", str(ROOT / "run.yml"), "mint-goals", "--only", "G-001"])
+
+
+def test_stored_r2_text_carries_no_drift_constraint_so_the_pipeline_appends_it_once():
+    from friday.app.request_text import request_text as compose
+
+    out = _minted()
+    for r in (*out.stream, *out.held_out):
+        assert " ".join(SPEC.drift.constraint.split()) not in " ".join(r.text.split())
+        for regime in r.checks:
+            assert compose(r, regime, SPEC.drift.constraint).count("phone screen") == (regime is Regime.R2)

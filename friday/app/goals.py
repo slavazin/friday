@@ -17,7 +17,7 @@ from friday.roles.prompts import PromptBook
 from friday.roles.tagger import Tagger
 
 
-def mint_params(spec: RunSpec) -> MintParams:
+def mint_params(spec: RunSpec, incoherent: Sequence[tuple[str, str]] = ()) -> MintParams:
     """The goal minter's figures from run.yml. A whole request is regenerated at most
     `stream.check_regenerations` times, the one regeneration bound run.yml holds."""
     s = spec.stream
@@ -27,7 +27,8 @@ def mint_params(spec: RunSpec) -> MintParams:
         checks_per_regime=tuple(s.checks_per_regime), check_regenerations=s.check_regenerations,
         request_regenerations=s.check_regenerations, constraint=spec.drift.constraint,
         test_query=spec.eval.test_query, max_wait_ms=spec.eval.max_wait_ms, reasks=spec.json.reasks,
-        expect_verbs=frozenset(dsl.EXPECT_KEYS),
+        expect_verbs=frozenset(dsl.EXPECT_KEYS), modes=tuple(s.modes), held_out_cells=s.held_out_cells,
+        split_max_draws=s.split_max_draws, incoherent=frozenset(incoherent),
     )
 
 
@@ -58,10 +59,12 @@ class StubBench:
 
 
 def build_minter(spec: RunSpec, client: ModelClient, book: PromptBook, browser: Browser,
-                 write_stub: Callable[[str, str], str], sink: Callable[[MintedGoals], None]) -> GoalMinter:
-    """The goal minter over the real check DSL and a browser stub run."""
+                 write_stub: Callable[[str, str], str], sink: Callable[[MintedGoals], None],
+                 incoherent: Sequence[tuple[str, str]] = ()) -> GoalMinter:
+    """The goal minter over the real check DSL and a browser stub run, on the grid less `incoherent`."""
     bench = StubBench(browser, write_stub, spec.eval.viewports)
-    return GoalMinter(client, book, mint_params(spec), bench, dsl_validator(spec.eval.max_wait_ms), sink)
+    return GoalMinter(client, book, mint_params(spec, incoherent), bench, dsl_validator(spec.eval.max_wait_ms),
+                      sink)
 
 
 def build_tagger(spec: RunSpec, client: ModelClient, book: PromptBook) -> Tagger:
