@@ -58,6 +58,23 @@ def test_a_page_that_changes_by_itself_makes_no_control_look_responsive():
     assert run_probe(dom).responsive == 0
 
 
+def test_a_stop_button_that_brings_a_ticking_page_to_rest_is_responsive():
+    """Finding: the idle pre-check never operated a control once a timer ran, so stop and reset scored 0."""
+    def start(d):
+        d.ticking.add("#time")
+
+    def stop(d):
+        d.ticking.discard("#time")
+
+    def reset(d):
+        d.texts["#time"] = "0"
+    dom = FakeDom(texts={"#start": "", "#stop": "", "#reset": "", "#time": "0"},
+                  on_click={"#start": start, "#stop": stop, "#reset": reset},
+                  kinds={"#start": ControlKind.BUTTON, "#stop": ControlKind.BUTTON, "#reset": ControlKind.BUTTON})
+    r = run_probe(dom, ())
+    assert r.responsive_ids == ("#start", "#stop", "#reset")
+
+
 def test_typing_into_a_field_with_no_effect_is_unresponsive_and_an_effect_counts():
     dom = FakeDom(texts={"#name": "", "#greet": ""}, kinds={"#name": ControlKind.TEXT})
     assert run_probe(dom, ()).responsive == 0
@@ -209,3 +226,32 @@ def test_a_missing_how_to_costs_h_and_nothing_else(tmp_path):
 def test_a_mix_raises_without_weights():
     with pytest.raises(ValueError):
         LossModel(0.75, 0.25).a_mix(1.0, 1.0, 1.0)
+
+
+def test_a_programming_error_in_the_probe_raises_instead_of_scoring(tmp_path, monkeypatch):
+    """Finding: the broad except in Evaluator._probe mapped any exception to a scored probe reading."""
+    def broken(*a, **k):
+        raise TypeError("bug in the probe")
+    monkeypatch.setattr(probe, "run", broken)
+    p, req = fixture(tmp_path, HOW_TO)
+    with pytest.raises(TypeError, match="bug in the probe"):
+        make_eval(DomBrowser(counter_dom)).run(p, req, Regime.R1, "a counter")
+
+
+class QueryHangPage(FakePage):
+    def goto(self, query):
+        if query:
+            raise TimeoutError("hangs on the test query")
+
+
+class QueryHangBrowser(DomBrowser):
+    @contextmanager
+    def page(self, artifact_path, viewport):
+        yield QueryHangPage(self.make_dom())
+
+
+def test_a_page_that_fails_the_test_query_reload_reads_unloaded(tmp_path):
+    """Finding: a page that loaded plainly but hung on the test-query reload was recorded loaded=True."""
+    p, req = fixture(tmp_path, HOW_TO)
+    rep = make_eval(QueryHangBrowser(counter_dom)).run(p, req, Regime.R1, "a counter")
+    assert rep.probes[0].loaded is False and rep.probes[0].P == 0.0

@@ -161,3 +161,127 @@ def test_an_unloadable_page_still_yields_an_eval_report_and_the_browser_recovers
     assert rep.loss == pytest.approx(1.0 - 0.75 * rep.A)
     after = evaluator(chromium).run(*case("counter.html"), Regime.R1, "a counter")
     assert pytest.approx(1.0) == after.H
+
+
+# --- review regressions -------------------------------------------------------------------------------
+
+
+def test_type_keeps_focus_so_a_following_key_step_reaches_the_field(chromium):
+    """Finding: the type step blurred the field, so a `key` after it pressed the key on <body>."""
+    from friday.eval.dsl import run_check
+    check = Check("todo", ({"goto": "?test=1"}, {"type": "#new", "text": "milk"}, {"key": "Enter"}, {"wait": 100}),
+                  {"text_matches": "#list", "regex": "milk"})
+    r = run_check(lambda: chromium.page(str(APPS / "todo.html"), VP), check)
+    assert r.passed, r.failing_step
+
+
+def test_type_still_fires_change_on_the_field(chromium, tmp_path):
+    page_html = tmp_path / "change.html"
+    page_html.write_text('<input id="f" onchange="document.getElementById(\'o\').textContent = this.value">'
+                         '<p id="o"></p>')
+    with chromium.page(str(page_html), VP) as page:
+        page.type("#f", "abc")
+        assert page.text("#o") == "abc" and page.focused("#f")
+
+
+def test_a_page_that_hangs_after_a_click_fails_visible_key_and_scripts_instead_of_hanging(chromium):
+    """Finding: visible(), run_script() and key() bypassed the bounded read and hung the eval forever."""
+    from friday.eval.dsl import run_check
+    open_page = lambda: chromium.page(str(APPS / "late_loop.html"), VP)  # noqa: E731
+    t0 = time.monotonic()
+    r = run_check(open_page, Check("v", ({"goto": "?test=1"}, {"click": "#go"}, {"wait": 100}), {"visible": "#x"}))
+    assert not r.passed
+    for call in (lambda p: p.key("a"), lambda p: p.run_script("() => 1")):
+        with pytest.raises(TimeoutError), open_page() as page:
+            page.click("#go")
+            page.wait(100)
+            call(page)
+    with pytest.raises(TimeoutError), open_page() as page:
+        page.focus("#k")
+        page.key("a")          # the key handler itself never returns
+    assert time.monotonic() - t0 < 30
+    with chromium.page(str(APPS / "counter.html"), VP) as page:   # the browser still serves fresh pages
+        page.click("#inc")
+        assert page.text("#count") == "1"
+
+
+def test_visible_reads_rendering_and_the_viewport(chromium, tmp_path):
+    page_html = tmp_path / "vis.html"
+    page_html.write_text('<p id="a">a</p><p id="h" style="visibility:hidden">h</p><p id="n" style="display:none">n'
+                         '</p><p id="far" style="position:absolute; top:5000px">far</p><p id="e"></p>')
+    with chromium.page(str(page_html), VP) as page:
+        assert [page.visible(s) for s in ("#a", "#h", "#n", "#far", "#e", "#none")] == [
+            True, False, False, False, False, False]
+
+
+def test_run_script_returns_an_async_scripts_result_and_raises_on_its_error(chromium):
+    with chromium.page(str(APPS / "counter.html"), VP) as page:
+        assert page.run_script("async () => ({n: document.querySelectorAll('button').length})") == {"n": 1}
+        assert page.run_script("1 + 1") == 2
+        with pytest.raises(RuntimeError):
+            page.run_script("() => { throw new Error('boom'); }")
+
+
+def test_a_stopwatch_stop_button_reads_responsive(chromium):
+    """Finding: the idle pre-check never operated a control once a timer ran, so stop and reset scored 0."""
+    with chromium.page(str(APPS / "stopwatch.html"), VP) as page:
+        page.goto("?test=1")
+        r = probe.run(page, VP, "P1", (), 12, SETTLE, "abc 123")
+    assert r.controls == 3
+    assert r.responsive_ids == ("#start", "#stop", "#reset")
+
+
+def test_websocket_connections_never_reach_the_network(chromium, tmp_path):
+    """Finding: ctx.route does not intercept WebSockets, so a handshake reached a local listener."""
+    import socket
+    import threading
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen()
+    srv.settimeout(0.2)
+    port_ = srv.getsockname()[1]
+    seen = []
+    stop = threading.Event()
+
+    def accept():
+        while not stop.is_set():
+            try:
+                conn, _ = srv.accept()
+            except OSError:
+                continue
+            conn.settimeout(1)
+            try:
+                seen.append(conn.recv(64))
+            except OSError as e:
+                seen.append(repr(e))
+            conn.close()
+    th = threading.Thread(target=accept, daemon=True)
+    th.start()
+    page_html = tmp_path / "ws.html"
+    page_html.write_text(f'<p id="s">pending</p><script>const ws = new WebSocket("ws://127.0.0.1:{port_}/ws");'
+                         'ws.onopen = () => { document.getElementById("s").textContent = "open"; };'
+                         'ws.onerror = () => { document.getElementById("s").textContent = "refused"; };'
+                         f'fetch("http://127.0.0.1:{port_}/fetch").catch(() => {{}});</script>')
+    try:
+        with chromium.page(str(page_html), VP) as page:
+            page.wait(600)
+            assert page.text("#s") == "refused"
+    finally:
+        stop.set()
+        th.join(2)
+        srv.close()
+    assert seen == []
+
+
+def test_other_local_files_are_not_loaded_into_the_artifact(chromium, tmp_path):
+    """Finding: every file: URL was let through, so an iframe rendered another local file."""
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other" / "secret.txt").write_text("SECRET")
+    page_html = tmp_path / "iframe.html"
+    page_html.write_text('<iframe id="f" src="other/secret.txt"></iframe>')
+    with chromium.page(str(page_html), VP) as page:
+        page.wait(300)
+        frames = [f for f in page._page.frames if f != page._page.main_frame]
+        assert len(frames) == 1
+        child_text = frames[0].evaluate("() => document.body ? document.body.innerText : ''")
+    assert "SECRET" not in child_text

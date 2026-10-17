@@ -4,9 +4,13 @@ P is the mean of three probes: the page loaded; it logged no console error; the 
 default action changes the visible state within `settle_ms`. A control that changes nothing scores 0, and a
 page with no controls has responsive share 0, never "not applicable".
 
-Each control carries a control of its own: just before it is operated, the page must hold still over the same
-`settle_ms` with no input. A page that changes by itself (a running timer, an animation) cannot show that the
-action caused the change, so that control reads unresponsive.
+Each control carries a control of its own: the page is watched for `settle_ms` with no input just before the
+control is operated, and every control is operated. On a page that held still, the control is responsive when
+the visible state then changes. On a page that was changing by itself (a running timer), a change proves
+nothing, so the control is responsive only when its action brings the page to rest: the state then holds over
+a further `settle_ms` (a stopwatch's stop button). A control that leaves a moving page moving reads
+unresponsive, even one that also changed something: the opaque snapshot cannot tell its change from the
+timer's (residue).
 """
 
 from __future__ import annotations
@@ -47,21 +51,23 @@ def _snap(page: Page) -> str:
 
 
 def _responsive(page: Page, control: Control, settle_ms: int, sample_text: str) -> bool:
-    """True when the page holds still with no input and then changes after the control's action.
+    """True when the control's action changes a still page, or brings a page that was moving to rest.
 
     Raises _Stuck when a snapshot fails: the page no longer answers, so no later control can be read.
     """
     idle = _snap(page)
     page.wait(settle_ms)
     before = _snap(page)
-    if before != idle:
-        return False
     try:
         _operate(page, control, sample_text)
         page.wait(settle_ms)
     except Exception:  # noqa: BLE001 - SPEC § 5: a control whose action throws is unresponsive (scored 0)
         return False
-    return _snap(page) != before
+    after = _snap(page)
+    if before == idle:
+        return after != before
+    page.wait(settle_ms)
+    return _snap(page) == after
 
 
 def _p(loaded: bool, errors: Collection[str], responsive: int, controls: int) -> float:

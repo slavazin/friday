@@ -56,7 +56,7 @@ def test_declared_control_compiles_to_goto_action_wait_effect():
     assert c.expect == {"text_changed": "#count"}
 
 
-def test_declared_ids_include_entry_and_selectors_and_contract_gaps_are_listed():
+def test_declared_ids_are_the_exercised_selectors_and_contract_gaps_are_listed():
     p = parse(app("counter.html"), contract={**CONTRACT, "#reset": "resets"})
     assert p.declared_ids == ("#inc", "#count")
     assert p.undeclared_contract_ids == ("#reset",)
@@ -144,3 +144,23 @@ def test_score_refuses_mismatched_results_and_empty_contract():
         how_to.score(p, [], CONTRACT, 0.1, "P1", VP)
     with pytest.raises(ValueError):
         how_to.score(p, all_pass(p), {}, 0.1, "P1", VP)
+
+
+def test_an_entry_id_alone_earns_no_contract_coverage():
+    """Finding: an entry's `id` field earned contract coverage without being exercised."""
+    contract = {"#inc": "", "#count": "", "#reset": ""}
+    text = '{"controls": [{"id": "#reset", "action": {"click": "#inc"}, "effect": {"text_changed": "#count"}}]}'
+    p = parse(doc(text), contract=contract)
+    assert p.declared_ids == ("#inc", "#count")
+    assert p.undeclared_contract_ids == ("#reset",)
+    assert pytest.approx(2 / 3) == h(p, contract=contract)
+
+
+def test_a_key_action_with_an_unbounded_times_is_an_invalid_entry():
+    """Finding: a how-to key action's `times` was unbounded (a billion presses)."""
+    big = ('{"controls": [{"id": "#c", "action": {"key": "ArrowUp", "times": 1000000000},'
+           ' "effect": {"canvas_changed": "#c"}}]}')
+    p = parse(doc(big), contract={"#c": ""})
+    assert p.declared == () and p.invalid_entries == 1
+    ok = big.replace("1000000000", str(how_to.MAX_KEY_TIMES))
+    assert len(parse(doc(ok), contract={"#c": ""}).declared) == 1

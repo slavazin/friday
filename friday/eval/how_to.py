@@ -25,6 +25,9 @@ from friday.ports.browser import Page
 ACTIONS = frozenset({"click", "type", "key", "focus"})       # Appendix A
 EFFECTS = frozenset({"text_changed", "canvas_changed", "visible"})
 SELECTOR_ACTIONS = frozenset({"click", "type", "focus"})
+# The most presses one declared key action may ask for; an entry above it is invalid. Pending a run.yml knob
+# (seam request: how_to.max_key_times); Appendix A's form shows times: 1.
+MAX_KEY_TIMES = 20
 _SCRIPT = re.compile(r"<script\b([^>]*)>(.*?)(?:</script\s*>|\Z)", re.IGNORECASE | re.DOTALL)
 _ATTR = re.compile(r"""([^\s=/>]+)\s*(?:=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?""")
 _ID_SELECTOR = re.compile(r"#[A-Za-z_][\w-]*")
@@ -130,7 +133,8 @@ def _salvage(text: str) -> list[Any]:
 
 
 def _compile(n: int, entry: Any, test_query: str, settle_ms: int) -> tuple[Check, list[str]] | None:
-    """Entry `n` as an acceptance check plus the '#id's it names; None when it is not valid DSL."""
+    """Entry `n` as an acceptance check plus the '#id's it exercises (its action's and effect's selectors; the
+    entry's own `id` is a label and covers nothing by itself); None when it is not valid DSL."""
     if not isinstance(entry, dict):
         return None
     eid, action, effect = entry.get("id"), entry.get("action"), entry.get("effect")
@@ -140,6 +144,9 @@ def _compile(n: int, entry: Any, test_query: str, settle_ms: int) -> tuple[Check
     if len(a_verbs) != 1 or len(e_verbs) != 1 or set(action) - ACTIONS - {"text", "times"} or len(effect) != 1:
         return None
     a_verb, e_verb = a_verbs[0], e_verbs[0]
+    times = action.get("times", 1)
+    if a_verb == "key" and isinstance(times, int) and not isinstance(times, bool) and times > MAX_KEY_TIMES:
+        return None  # an unbounded press count would let the worker's how-to stall the eval
     if a_verb == "type" and e_verb == "text_changed" and action.get("type") == effect.get("text_changed"):
         return None  # typing into a field changes that field by definition: no effect is claimed
     eid = _hash_id(eid.strip())
@@ -148,7 +155,7 @@ def _compile(n: int, entry: Any, test_query: str, settle_ms: int) -> tuple[Check
         validate(check, settle_ms)
     except InvalidCheck:
         return None
-    named = [eid]
+    named = []
     if a_verb in SELECTOR_ACTIONS:
         named.append(action[a_verb])
     named.append(effect[e_verb])

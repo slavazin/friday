@@ -1,6 +1,9 @@
 """The eval service: probes, how-to check, acceptance checks, rubric and quality reading -> EvalReport.
 
 Every reading runs at each of the regime's viewports (SPEC § 5, § 10) and P, H, C and R are averaged over them.
+
+Only a browser failure is scored: the Browser port's pages raise TimeoutError (the page did not answer in time)
+or ConnectionError (it failed to load or crashed). Any other exception is a programming error and raises.
 """
 
 from __future__ import annotations
@@ -17,6 +20,8 @@ from friday.eval import how_to, probe
 from friday.eval.dsl import run_check
 from friday.ports.browser import Browser, QualityProbe
 from friday.ports.scoring import Rubric
+
+BROWSER_FAILURES = (TimeoutError, ConnectionError)
 
 
 @dataclass
@@ -37,11 +42,11 @@ class Evaluator:
         loaded = False
         try:
             with self.browser.page(path, vp) as page:
-                loaded = True
                 page.goto(self.test_query)
+                loaded = True   # the probes read the test-query load: a page that fails it did not load
                 return probe.run(page, vp, pass_id, declared_ids, self.probe_max_controls, self.settle_ms,
                                  self.sample_text)
-        except Exception as e:  # noqa: BLE001 - a page that fails to load or stops answering is scored, not dropped
+        except BROWSER_FAILURES as e:  # a page that fails to load or stops answering is scored, not dropped
             msg = f"{'stopped answering' if loaded else 'load failed'}: {type(e).__name__}: {e}"
             return probe.failed(pass_id, vp, msg) if loaded else probe.unloaded(pass_id, vp, msg)
 
@@ -55,7 +60,7 @@ class Evaluator:
                 page = stack.enter_context(open_page())
                 errors = list(page.console_errors())
                 shot = page.screenshot()
-            except Exception as e:  # noqa: BLE001 - an artifact that cannot load is scored, not dropped
+            except BROWSER_FAILURES as e:  # an artifact that cannot load is scored, not dropped
                 # Every check has already failed on load; the rubric's floor is the true reading of a page
                 # nothing renders on. Recorded in console_errors so the report call sees why.
                 return None, [f"load failed{tag}: {type(e).__name__}: {e}"], None
