@@ -67,7 +67,8 @@ def test_telemetry_holds_ten_passes_a_round_and_every_round_close_phase():
     listed -= {"close.<phase>"}
     assert names <= listed, names - listed                          # nothing outside the catalogue
     # Not planted: no fallback taken, goals minted before the run, no critic run.
-    missing = listed - names - {"run.fallback", "goals.mint", "critic.pass"}
+    missing = listed - names - {"run.fallback", "goals.mint", "critic.pass",   # emitted by the real run only
+                                "round.tags", "round.coordinator", "round.settled", "round.observations_unread"}
     assert missing == set(), missing
     # Spans close after they open, and every open row has its close row.
     bad = conn.execute("SELECT COUNT(*) FROM telemetry WHERE ended_at IS NOT NULL AND ended_at < at").fetchone()[0]
