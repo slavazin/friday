@@ -1,5 +1,6 @@
 # The critic run (SPEC § 17): build, critic, revision. An overlay of run.yml: it overrides paths.*, run.rounds,
-# critic.* and three tempo knobs (pool.recurrence_min_rounds, pool.fast_track_min_requests, gate.in_flight) only;
+# critic.*, the worker's pin and three tempo knobs (pool.recurrence_min_rounds, pool.fast_track_min_requests,
+# gate.in_flight) only;
 # every other constant, pin and seed is run.yml's, gate.alpha, n_min, n_max and the betting strategy included.
 # Run it under its own root:
 #   friday --spec run-critic.yml run --root /Users/slavazinevich/GenDev/friday-runs/critic
@@ -16,6 +17,12 @@ pool:                          # tempo (SPEC § 17 Tempo): nominate a pool at th
 
 gate:
   in_flight: 4                 # four candidates under test at once; the bar (alpha, n_min, n_max) is the main run's
+
+models:                        # a stronger builder for the open-world showcase (main run keeps Nemotron Nano)
+  roles:
+    worker:
+      pins: [openai/gpt-oss-120b]
+      fallback: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B
 
 critic:
   taste_weight: 0.35           # A = 0.65 A_main + 0.35 T (T: the share of in-scope quirk checks passed)

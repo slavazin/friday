@@ -136,6 +136,20 @@ def critic_taste_weight(path: str | Path) -> float:
     return float(w)
 
 
+WORKER_PIN_KEYS = {"pins", "fallback"}
+
+
+def _merge_worker_pin(path: Path, merged: dict, value: object) -> None:
+    """Merges an overlay's `models: {roles: {worker: {pins, fallback}}}` into `merged`; refuses anything else
+    under `models` (the scorers' and the judge's pins are the main run's)."""
+    if not isinstance(value, dict) or set(value) != {"roles"} or not isinstance(value["roles"], dict) \
+            or set(value["roles"]) != {"worker"} or not isinstance(value["roles"]["worker"], dict) \
+            or not set(value["roles"]["worker"]) <= WORKER_PIN_KEYS:
+        raise ConfigError(f"{path.name}: under models an overlay may set only roles.worker.pins and .fallback")
+    worker = merged["models"]["roles"]["worker"]
+    merged["models"]["roles"]["worker"] = {**worker, **value["roles"]["worker"]}
+
+
 def load_run_spec(path: str | Path) -> RunSpec:
     """The RunSpec at `path`. An overlay (`extends: run.yml`) is merged over the spec it extends; it may set only
     paths.*, run.rounds, critic.*, pool.recurrence_min_rounds, pool.fast_track_min_requests and gate.in_flight
@@ -153,6 +167,9 @@ def load_run_spec(path: str | Path) -> RunSpec:
     scope = str(over.get("scope", MAIN_RUN))
     for key, value in over.items():
         if key in ("extends", "scope"):
+            continue
+        if key == "models":                     # only the worker's pin, so the critic run can build stronger apps
+            _merge_worker_pin(path, merged, value)
             continue
         if key not in OVERLAY_SECTIONS or not isinstance(value, dict):
             raise ConfigError(f"{path.name}: an overlay may override only {sorted(OVERLAY_SECTIONS)}; got {key}")

@@ -64,3 +64,7 @@ def check_critic_independence(bound: Mapping[str, str]) -> None:
     clash = [r for r in CRITIC_INDEPENDENT_OF if bound.get(r) == critic]
     if clash:
         raise CriticNotIndependent(f"critic bound to {critic}, the same model as {', '.join(clash)}")
+    worker = bound.get("worker")                 # the builder is never graded or criticised by its own model
+    clash = [r for r in ("critic", "judge", "rubric") if worker is not None and bound.get(r) == worker]
+    if clash:
+        raise CriticNotIndependent(f"worker bound to {worker}, the same model as {', '.join(clash)}")

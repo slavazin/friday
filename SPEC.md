@@ -1270,6 +1270,12 @@ each pass mimics a developer working under a manager: build, critic, revision.
   `run-critic.yml` (which overrides `paths.*`, `run.rounds`, `critic.*` and the
   three tempo knobs below only). Same seed, same goal stream.
 
+**Builder.** The critic run may pin its own worker (`run-critic.yml` may set only
+`models.roles.worker.pins` and `.fallback` under `models`): a stronger builder makes the open-world
+showcase playable. The worker is never the judge's, rubric's or critic's model (the pin check refuses it). The
+loss comparison with the main run then reads the builder and the critic loop together; the taste readings
+compare passes within the critic run and are unaffected.
+
 **Readings** (descriptive; the pre-registered R1–R4 belong to the main run):
 requests honored per round; mean loss against the main run's on the same
 requests; the decisions admitted in each run, side by side.

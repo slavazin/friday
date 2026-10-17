@@ -310,8 +310,14 @@ def test_run_critic_yml_overrides_only_paths_rounds_critic_and_the_three_tempo_k
     assert crit.run.spend_cap_usd == crit.critic.spend_cap_usd != base.run.spend_cap_usd
     assert crit.run.max_parallel_passes == crit.critic.max_parallel_passes
     assert crit.paths.db != base.paths.db
-    same = {f.name for f in dataclasses.fields(base)} - {"run", "paths", "critic", "pool", "gate", "spec_hash"}
+    same = {f.name for f in dataclasses.fields(base)} - {"run", "paths", "critic", "pool", "gate", "models",
+                                                         "spec_hash"}
     assert all(getattr(crit, n) == getattr(base, n) for n in same)
+    # models: only the worker's pin differs (a stronger builder for the showcase); every scorer's pin is the main run's
+    assert crit.models.roles["worker"].pins == ("openai/gpt-oss-120b",)
+    assert {r: p for r, p in crit.models.roles.items() if r != "worker"} == \
+        {r: p for r, p in base.models.roles.items() if r != "worker"}
+    assert dataclasses.replace(crit.models, roles=base.models.roles) == base.models
     assert dataclasses.replace(crit.run, rounds=base.run.rounds, spend_cap_usd=base.run.spend_cap_usd,
                                max_parallel_passes=base.run.max_parallel_passes) == base.run
     assert (crit.pool.recurrence_min_rounds, crit.pool.fast_track_min_requests, crit.gate.in_flight) == (1, 2, 4)
@@ -379,3 +385,32 @@ def test_critic_readings_compare_only_requests_both_runs_built_and_read_unread_w
     empty = critic_readings(MemoryPassStore(), MemoryPassStore(), {}, MemoryJournal(), MemoryJournal(), frozenset())
     assert empty.mean_diff is None and empty.honored == ()
     assert any("unread" in line for line in critic_lines(empty))
+
+
+
+@pytest.mark.parametrize("models", [
+    {"roles": {"judge": {"pins": ["x"]}}},
+    {"roles": {"rubric": {"pins": ["x"]}}},
+    {"roles": {"worker": {"temperature": 1.0}}},
+    {"endpoint": {"base_url": "https://x"}},
+])
+def test_an_overlay_may_set_only_the_workers_pin_under_models(tmp_path, models):
+    import shutil
+
+    import yaml
+
+    from friday.config import ConfigError
+    shutil.copy(ROOT / "run.yml", tmp_path / "run.yml")
+    (tmp_path / "c.yml").write_text(yaml.safe_dump({"extends": "run.yml", "scope": "critic", "models": models}))
+    with pytest.raises(ConfigError, match="roles.worker.pins"):
+        load_run_spec(tmp_path / "c.yml")
+
+
+def test_the_pin_check_refuses_a_worker_bound_to_the_judges_rubrics_or_critics_model():
+    from friday.app.pins import CriticNotIndependent, check_critic_independence
+
+    ok = {"critic": "c", "judge": "j", "rubric": "r", "nominator": "n", "worker": "w"}
+    check_critic_independence(ok)
+    for role in ("judge", "rubric", "critic"):
+        with pytest.raises(CriticNotIndependent, match="worker"):
+            check_critic_independence({**ok, "worker": ok[role]})

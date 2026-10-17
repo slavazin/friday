@@ -585,7 +585,8 @@ def critic_lines(r: CriticReadings) -> list[str]:
     if r.honored_unread:
         out.append(f"  passes with no record: {', '.join(r.honored_unread)}")
     out.append(f"Mean loss on {len(r.loss)} shared requests: main {_fmt(r.mean_main)}, critic {_fmt(r.mean_critic)}, "
-               f"critic - main {_fmt(r.mean_diff)}")
+               f"critic - main {_fmt(r.mean_diff)} (the critic run's worker is its own pin: this difference is the "
+               "builder and the critic loop together, not the critic alone)")
     out += [f"  {b.category}: main {_fmt(b.main)} ({b.main_passes}), critic {_fmt(b.critic)} ({b.critic_passes})"
             for b in r.loss]
     out.append(f"Admitted, main run: {', '.join(i for i, _ in r.admitted_main) or 'none'}")
