@@ -10,7 +10,12 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from friday.config import load_spec
+
+def load_spec(path):
+    """The RunSpec at `path`: run.yml, or an overlay over it (run-critic.yml); see `runner.load_run_spec`."""
+    from friday.app.runner import load_run_spec
+
+    return load_run_spec(path)
 
 
 def _doctor(args: argparse.Namespace) -> int:
@@ -30,6 +35,13 @@ def _doctor(args: argparse.Namespace) -> int:
     for role, res in resolve(spec.models.roles, served).items():
         note = f"  (fallback; wanted {', '.join(res.wanted)})" if res.replaced else ""
         print(f"{role:12s} -> {res.model}{note}")
+    from friday.app.pins import CriticNotIndependent, check_critic_independence
+
+    try:
+        check_critic_independence({r: res.model for r, res in resolve(spec.models.roles, served).items()})
+        print("critic independent of the rubric, judge and nominator: yes")
+    except CriticNotIndependent as e:
+        print(f"critic independent of the rubric, judge and nominator: NO ({e})")
     print(f"run.yml hash {spec.spec_hash}")
     return 0
 
@@ -170,6 +182,7 @@ def _tag_round(args: argparse.Namespace) -> int:
 
 CACHE_DIR = "cache"          # response and rubric caches under the run root (no paths.cache knob yet)
 MAIN_RUN = "main"            # SPEC § 17: the main run's telemetry scope; the critic run is `critic`
+CRITIC_RUN = "critic"
 
 
 def _run_root(spec, args) -> tuple[Path, Path, Path]:
@@ -190,6 +203,7 @@ class PassEnvFactory:
     root: str
     db: str
     role_models: tuple[tuple[str, str], ...]
+    scope: str = MAIN_RUN          # `critic`: every pass takes the critic turn and the revision (SPEC § 17)
 
     @contextmanager
     def __call__(self):
@@ -206,6 +220,7 @@ class PassEnvFactory:
         from friday.app.wiring import evaluator_settings, with_optional
         from friday.eval.evaluate import Evaluator
         from friday.roles.ask import Rejected, ask_json
+        from friday.roles.critic import Critic
         from friday.roles.judge import Judge
         from friday.roles.prompts import PromptBook
         from friday.roles.worker import Worker
@@ -214,7 +229,7 @@ class PassEnvFactory:
         repo, root = Path(self.repo), Path(self.root)
         conn = connect(self.db, spec.telemetry.busy_timeout_ms)
         spend = SqliteSpendLog(conn)
-        tel = open_run_telemetry(self.db, MAIN_RUN, busy_timeout_ms=spec.telemetry.busy_timeout_ms)
+        tel = open_run_telemetry(self.db, self.scope, busy_timeout_ms=spec.telemetry.busy_timeout_ms)
         browser = None
         try:
             client = with_optional(CrusoeClient, spec.models, spec.transport, spend,
@@ -238,6 +253,8 @@ class PassEnvFactory:
                 judge=DraftRecordingJudge(judge, artifacts), passes=SqlitePassStore(conn),
                 judge_store=SqliteJudgeStore(conn), artifacts=artifacts, settings=PassSettings.from_spec(spec),
                 transport_errors=(TransportFailure,), telemetry=tel,
+                critic=Critic(client, book, spec.critic.max_requests, spec.json.reasks)
+                if self.scope == CRITIC_RUN else None,
             )
         finally:
             if browser is not None:
@@ -323,11 +340,11 @@ def build_runner(args: argparse.Namespace, *, live: bool = True):
     from friday.adapters.telemetry import open_run_telemetry
     from friday.adapters.youcom import YouSearchClient
     from friday.app.goals import build_tagger
-    from friday.app.pins import resolve
+    from friday.app.pins import check_critic_independence, resolve
     from friday.app.render import FlipRenderer
     from friday.app.request_text import request_text
     from friday.app.round_close import build_round_close
-    from friday.app.runner import Runner, Stores
+    from friday.app.runner import Runner, Stores, base_spec_path, run_scope
     from friday.app.wiring import build_mechanics, with_optional
     from friday.roles.coordinator import Coordinator
     from friday.roles.lens_minter import LensMinter
@@ -336,9 +353,13 @@ def build_runner(args: argparse.Namespace, *, live: bool = True):
     from friday.roles.prompts import PromptBook
 
     spec = load_spec(args.spec)
+    scope = run_scope(args.spec)
+    critic_run = scope == CRITIC_RUN
+    if critic_run:
+        _refuse_shared_root(args, base_spec_path(args.spec))
     repo, root, db = _run_root(spec, args)
     stores = open_run_stores(db)
-    tel = open_run_telemetry(db, MAIN_RUN, busy_timeout_ms=spec.telemetry.busy_timeout_ms)
+    tel = open_run_telemetry(db, scope, busy_timeout_ms=spec.telemetry.busy_timeout_ms)
 
     if root != repo:
         lenses_dir = root / spec.paths.lenses
@@ -361,9 +382,11 @@ def build_runner(args: argparse.Namespace, *, live: bool = True):
 
     client = with_optional(CrusoeClient, spec.models, spec.transport, stores.spend,
                            cache=FileResponseCache(root / CACHE_DIR / "responses"), telemetry=tel)
-    roles = {r: pin for r, pin in spec.models.roles.items() if r != "critic"}   # the critic run binds its own
+    roles = {r: pin for r, pin in spec.models.roles.items() if critic_run or r != "critic"}
     resolved = resolve(roles, client.list_models())
     role_models = {r: res.model for r, res in resolved.items()}
+    if critic_run:
+        check_critic_independence(role_models)
     client.bind(role_models)
     fallbacks = [{"role": r, "from_model": res.wanted[0] if res.wanted else "", "to_model": res.model,
                   "reason": "pin rule: no pin served"} for r, res in sorted(resolved.items()) if res.replaced]
@@ -402,7 +425,7 @@ def build_runner(args: argparse.Namespace, *, live: bool = True):
                 "max_parallel_passes": spec.run.max_parallel_passes, "chromium": "playwright bundled",
                 **_versions()}
     factory = PassEnvFactory(str(Path(args.spec).resolve()), str(repo), str(root), str(db),
-                             tuple(sorted(role_models.items())))
+                             tuple(sorted(role_models.items())), scope)
     runner = Runner(
         spec=spec, stores=Stores(stores.passes, stores.judge, stores.observations, stores.pools, stores.exposures,
                                  stores.ledger, stores.events, stores.spend),
@@ -410,8 +433,23 @@ def build_runner(args: argparse.Namespace, *, live: bool = True):
         coordinator=Coordinator(client, book, spec.json.reasks), build_close=build_close, env_factory=factory,
         close_log=SqliteCloseLog(stores.conn), telemetry=tel, root=root, transport_errors=(TransportFailure,),
         spend_by_role=_spend_by_role(stores.conn), git_log=_git_log(root), manifest=manifest, fallbacks=fallbacks,
+        readout_after_halt=not critic_run,
     )
     return runner, client
+
+
+def _refuse_shared_root(args: argparse.Namespace, base: Path | None) -> None:
+    """The critic run never shares the main run's stores (SPEC § 17 Don't): it needs its own `--root`, outside
+    the repository and holding no main-run database."""
+    if not getattr(args, "root", None):
+        raise SystemExit("the critic run needs its own --root (its db, journal, lenses, plans and artifacts)")
+    if getattr(args, "db", None):
+        raise SystemExit("the critic run reads its database from paths.db under --root; drop --db")
+    root = Path(args.root).resolve()
+    if root == Path.cwd().resolve():
+        raise SystemExit("--root is the repository: the critic run needs a root of its own")
+    if base is not None and (root / load_spec(base).paths.db).exists():
+        raise SystemExit(f"{root} holds a main-run database; the critic run needs a root of its own")
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -446,9 +484,12 @@ def _telemetry(args: argparse.Namespace) -> int:
 
     spec = load_spec(args.spec)
     _, _, db = _run_root(spec, args)
-    tel = open_run_telemetry(db, MAIN_RUN, busy_timeout_ms=spec.telemetry.busy_timeout_ms)
+    from friday.app.runner import run_scope
+
+    scope = run_scope(args.spec)
+    tel = open_run_telemetry(db, scope, busy_timeout_ms=spec.telemetry.busy_timeout_ms)
     fn = span_tree if args.tree else time_table
-    print(fn(tel, run=MAIN_RUN, round_=args.round))
+    print(fn(tel, run=scope, round_=args.round))
     return 0
 
 
@@ -469,6 +510,71 @@ def _readout(args: argparse.Namespace) -> int:
 def _export(args: argparse.Namespace) -> int:
     runner, _ = build_runner(args)
     print(f"wrote {runner.write_export()}")
+    return 0
+
+
+CRITIC_EXPORT = "critic_export.json"
+MAIN_SNAPSHOT = "main-snapshot"     # under the critic root: the copy of the main run's database the readings read
+
+
+def _journal_of(root: Path, spec):
+    """The run root's Journal, read from its files without writing (no directory is created)."""
+    from friday.adapters.journal_md import parse_decision
+    from friday.adapters.memory import MemoryJournal
+
+    d = root / spec.paths.journal
+    found = [parse_decision(p.read_text()) for p in sorted(d.glob("D-*.md"))] if d.exists() else []
+    return MemoryJournal(_decisions={x.id: x for x in found})
+
+
+def _critic_readout(args: argparse.Namespace) -> int:
+    """Prints the critic run's readings beside the main run's and writes critic_export.json under the critic root.
+
+    The main run's database is copied (with its WAL) under the critic root and read there: the main run's
+    files are never opened for writing."""
+    import dataclasses
+    import shutil
+
+    from friday.adapters.sqlite.process import open_run_stores
+    from friday.app.pipeline import HONORED_FILE
+    from friday.app.readout import critic_lines, critic_readings
+
+    main_spec, critic_spec = load_spec(args.main_spec), load_spec(args.critic_spec)
+    main_root, critic_root = Path(args.main_root).resolve(), Path(args.critic_root).resolve()
+    if main_root == critic_root:
+        raise SystemExit("--main-root and --critic-root are the same root")
+    main_db = main_root / main_spec.paths.db
+    if not main_db.exists():
+        raise SystemExit(f"{main_db} does not exist")
+    snap = critic_root / MAIN_SNAPSHOT
+    snap.mkdir(parents=True, exist_ok=True)
+    for suffix in ("", "-wal"):
+        src = Path(str(main_db) + suffix)
+        dst = snap / (main_db.name + suffix)
+        if src.exists():
+            shutil.copyfile(src, dst)
+        elif dst.exists():
+            dst.unlink()
+    main_stores = open_run_stores(snap / main_db.name)
+    critic_stores = open_run_stores(critic_root / critic_spec.paths.db)
+    if args.held_out is None:
+        held = frozenset(r["id"] for r in json.loads((Path.cwd() / critic_spec.stream.held_out_path).read_text()))
+    else:
+        held = frozenset(args.held_out.split(","))
+    honored = {}
+    for p in critic_stores.passes.passes():
+        f = critic_root / critic_spec.paths.artifacts / p.id / HONORED_FILE
+        if f.exists():
+            honored[p.id] = json.loads(f.read_text())
+    r = critic_readings(main_stores.passes, critic_stores.passes, honored, _journal_of(main_root, main_spec),
+                        _journal_of(critic_root, critic_spec), held)
+    for line in critic_lines(r):
+        print(line)
+    out = critic_root / CRITIC_EXPORT
+    out.write_text(json.dumps({"main_root": str(main_root), "critic_root": str(critic_root),
+                               "main_spec_hash": main_spec.spec_hash, "critic_spec_hash": critic_spec.spec_hash,
+                               **dataclasses.asdict(r)}, indent=1) + "\n")
+    print(f"wrote {out}")
     return 0
 
 
@@ -508,6 +614,13 @@ def main(argv: list[str] | None = None) -> int:
     wb = sub.add_parser("web")
     wb.add_argument("rest", nargs=argparse.REMAINDER)
     wb.set_defaults(fn=_web)
+    cr = sub.add_parser("critic-readout")
+    cr.add_argument("--main-root", required=True, help="the main run's root (read through a copy of its db)")
+    cr.add_argument("--critic-root", required=True)
+    cr.add_argument("--main-spec", default="run.yml")
+    cr.add_argument("--critic-spec", default="run-critic.yml")
+    cr.add_argument("--held-out", default=None, help="comma-separated held-out ids (default: the held-out file)")
+    cr.set_defaults(fn=_critic_readout)
     for name, fn in (("readout", _readout), ("export", _export)):
         p = sub.add_parser(name)
         _root_args(p)

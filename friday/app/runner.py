@@ -14,6 +14,7 @@ journaled observations, and closes the round.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import multiprocessing
 import traceback
@@ -22,6 +23,8 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
+
+import yaml
 
 from friday.algorithms.composition import compose_pair, select_composed
 from friday.algorithms.exposure import PairKind
@@ -37,7 +40,7 @@ from friday.app.request_text import regime_of
 from friday.app.request_text import request_text as compose_request_text
 from friday.app.round_close import CloseSummary, RoundClose
 from friday.app.wiring import with_optional
-from friday.config import RunSpec
+from friday.config import ConfigError, RunSpec, parse_spec
 from friday.domain.events import Steer
 from friday.domain.types import (
     Arm,
@@ -70,9 +73,68 @@ from friday.roles.judge import DraftObservation
 from friday.roles.tagger import Tagger
 from friday.roles.worker import render_composition
 
+MAIN_RUN = "main"                     # SPEC § 17: the telemetry scopes of the two runs
+CRITIC_RUN = "critic"
+# What an overlay spec (`extends:`) may override (SPEC § 17 Store): paths.*, run.rounds and critic.* only
+OVERLAY_SECTIONS = {"paths": None, "run": {"rounds"}, "critic": None}
+
 DRAFTS_FILE = "observations.json"     # artifacts/<pass_id>/: the report call's drafts, written as the pass ends
 NOTES_FILE = "notes.md"               # the notes arm's shared file under the run root (no paths.notes knob yet)
 EXPORT_FILE = "export.json"
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Run specs: run.yml, or an overlay that extends it (run-critic.yml)
+
+
+def _overlay(path: Path) -> dict[str, Any] | None:
+    raw = yaml.safe_load(path.read_text())
+    return raw if isinstance(raw, dict) and "extends" in raw else None
+
+
+def run_scope(path: str | Path) -> str:
+    """The telemetry scope the spec at `path` runs under: an overlay's `scope`, else `main`."""
+    over = _overlay(Path(path))
+    return MAIN_RUN if over is None else str(over.get("scope", MAIN_RUN))
+
+
+def base_spec_path(path: str | Path) -> Path | None:
+    """The spec an overlay extends (resolved beside it); None for a whole spec."""
+    over = _overlay(Path(path))
+    return None if over is None else Path(path).resolve().parent / str(over["extends"])
+
+
+def load_run_spec(path: str | Path) -> RunSpec:
+    """The RunSpec at `path`. An overlay (`extends: run.yml`) is merged over the spec it extends; it may set only
+    paths.*, run.rounds and critic.* (ConfigError otherwise). On the critic run the run's spend cap and pass slots
+    are its own: `run.spend_cap_usd` reads `critic.spend_cap_usd`, `run.max_parallel_passes` reads
+    `critic.max_parallel_passes` (SPEC § 17 Concurrency, Don't)."""
+    path = Path(path)
+    over = _overlay(path)
+    if over is None:
+        return parse_spec(path.read_text())
+    base_p = path.resolve().parent / str(over["extends"])
+    base_text = base_p.read_text()
+    merged = yaml.safe_load(base_text)
+    scope = str(over.get("scope", MAIN_RUN))
+    for key, value in over.items():
+        if key in ("extends", "scope"):
+            continue
+        if key not in OVERLAY_SECTIONS or not isinstance(value, dict):
+            raise ConfigError(f"{path.name}: an overlay may override only {sorted(OVERLAY_SECTIONS)}; got {key}")
+        allowed = OVERLAY_SECTIONS[key]
+        if allowed is not None and set(value) - allowed:
+            raise ConfigError(f"{path.name}: {key} may override only {sorted(allowed)}; got {sorted(set(value))}")
+        unknown = set(value) - set(merged[key])
+        if unknown:
+            raise ConfigError(f"{path.name}: {key} has unknown keys {sorted(unknown)}")
+        merged[key] = {**merged[key], **value}
+    if scope == CRITIC_RUN:
+        merged["run"] = {**merged["run"], "spend_cap_usd": merged["critic"]["spend_cap_usd"],
+                         "max_parallel_passes": merged["critic"]["max_parallel_passes"]}
+    spec = parse_spec(yaml.safe_dump(merged, sort_keys=False))
+    digest = hashlib.sha256((base_text + "\n# overlay\n" + path.read_text()).encode()).hexdigest()[:16]
+    return dataclasses.replace(spec, spec_hash=digest)
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -345,6 +407,7 @@ class Runner:
     fallbacks: Sequence[Mapping[str, Any]] = ()
     in_process: bool = False
     say: Callable[[str], None] = print
+    readout_after_halt: bool = True             # False on the critic run: its readings are `critic-readout`'s
 
     @property
     def artifacts(self) -> Path:
@@ -380,7 +443,7 @@ class Runner:
                     self.telemetry.scoped(round=n).event("run.halt", reason=halt, round=n)
                     self.say(f"halt after round {n}: {halt}")
             run_span.set(halt_reason=halt)
-        if halt is not None:
+        if halt is not None and self.readout_after_halt:
             self.readout()
             self.write_export()
         return halt

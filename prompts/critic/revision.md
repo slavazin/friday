@@ -1,0 +1,1 @@
+Your manager tried the file with the user and sent the notes below. Output the whole revised file, starting with <!doctype html>. Keep what works. Fix the problems named. Add each feature request as a working control, give it an id, and list it in the how-to section and the how-to JSON with a "does" that says in the user's words what it does.

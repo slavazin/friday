@@ -1,0 +1,21 @@
+# The critic run (SPEC § 17): build, critic, revision. An overlay of run.yml: it overrides paths.*, run.rounds
+# and critic.* only; every other constant, pin and seed is run.yml's. Run it under its own root:
+#   friday --spec run-critic.yml run --root /Users/slavazinevich/GenDev/friday-runs/critic
+# Its spend cap is critic.spend_cap_usd and its pass slots critic.max_parallel_passes; telemetry run = critic.
+extends: run.yml
+scope: critic
+
+run:
+  rounds: 4                    # the drift (drift.round 4) stays inside the run
+
+critic:
+  max_requests: 2
+  spend_cap_usd: 10.0
+  max_parallel_passes: 6
+
+paths:                         # under --root; its own db, journal, lenses, plans and artifacts
+  db: critic.db
+  artifacts: artifacts
+  journal: journal
+  lenses: lenses
+  plans: plans

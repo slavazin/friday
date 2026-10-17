@@ -59,11 +59,12 @@ from friday.domain.types import (
     Request,
     Viewport,
 )
-from friday.eval import probe
+from friday.eval import how_to, probe
 from friday.ports.browser import Browser, Page
 from friday.ports.models import ChatResult, Message
 from friday.ports.stores import ExposureStore, Journal, JudgeStore, Ledger, PassStore
 from friday.ports.telemetry import Telemetry
+from friday.roles.critic import Criticism, match_request, revision_message
 from friday.roles.judge import DraftObservation
 from friday.roles.prompts import PromptBook
 from friday.roles.worker import Worker, extract_html, render_composition, repair_message
@@ -266,6 +267,7 @@ class PassSettings:
     max_artifact_bytes: int
     viewports: Mapping[Regime, Viewport]   # the first viewport of each regime: where the repair load runs
     chars_per_token: int                   # notes.chars_per_token: the token proxy of `Pass.composed_tokens`
+    critic_viewport: Viewport | None = None  # the critic's screenshot (SPEC § 17: 1280x800, R1's first viewport)
 
     @classmethod
     def from_spec(cls, spec: RunSpec) -> PassSettings:
@@ -275,6 +277,7 @@ class PassSettings:
             max_artifact_bytes=spec.worker.max_artifact_bytes,
             viewports={Regime(k): tuple(v[0]) for k, v in spec.eval.viewports.items()},
             chars_per_token=spec.notes.chars_per_token,
+            critic_viewport=tuple(spec.eval.viewports["R1"][0]),
         )
 
 
@@ -294,6 +297,7 @@ class PassEnv:
     transport_errors: tuple[type[BaseException], ...]              # adapters.crusoe.TransportFailure in the run
     telemetry: Telemetry          # the process's one log, shared with the client, evaluator, judge and browser
     missing_ids: Callable[[Page, Collection[str]], list[str]] = page_missing_ids
+    critic: Any = None            # roles.critic.Critic on the critic run (SPEC § 17); None: no critic turn
 
 
 @dataclass(frozen=True)
@@ -487,6 +491,9 @@ def _run_pass(task: PassTask, env: PassEnv) -> PassOutcome:
     try:
         try:
             html, repaired, extracted = _turns(env, task, messages, artifact, results)
+            reaction: Criticism | None = None
+            if env.critic is not None:
+                html, reaction = _critic_turns(env, task, messages, artifact, html, results)
             size = len(html.encode())
             oversize = size > env.settings.max_artifact_bytes
             t.metric("pass.artifact_bytes", size, "bytes", oversize=oversize)
@@ -510,6 +517,11 @@ def _run_pass(task: PassTask, env: PassEnv) -> PassOutcome:
         (out_dir / "pass.json").write_text(json.dumps(_meta(task, results, failed=f"{type(e).__name__}: {e}"),
                                                       indent=1))
         raise
+    if reaction is not None:
+        honored = requests_honored(html, report, reaction.requests)
+        (out_dir / HONORED_FILE).write_text(json.dumps(honored, indent=1))
+        if honored["share"] is not None:
+            t.metric("pass.requests_honored", honored["share"], "share", requests=honored["of"])
     env.passes.add_pass(pass_)
     env.passes.add_eval(report)
     if verdict.answers is not None:
@@ -526,6 +538,120 @@ def _run_pass(task: PassTask, env: PassEnv) -> PassOutcome:
         t.metric(name, value, "score")
     t.event("pass.outcome", outcome="scored", error="", dropped_calls=list(verdict.dropped))
     return PassOutcome(pass_, report, verdict.observations, size, oversize, tuple(verdict.dropped))
+
+
+# ---------------------------------------------------------------------------------------------------------
+# The critic run's turns (SPEC § 17): build, critic, revision
+
+
+CRITIC_FILE = "critic.json"          # artifacts/<pass_id>/: the critic's reply and the revision's outcome
+HONORED_FILE = "requests_honored.json"
+BUILT_FILE = "built.html"            # the artifact as built, before the revision replaced it
+SCREENSHOT_FILE = "critic.png"
+
+
+def _critic_screenshot(env: PassEnv, artifact: Path) -> bytes | None:
+    """One screenshot of the loaded page at the critic's viewport; None when the page does not load."""
+    viewport = env.settings.critic_viewport
+    if viewport is None:
+        raise ValueError("PassSettings.critic_viewport is unset on a critic run")
+    with ExitStack() as stack:
+        try:
+            page = stack.enter_context(env.browser.page(str(artifact), viewport))
+        except Exception:  # noqa: BLE001 - a page that does not load gives the critic no screenshot; it reads the source
+            return None
+        return page.screenshot() or None
+
+
+def _critic_turns(env: PassEnv, task: PassTask, messages: Sequence[Message], artifact: Path, html: str,
+                  results: list[ChatResult]) -> tuple[str, Criticism]:
+    """The critic call on this pass's own artifact, then the worker's one revision turn.
+
+    The critic reads the request text, the built source (its how-to inside) and a screenshot taken after load;
+    no eval has run yet, so no reading of it exists to leak. The revised file replaces `index.html` (the built
+    one is kept as `built.html`); a revision reply with no document leaves the built file in place. Returns the
+    HTML now in `index.html` and the critic's reply. Writes `critic.json`.
+    """
+    t = env.telemetry
+    out_dir = artifact.parent
+    (out_dir / BUILT_FILE).write_text(html)
+    shot = _critic_screenshot(env, artifact)
+    if shot is not None:
+        (out_dir / SCREENSHOT_FILE).write_bytes(shot)
+    with t.span("pass.critic", screenshot=shot is not None) as span:
+        reply = env.critic.criticise(task.request_text, html, shot, tag=f"{task.pass_id}:critic")
+        results.extend(reply.results)
+        last = reply.results[-1]
+        span.set(model=last.model, requests=len(reply.criticism.requests),
+                 tokens_in=sum(r.tokens_in for r in reply.results), tokens_out=sum(r.tokens_out for r in reply.results),
+                 cost_usd=sum(r.cost_usd or 0.0 for r in reply.results))
+    msg = revision_message(env.book, task.request_text, reply.criticism)
+    convo = [*messages, Message("assistant", html), msg]
+    with t.span("pass.revision") as span:
+        revised = env.worker.client.chat("worker", convo, tag=f"{task.pass_id}:revision")
+        results.append(revised)
+        found = extract_html(revised.text)
+        span.set(model=revised.model, tokens_in=revised.tokens_in, tokens_out=revised.tokens_out,
+                 cost_usd=revised.cost_usd, extracted=found is not None)
+    if found is not None:
+        html = found
+        artifact.write_text(html)
+    (out_dir / CRITIC_FILE).write_text(json.dumps({
+        "critic_model": last.model, "criticism": reply.criticism.criticism,
+        "requests": list(reply.criticism.requests), "screenshot": shot is not None,
+        "critic_attempts": reply.asked.attempts, "critic_failures": list(reply.asked.failures),
+        "revision_model": revised.model, "revised": found is not None,
+    }, indent=1))
+    return html, reply.criticism
+
+
+def declared_descriptions(html: str) -> dict[int, str]:
+    """Each how-to entry's position -> its `does` and its `id`, read at the rung `how_to.parse` reads it.
+
+    The position is the `n` of the declared control's check id `how-to.{n}:#id`."""
+    text = how_to.find_json(html)
+    if text is None:
+        return {}
+    entries: list[Any] | None = None
+    for read in (how_to._strict, how_to._repaired):          # the same rungs, in the same order, as how_to.parse
+        value = read(text)
+        if how_to._shaped(value):
+            entries = value["controls"]
+            break
+    if entries is None:
+        entries = how_to._salvage(text)
+    out: dict[int, str] = {}
+    for n, e in enumerate(entries):
+        if isinstance(e, dict):
+            does = e.get("does") if isinstance(e.get("does"), str) else ""
+            ident = e.get("id") if isinstance(e.get("id"), str) else ""
+            out[n] = f"{does} {re.sub(r'[#_-]+', ' ', ident)}".strip()
+    return out
+
+
+_HOW_TO_CHECK = re.compile(r"how-to\.(\d+):")
+
+
+def requests_honored(html: str, report: EvalReport, requests: Sequence[str]) -> dict[str, Any]:
+    """Per feature request: the revised how-to's declared control that matches its words, and whether the how-to
+    check passed for that control at every viewport read. `share` is honored / requests (None with no request)."""
+    descriptions = declared_descriptions(html)
+    declared: list[tuple[str, str]] = []
+    for reading in report.how_to[:1]:                       # every viewport parses the same file the same way
+        for check in reading.parse.declared:
+            m = _HOW_TO_CHECK.match(check.id)
+            if m is not None and int(m.group(1)) in descriptions:
+                declared.append((check.id, descriptions[int(m.group(1))]))
+    rows = []
+    for r in requests:
+        match = match_request(r, declared)
+        verdicts = [res.passed for reading in report.how_to for res in reading.results if res.check_id == match.control]
+        passed = bool(verdicts) and all(verdicts)
+        rows.append({"request": r, "control": match.control, "share": match.share,
+                     "how_to_passed": passed if match.control else None,
+                     "honored": match.control is not None and passed})
+    honored = sum(row["honored"] for row in rows)
+    return {"requests": rows, "honored": honored, "of": len(rows), "share": honored / len(rows) if rows else None}
 
 
 @dataclass(frozen=True)
