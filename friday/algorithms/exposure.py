@@ -9,26 +9,12 @@ pairs are assigned within the round, so two categories in one candidate's reach 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from enum import StrEnum
 
 from friday.domain.hooks import fires
-from friday.domain.types import Decision, Request
+from friday.domain.types import Decision, PairKind, PairPlan, Request
 from friday.stats.rng import bernoulli, coin
 
-
-class PairKind(StrEnum):
-    EXPOSURE = "exposure"
-    ABLATION = "ablation"
-    NONE = "none"
-
-
-@dataclass(frozen=True)
-class PairPlan:
-    category: str
-    kind: PairKind
-    decision_id: str | None = None
-    treated_slot: int = 0       # the slot that receives (exposure) or keeps (ablation) the decision
+__all__ = ["PairKind", "PairPlan", "assign_exposures"]
 
 
 def assign_exposures(

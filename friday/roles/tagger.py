@@ -6,18 +6,11 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from friday.domain.types import Request
+from friday.domain.types import Request, TagGloss
 from friday.ports.models import ModelClient
 from friday.roles.prompts import PromptBook
 
 ROLE = "tagger"
-
-
-@dataclass(frozen=True)
-class TagGloss:
-    tag: str
-    gloss: str
-    minted_round: int
 
 
 @dataclass

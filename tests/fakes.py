@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
+from friday.domain.types import Control, ControlKind
 from friday.ports.models import ChatResult, Message
 
 
@@ -43,6 +44,8 @@ class FakeDom:
     errors: list[str] = field(default_factory=list)
     animated: set[str] = field(default_factory=set)       # canvases that change with no input
     focus: str | None = None
+    kinds: dict[str, ControlKind] = field(default_factory=dict)  # selector -> kind, for controls()
+    on_choose: dict[str, Callable[[FakeDom], None]] = field(default_factory=dict)
 
 
 class FakePage:
@@ -94,6 +97,17 @@ class FakePage:
 
     def screenshot(self) -> bytes:
         return b"png"
+
+    def controls(self) -> list[Control]:
+        return [Control(sel, kind, sel if sel.startswith("#") else None) for sel, kind in self.dom.kinds.items()]
+
+    def snapshot(self) -> str:
+        return repr((sorted(self.dom.texts.items()), sorted(self.dom.canvas.items()), sorted(self.dom.visible)))
+
+    def choose(self, selector: str) -> None:
+        if selector not in self.dom.kinds:
+            raise LookupError(selector)
+        self.dom.on_choose.get(selector, lambda d: None)(self.dom)
 
 
 def page_factory(make_dom: Callable[[], FakeDom]):

@@ -5,6 +5,8 @@ from __future__ import annotations
 from contextlib import AbstractContextManager
 from typing import Protocol
 
+from friday.domain.types import Control, Viewport
+
 
 class Page(Protocol):
     def goto(self, query: str) -> None:
@@ -33,9 +35,22 @@ class Page(Protocol):
     def console_errors(self) -> list[str]: ...
     def screenshot(self) -> bytes: ...
 
+    def controls(self) -> list[Control]:
+        """Operable elements on the page in document order: buttons, text inputs, selects, checkboxes,
+        canvases, and other elements with a tab index or a click handler."""
+        ...
+
+    def snapshot(self) -> str:
+        """A digest of the visible state: rendered text, input values, canvas pixels, element visibility."""
+        ...
+
+    def choose(self, selector: str) -> None:
+        """Selects the next option of a <select> (wrapping), or toggles a checkbox or radio."""
+        ...
+
 
 class Browser(Protocol):
-    def page(self, artifact_path: str, viewport: tuple[int, int]) -> AbstractContextManager[Page]:
+    def page(self, artifact_path: str, viewport: Viewport) -> AbstractContextManager[Page]:
         """A fresh page loaded from `artifact_path`, every network route aborted."""
         ...
 

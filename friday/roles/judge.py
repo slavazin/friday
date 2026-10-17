@@ -95,3 +95,25 @@ def validate_report(
             raise Rejected(f"{d_id}: contradicted needs a verbatim quote")
         dispositions[d_id] = (disp, quote)
     return observations, dispositions
+
+
+@dataclass
+class Judge:
+    """The two judge calls (SPEC § 6). Prompts live in prompts/judge/."""
+
+    client: Any
+    book: Any
+    flag_p: float
+    max_observations: int
+    quote_reasks: int
+
+    def lens_call(self, pass_id: str, request_text: str, composed: Mapping[str, str], source: str,
+                  lenses: Sequence[Lens]) -> list[LensAnswer] | None:
+        """Lens answers from the artifact only; None when the call is dropped after its re-ask."""
+        raise NotImplementedError("slice S8: lens call")
+
+    def report_call(self, pass_id: str, request_text: str, composed: Mapping[str, str], source: str,
+                    answers: Sequence[LensAnswer], eval_report_text: str, lens_ids: Sequence[str],
+                    ) -> tuple[list[DraftObservation], dict[str, tuple[Disposition, str]]] | None:
+        """Observations and dispositions; None when the call is dropped (its fires stay undisposed)."""
+        raise NotImplementedError("slice S8: report call")

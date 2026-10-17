@@ -56,6 +56,14 @@ class Citation:
     snippet: str
 
 
+class ResponseCache(Protocol):
+    def get(self, key: str) -> str | None:
+        """The cached reply text for a request-body digest, or None."""
+        ...
+
+    def put(self, key: str, value: str) -> None: ...
+
+
 class SearchClient(Protocol):
     def search(self, query: str) -> Sequence[Citation]:
         """One search call; results cited in a decision's warrant."""

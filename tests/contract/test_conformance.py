@@ -8,7 +8,7 @@ from friday.adapters import memory
 from friday.adapters.journal_md import MarkdownJournal
 from friday.adapters.lens_md import MarkdownLensSet
 from friday.adapters.sqlite import stores as sq
-from friday.ports import browser, models, stores
+from friday.ports import browser, goals, models, stores
 from friday.roles.coordinator import TOOL_NAMES, CoordinatorTools
 from tests.fakes import FakePage, ScriptedClient
 
@@ -29,6 +29,8 @@ def params(sig):
     (MarkdownJournal, stores.Journal), (MarkdownLensSet, stores.LensSet),
     (sq.SqliteLedger, stores.Ledger), (sq.SqliteEventLog, stores.EventLog), (sq.SqliteSpendLog, stores.SpendLog),
     (ScriptedClient, models.ModelClient), (FakePage, browser.Page),
+    (memory.MemoryExposureStore, stores.ExposureStore), (memory.MemoryGoalSource, goals.GoalSource),
+    (memory.MemoryTagVocabulary, goals.TagVocabulary),
 ])
 def test_implementation_matches_port(impl, port):
     for name, sig in methods(port).items():

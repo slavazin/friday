@@ -6,7 +6,7 @@ Pure data. No I/O, no model calls, no statistics. Names follow the SPEC § 2 voc
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 from typing import Any
 
 
@@ -78,10 +78,11 @@ class Check:
 class Request:
     id: str
     text: str
-    tags: frozenset[str]
-    contract: dict[str, str]                       # element id -> its role in one phrase
+    tags: frozenset[str]                           # given by the tagger at round start; empty before
+    contract: dict[str, str]                       # element id (with '#') -> its role in one phrase
     checks: dict[Regime, tuple[Check, ...]]
     held_out: bool = False
+    round: int | None = None                       # the goal stream position; None when held out
 
     def checks_for(self, regime: Regime) -> tuple[Check, ...]:
         return self.checks[regime]
@@ -147,6 +148,74 @@ class CheckResult:
     failing_step: str = ""
 
 
+Viewport = tuple[int, int]
+
+
+class ControlKind(StrEnum):
+    BUTTON = "button"
+    TEXT = "text"          # input that takes typed text, textarea, contenteditable
+    SELECT = "select"
+    CHECKBOX = "checkbox"  # checkbox, radio, range
+    CANVAS = "canvas"
+    OTHER = "other"        # any other element with a tab index or a click handler
+
+
+@dataclass(frozen=True)
+class Control:
+    """One operable element the probe suite found on a loaded page."""
+
+    selector: str                 # a selector the Page port resolves to exactly this element
+    kind: ControlKind
+    element_id: str | None = None # its id with '#', when it has one
+
+
+@dataclass(frozen=True)
+class ProbeReading:
+    """The probe suite at one viewport (SPEC § 5). P = mean(loaded, no console error, responsive share)."""
+
+    pass_id: str
+    viewport: Viewport
+    loaded: bool
+    console_errors: tuple[str, ...]
+    controls: int                       # controls operated (at most probe.max_controls)
+    responsive: int
+    responsive_ids: tuple[str, ...]     # '#id' of responsive controls that have one
+    silent: int                         # responsive controls the how-to does not declare
+    P: float
+
+
+class HowToRung(IntEnum):
+    """The repair-chain rung the how-to JSON was read at (SPEC § 5)."""
+
+    STRICT = 1
+    REPAIRED = 2
+    SALVAGED = 3
+    NONE = 4
+
+
+@dataclass(frozen=True)
+class HowToParse:
+    """The how-to read from an artifact's source, before any browser runs it. Pure."""
+
+    rung: HowToRung
+    declared: tuple[Check, ...]         # one acceptance check per valid declared control
+    invalid_entries: int                # entries that decoded but are not valid DSL (count as failed)
+    declared_ids: tuple[str, ...]       # '#id' named by the declared controls
+    undeclared_contract_ids: tuple[str, ...]
+    summary: str = ""
+
+
+@dataclass(frozen=True)
+class HowToReading:
+    """The how-to check at one viewport. H = passed share x contract coverage x repair factor."""
+
+    pass_id: str
+    viewport: Viewport
+    parse: HowToParse
+    results: tuple[CheckResult, ...]
+    H: float
+
+
 @dataclass(frozen=True)
 class EvalReport:
     pass_id: str
@@ -160,6 +229,12 @@ class EvalReport:
     loss: float
     eslint_errors: int = 0
     axe_violations: int = 0
+    P: float = 0.0
+    H: float = 0.0
+    C: float = 0.0
+    probes: tuple[ProbeReading, ...] = ()
+    how_to: tuple[HowToReading, ...] = ()
+    silent_controls: int = 0
 
 
 @dataclass(frozen=True)
@@ -218,6 +293,31 @@ class LedgerDelta:
     kind: DeltaKind
     d: float
     dQ: float
+
+
+class PairKind(StrEnum):
+    EXPOSURE = "exposure"
+    ABLATION = "ablation"
+    NONE = "none"
+
+
+@dataclass(frozen=True)
+class PairPlan:
+    """What one round's pair of a category carries (SPEC § 8)."""
+
+    category: str
+    kind: PairKind
+    decision_id: str | None = None
+    treated_slot: int = 0       # the slot that receives (exposure) or keeps (ablation) the decision
+
+
+@dataclass(frozen=True)
+class TagGloss:
+    """One tag of the tag vocabulary, with its one-line gloss and the round it was minted."""
+
+    tag: str
+    gloss: str
+    minted_round: int
 
 
 @dataclass(frozen=True)

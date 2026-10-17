@@ -6,18 +6,12 @@ import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
 
 from friday.algorithms.loss import LossModel
 from friday.domain.types import EvalReport, Pass, Regime, Request
 from friday.eval.dsl import run_check
 from friday.ports.browser import Browser, QualityProbe
-
-
-class Rubric(Protocol):
-    def score(self, screenshot: bytes, request_text: str, artifact_hash: str) -> tuple[int, ...]:
-        """The frozen questions' scores on the rubric scale (cached by artifact hash)."""
-        ...
+from friday.ports.scoring import Rubric
 
 
 @dataclass
@@ -54,7 +48,7 @@ class Evaluator:
         lo, _ = self.loss_model.rubric_scale
         rubric: Sequence[int] = (
             (lo,) * self.loss_model.rubric_questions if shot is None
-            else self.rubric.score(shot, request_text, hashlib.sha256(html.encode()).hexdigest())
+            else self.rubric.score(shot, request_text, hashlib.sha256(html.encode()).hexdigest(), self.viewport)
         )
         a = self.loss_model.acceptance(results)
         r = self.loss_model.rubric(rubric)

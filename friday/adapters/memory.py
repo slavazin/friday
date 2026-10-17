@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from friday.domain.events import StatusFlip, Steer
@@ -16,8 +16,11 @@ from friday.domain.types import (
     LedgerDelta,
     LensAnswer,
     Observation,
+    PairPlan,
     Pass,
     Pool,
+    Request,
+    TagGloss,
 )
 from friday.ports.models import ChatResult
 
@@ -87,6 +90,55 @@ class MemoryPoolStore:
 
     def pools(self) -> Sequence[Pool]:
         return list(self._pools.values())
+
+
+@dataclass
+class MemoryExposureStore:
+    _plans: dict[int, list[PairPlan]] = field(default_factory=dict)
+
+    def add_plans(self, round_: int, plans: Sequence[PairPlan]) -> None:
+        if round_ in self._plans:
+            raise ValueError(f"round {round_} plans already recorded")
+        self._plans[round_] = list(plans)
+
+    def plans(self, round_: int) -> Sequence[PairPlan]:
+        return list(self._plans.get(round_, []))
+
+
+@dataclass
+class MemoryGoalSource:
+    """A GoalSource over requests held in memory, grouped by their `round` field."""
+
+    requests: list[Request] = field(default_factory=list)
+
+    def round(self, n: int) -> Sequence[Request]:
+        return [r for r in self.requests if r.round == n and not r.held_out]
+
+    def held_out(self) -> Sequence[Request]:
+        return [r for r in self.requests if r.held_out]
+
+
+@dataclass
+class MemoryTagVocabulary:
+    _glosses: list[TagGloss] = field(default_factory=list)
+    _tags: dict[str, frozenset[str]] = field(default_factory=dict)
+
+    def glosses(self) -> Sequence[TagGloss]:
+        return list(self._glosses)
+
+    def add(self, gloss: TagGloss) -> None:
+        if any(g.tag == gloss.tag for g in self._glosses):
+            raise ValueError(f"tag {gloss.tag!r} exists; tags are never renamed or merged")
+        self._glosses.append(gloss)
+
+    def tags_of(self, request_id: str) -> frozenset[str] | None:
+        return self._tags.get(request_id)
+
+    def set_tags(self, tags: Mapping[str, frozenset[str]]) -> None:
+        clash = sorted(set(tags) & set(self._tags))
+        if clash:
+            raise ValueError(f"requests already tagged: {clash}")
+        self._tags.update(tags)
 
 
 @dataclass

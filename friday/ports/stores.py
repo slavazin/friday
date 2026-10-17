@@ -17,6 +17,7 @@ from friday.domain.types import (
     Lens,
     LensAnswer,
     Observation,
+    PairPlan,
     Pass,
     Pool,
 )
@@ -46,6 +47,14 @@ class ObservationStore(Protocol):
 class PoolStore(Protocol):
     def put_pool(self, pool: Pool) -> None: ...
     def pools(self) -> Sequence[Pool]: ...
+
+
+class ExposureStore(Protocol):
+    def add_plans(self, round_: int, plans: Sequence[PairPlan]) -> None:
+        """Records a round's pair plans before its passes run (the exposure coins, as drawn)."""
+        ...
+
+    def plans(self, round_: int) -> Sequence[PairPlan]: ...
 
 
 class Ledger(Protocol):
