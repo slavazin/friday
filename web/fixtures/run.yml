@@ -157,7 +157,7 @@ readout:
 transport:
   max_tries: 5
   backoff_base_s: 1.0
-  backoff_cap_s: 30.0
+  backoff_cap_s: 60.0
   retry_status:
   - 429
   - 500
@@ -204,6 +204,7 @@ models:
       - nvidia/NVIDIA-Nemotron-3-Super-120B-A12B
       fallback: deepseek-ai/DeepSeek-V4-Pro
       temperature: 0.0
+      max_concurrent: 8
     nominator: &id001
       pins:
       - zai-org/GLM-5.3

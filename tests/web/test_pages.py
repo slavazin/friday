@@ -129,7 +129,7 @@ def test_gallery_shows_every_built_app_sandboxed_with_its_how_to_and_decisions(p
 
 def test_a_built_app_cannot_reach_the_page_its_api_or_the_network(page, served):
     open_tab(page, served.url, "gallery")
-    pid = next(p["id"] for p in DOC["passes"] if p["artifact_path"])
+    pid = page.eval_on_selector(".app-card", "e => e.dataset.pass")   # the first card shown: frames load lazily
     page.wait_for_function(f"() => document.querySelector(\".app-card[data-pass='{pid}'] iframe\").src !== ''")
     frame = None
     for _ in range(100):
