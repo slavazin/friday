@@ -101,3 +101,5 @@ readout read only the evidence stores. The demo page and the timing fit (CARRY_F
 | `readout` | span | the readout runner; `passes`, `reps`. It and the readout's `pass` rows carry the readout passes' `Pass.round` (one past the last round that ran); the readout round has no `round` span |
 | `readout.reading` | event | `reading` (R1–R4 …), `population`, `estimate`, `lower_bound`, `claim_above`, `p`, `verdict` |
 | `critic.pass` | span | under `run = critic`; `requests_made`, `requests_honored` |
+| `decision.turnaround` | event | under `run = critic`, at each round close: one per status step of a decision; `decision_id`, `pool_id`, `step` (`drafted`, `admitted`, `rejected` (refused or expired), `retired`), `status`, `cause`, `round`, `first_observation_round` (its pool's), `rounds` (round − first observation round), `wall_s` (since the earliest `pass.outcome` of the observing passes), `n` (the gate's exposure deltas, from the flip's evidence); unread fields are null |
+| `pass.T` | metric (share) | under `run = critic`: the share of in-scope quirk check results passed; null with no quirk in scope; `quirks` |

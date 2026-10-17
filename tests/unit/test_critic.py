@@ -14,7 +14,7 @@ from friday.algorithms.language import blinding_hits
 from friday.app import pipeline
 from friday.app.pins import CriticNotIndependent, check_critic_independence
 from friday.app.readout import critic_lines, critic_readings
-from friday.app.runner import CRITIC_RUN, MAIN_RUN, load_run_spec, run_scope
+from friday.app.runner import CRITIC_RUN, MAIN_RUN, critic_taste_weight, load_run_spec, overlay_knobs, run_scope
 from friday.config import ConfigError
 from friday.domain.types import Arm, CheckResult, DecisionStatus, EvalReport, HowToReading, Pass, Regime
 from friday.eval import how_to
@@ -303,27 +303,51 @@ def test_the_critic_pin_is_a_vision_model_distinct_from_the_rubric_judge_and_nom
 # --- the overlay spec --------------------------------------------------------------------------------------
 
 
-def test_run_critic_yml_overrides_only_paths_rounds_and_critic():
+def test_run_critic_yml_overrides_only_paths_rounds_critic_and_the_three_tempo_knobs():
     base, crit = SPEC, load_run_spec(ROOT / "run-critic.yml")
     assert run_scope(ROOT / "run-critic.yml") == CRITIC_RUN and run_scope(ROOT / "run.yml") == MAIN_RUN
     assert crit.run.rounds == 4 and base.drift.round <= crit.run.rounds
     assert crit.run.spend_cap_usd == crit.critic.spend_cap_usd != base.run.spend_cap_usd
     assert crit.run.max_parallel_passes == crit.critic.max_parallel_passes
     assert crit.paths.db != base.paths.db
-    same = {f.name for f in dataclasses.fields(base)} - {"run", "paths", "critic", "spec_hash"}
+    same = {f.name for f in dataclasses.fields(base)} - {"run", "paths", "critic", "pool", "gate", "spec_hash"}
     assert all(getattr(crit, n) == getattr(base, n) for n in same)
     assert dataclasses.replace(crit.run, rounds=base.run.rounds, spend_cap_usd=base.run.spend_cap_usd,
                                max_parallel_passes=base.run.max_parallel_passes) == base.run
+    assert (crit.pool.recurrence_min_rounds, crit.pool.fast_track_min_requests, crit.gate.in_flight) == (1, 2, 4)
+    assert dataclasses.replace(crit.pool, recurrence_min_rounds=base.pool.recurrence_min_rounds,
+                               fast_track_min_requests=base.pool.fast_track_min_requests) == base.pool
+    assert dataclasses.replace(crit.gate, in_flight=base.gate.in_flight) == base.gate     # the bar is the main run's
+    assert (crit.gate.alpha, crit.gate.n_min, crit.gate.n_max, crit.gate.betting) == (
+        base.gate.alpha, base.gate.n_min, base.gate.n_max, base.gate.betting)
+    assert crit.eval == base.eval
+    assert critic_taste_weight(ROOT / "run-critic.yml") == 0.35
+    assert overlay_knobs(ROOT / "run.yml") == {}
     assert crit.spec_hash != base.spec_hash
 
 
-def test_an_overlay_that_overrides_anything_else_is_refused(tmp_path):
+def test_an_overlay_accepts_exactly_the_tempo_keys_and_refuses_the_gate_bar_and_everything_else(tmp_path):
     (tmp_path / "run.yml").write_text((ROOT / "run.yml").read_text())
-    for body in ("eval: {w_a: 0.5}\n", "run: {seed: 1}\n", "run: {spend_cap_usd: 99.0}\n", "paths: {nope: x}\n"):
-        p = tmp_path / "over.yml"
+    p = tmp_path / "over.yml"
+    p.write_text("extends: run.yml\nscope: critic\npool: {recurrence_min_rounds: 1, fast_track_min_requests: 2}\n"
+                 "gate: {in_flight: 4}\ncritic: {taste_weight: 0.35}\n")
+    spec = load_run_spec(p)
+    assert (spec.pool.recurrence_min_rounds, spec.pool.fast_track_min_requests, spec.gate.in_flight) == (1, 2, 4)
+    assert critic_taste_weight(p) == 0.35
+    for body in ("eval: {w_a: 0.5}\n", "eval: {a_weights: {probe: 0.5, how_to: 0.25, checks: 0.25}}\n",
+                 "run: {seed: 1}\n", "run: {spend_cap_usd: 99.0}\n", "paths: {nope: x}\n",
+                 "gate: {alpha: 0.5}\n", "gate: {n_min: 2}\n", "gate: {n_max: 6}\n",
+                 "gate: {betting: {name: agrapa, params: {}}}\n", "gate: {quality_margin: 9.0}\n",
+                 "pool: {recurrence_min_observations: 1}\n", "pool: {fast_track_share: 0.51}\n",
+                 "pool: {expiry_rounds: 1}\n", "detect: {level: 0.5}\n", "lens: {n_min: 2}\n",
+                 "critic: {taste_weight: 0.0}\n", "critic: {taste_weight: 1.0}\n", "critic: {taste_weight: x}\n",
+                 "critic: {taste_bonus: 0.3}\n"):
         p.write_text("extends: run.yml\nscope: critic\n" + body)
         with pytest.raises(ConfigError):
             load_run_spec(p)
+    p.write_text("extends: run.yml\nscope: critic\n")
+    with pytest.raises(ConfigError, match="taste_weight"):           # no default: the critic run needs one
+        critic_taste_weight(p)
 
 
 # --- the critic readings ------------------------------------------------------------------------------------

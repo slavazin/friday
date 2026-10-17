@@ -1,5 +1,9 @@
 """The manager's taste on the critic run (SPEC § 17 Taste): the planted quirks in `critic/taste.yml`, which of them
-are in scope for a request, the acceptance checks they add to its eval, and the loss without them (`loss_base`).
+are in scope for a request, the checks they add to its eval, and the loss they move.
+
+Taste is its own component of A on the critic run: A = (1 - taste_weight) * A_main + taste_weight * T, where A_main
+is the main run's mix of P, H and C (C over the request's own checks only) and T is the share of in-scope quirk
+check results passed. With no quirk in scope T is unread and A = A_main. `loss_base` is the loss read off A_main.
 
 The quirks are generator-side. Only the critic (as its own habits) and the critic run's eval read them; a quirk is
 in scope for a request by the request's cell, which `goals/cells.json` holds and no agent of the loop reads.
@@ -101,9 +105,12 @@ class QuirkResult:
 @dataclass(frozen=True)
 class TasteReading:
     quirks: tuple[QuirkResult, ...]
-    loss: float             # the loss the gate reads (the taste checks inside C)
-    loss_base: float        # the same eval with the taste checks left out of C
-    C_base: float
+    loss: float             # the loss the gate reads: A carries T at taste_weight
+    loss_base: float        # the same eval without taste: A = A_main
+    C_base: float           # C over the request's own checks (the report's C once scored)
+    T: float | None = None  # the share of in-scope quirk check results passed; None (unread) with no quirk in scope
+    A_main: float | None = None   # the main run's mix of P, H and C_base
+    A: float | None = None        # the A the gate's loss is read off
 
 
 def _viewport_of(check_id: str) -> tuple[str, str]:
@@ -120,6 +127,11 @@ class Taste:
     quirks: tuple[Quirk, ...]
     cells: Mapping[str, tuple[str, str]]
     loss_model: LossModel
+    weight: float           # run-critic.yml critic.taste_weight: T's share of A
+
+    def __post_init__(self) -> None:
+        if not 0.0 < self.weight < 1.0:
+            raise ValueError(f"taste_weight {self.weight} must lie in (0, 1)")
 
     def in_scope(self, request_id: str) -> tuple[Quirk, ...]:
         """The quirks whose scope covers the request; raises KeyError for a request with no recorded cell."""
@@ -136,10 +148,12 @@ class Taste:
                                                     regime: (*own, *(q.check for q in quirks))})
 
     def reading(self, report: EvalReport, quirks: Sequence[Quirk]) -> TasteReading:
-        """Each quirk check's result, and `loss_base`: the report's loss with C read over the request's own checks.
+        """Each quirk check's result, T, and the loss with taste as its own component of A (`loss`) and without it
+        (`loss_base`). `report` is the eval as computed, its C over every check it ran (the taste checks included).
 
-        C is re-read per viewport from the report's check results and must equal the report's C (the taste checks
-        are inside it); a mismatch raises, so `loss_base` is never read off a C the eval did not compute."""
+        C is re-read per viewport from the report's check results and must equal the report's C; a mismatch raises,
+        so neither loss is read off a C the eval did not compute. C_base leaves the taste checks out, so a taste
+        check counts in T alone, never in C as well."""
         taste_ids = {q.check.id for q in quirks}
         by_vp: dict[str, list[tuple[str, bool]]] = defaultdict(list)
         for r in report.checks:
@@ -158,18 +172,28 @@ class Taste:
         if abs(C - report.C) > 1e-9:
             raise ValueError(f"{report.pass_id}: C re-read as {C}, the report holds {report.C}")
         C_base = sum(c_base) / len(c_base)
-        a_base = self.loss_model.a_mix(report.P, report.H, C_base)
+        a_main = self.loss_model.a_mix(report.P, report.H, C_base)
         results = []
         for q in quirks:
             got = [p for rows in by_vp.values() for cid, p in rows if cid == q.check.id]
             if len(got) != len(by_vp):
                 raise ValueError(f"{report.pass_id}: {q.check.id} read at {len(got)} of {len(by_vp)} viewports")
             results.append(QuirkResult(q.id, q.check.id, all(got), sum(got) / len(got)))
-        return TasteReading(tuple(results), report.loss, self.loss_model.loss(a_base, report.R), C_base)
+        T = sum(r.rate for r in results) / len(results) if results else None
+        a = a_main if T is None else (1.0 - self.weight) * a_main + self.weight * T
+        return TasteReading(tuple(results), self.loss_model.loss(a, report.R),
+                            self.loss_model.loss(a_main, report.R), C_base, T, a_main, a)
+
+    def scored(self, report: EvalReport, quirks: Sequence[Quirk]) -> tuple[EvalReport, TasteReading]:
+        """`report` re-scored with taste as its own component: C over the request's own checks, A carrying T at
+        `weight`, and the loss read off that A; the check results stay listed as the eval ran them."""
+        reading = self.reading(report, quirks)
+        return dataclasses.replace(report, C=reading.C_base, A=reading.A, loss=reading.loss), reading
 
 
-def build_taste(repo: str | Path, spec: Any, loss_model: LossModel) -> Taste:
-    """The taste for the critic run under `spec` (a RunSpec), its quirks read from `TASTE_PATH` under `repo`."""
+def build_taste(repo: str | Path, spec: Any, loss_model: LossModel, weight: float) -> Taste:
+    """The taste for the critic run under `spec` (a RunSpec), its quirks read from `TASTE_PATH` under `repo`, T
+    weighted by `weight` (run-critic.yml critic.taste_weight)."""
     s = spec.stream
     quirks = load_quirks(Path(repo) / TASTE_PATH, s.families, s.modes, spec.eval.max_wait_ms)
-    return Taste(quirks, load_cells(Path(repo) / s.path), loss_model)
+    return Taste(quirks, load_cells(Path(repo) / s.path), loss_model, weight)
