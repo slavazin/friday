@@ -21,8 +21,8 @@ gate:
 models:                        # a stronger builder for the open-world showcase (main run keeps Nemotron Nano)
   roles:
     worker:
-      pins: [openai/gpt-oss-120b]
-      fallback: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B
+      pins: [deepseek-ai/DeepSeek-V4.1-Flash]   # probe: polished, playable builds at ~$0.012 each (spec-findings)
+      fallback: openai/gpt-oss-120b
 
 critic:
   taste_weight: 0.35           # A = 0.65 A_main + 0.35 T (T: the share of in-scope quirk checks passed)

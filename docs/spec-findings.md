@@ -85,6 +85,12 @@ The listing carries per-model prices, so cost is computed from it. A live struct
   limit, not concurrency), so rounds took about 12 minutes. `run.rounds` 7 -> 5, drift still at round 4, so rounds
   4-5 are the R2 regime. Rounds 1-3 stand as written.
 
+- **The critic run builds with DeepSeek-V4.1-Flash.** A live probe built the maze (G-001) and rock-dodger (G-003)
+  requests with gpt-oss-120b and DeepSeek-V4.1-Flash and key-tested them in Chromium: both ran without errors,
+  but V4.1-Flash's apps were complete games (a generated maze, a styled canvas game with Start) at about $0.012
+  per build against gpt-oss-120b's bare ones. GLM-5.3 (drafting), Nemotron Super (judge), Super-VL (rubric) and
+  Nano-Omni (critic) were excluded so the builder is never its own grader. The main run keeps Nemotron Nano.
+
 ## Open questions
 
 1. **Coordinator tool calling.** `/v1/models` does not tag `openai/gpt-oss-120b` with tool calling. Verify

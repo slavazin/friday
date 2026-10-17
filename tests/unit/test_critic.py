@@ -314,7 +314,7 @@ def test_run_critic_yml_overrides_only_paths_rounds_critic_and_the_three_tempo_k
                                                          "spec_hash"}
     assert all(getattr(crit, n) == getattr(base, n) for n in same)
     # models: only the worker's pin differs (a stronger builder for the showcase); every scorer's pin is the main run's
-    assert crit.models.roles["worker"].pins == ("openai/gpt-oss-120b",)
+    assert crit.models.roles["worker"].pins == ("deepseek-ai/DeepSeek-V4.1-Flash",)
     assert {r: p for r, p in crit.models.roles.items() if r != "worker"} == \
         {r: p for r, p in base.models.roles.items() if r != "worker"}
     assert dataclasses.replace(crit.models, roles=base.models.roles) == base.models
