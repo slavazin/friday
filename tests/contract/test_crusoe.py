@@ -147,3 +147,42 @@ def test_a_reply_that_never_completes_is_cut_at_the_total_deadline_and_retried(m
     out = c.chat("worker", [Message("user", "x")])
     release.set()
     assert out.text == "<!doctype html>" and len(calls) == 2 and _time.monotonic() - t0 < 2.0
+
+
+def test_a_role_cap_queues_calls_across_clients_sharing_a_lock_dir(monkeypatch, tmp_path):
+    import threading
+    import time as _time
+
+    from friday.adapters.crusoe import CrusoeClient as _C
+
+    live, peak = [0], [0]
+    lock = threading.Lock()
+
+    def handler(request):
+        with lock:
+            live[0] += 1
+            peak[0] = max(peak[0], live[0])
+        _time.sleep(0.15)
+        with lock:
+            live[0] -= 1
+        return reply()
+
+    monkeypatch.setenv(SPEC.models.endpoint.api_key_env, "test-key")
+    roles = dict(SPEC.models.roles)
+    roles["judge"] = dataclasses.replace(roles["judge"], max_concurrent=1)
+    models = dataclasses.replace(SPEC.models, roles=roles, price_overrides={"m": {"prompt": 0.1, "completion": 0.2}})
+
+    def client():
+        http = httpx.Client(base_url="https://x/v1", transport=httpx.MockTransport(handler))
+        c = _C(models, SPEC.transport, MemorySpendLog(), http=http, sleep=lambda s: None, telemetry=TEL,
+               lock_dir=tmp_path)
+        c.bind({"judge": "m"})
+        return c
+
+    clients = [client() for _ in range(3)]
+    ts = [threading.Thread(target=c.chat, args=("judge", [Message("user", "x")])) for c in clients]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert peak[0] == 1

@@ -142,7 +142,7 @@ readout:
 transport:
   max_tries: 5
   backoff_base_s: 1.0
-  backoff_cap_s: 30.0
+  backoff_cap_s: 60.0
   retry_status: [429, 500, 502, 503, 504, 520, 522, 524]   # 52x: the proxy in front of the endpoint timed out
   request_timeout_s: 150      # total per attempt (connect to last byte), enforced by a deadline thread
 
@@ -180,6 +180,7 @@ models:
       pins: [nvidia/NVIDIA-Nemotron-3-Super-120B-A12B]
       fallback: deepseek-ai/DeepSeek-V4-Pro
       temperature: 0.0
+      max_concurrent: 8          # the endpoint answered 429 to bursts of ~40 judge calls; passes queue instead
     nominator: &drafting        # a different model from the judge, so the roles stay independent
       pins: [zai-org/GLM-5.3]
       fallback: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B

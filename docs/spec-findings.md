@@ -69,6 +69,13 @@ The listing carries per-model prices, so cost is computed from it. A live struct
   580 s: httpx bounds each read, not the call. Each attempt now ends at `transport.request_timeout_s` (150 s)
   in total and is retried like a 5xx.
 
+- **Amendment after round 1 of the main run (15:20).** Under 32 parallel passes the judge's endpoint answered
+  HTTP 429 to bursts of about 40 calls: 13 of 43 round-1 judge calls failed after five tries, and their passes
+  carry no lens answers or observations (recorded as dropped calls). The run resumed at round 2 with two
+  changes that alter when calls are made, never what any reading computes: `models.roles.judge.max_concurrent:
+  8` (passes queue for the judge across processes) and `transport.backoff_cap_s` 30 -> 60. Round 1's records
+  stand as written; its spec hash differs from rounds 2-7's.
+
 ## Open questions
 
 1. **Coordinator tool calling.** `/v1/models` does not tag `openai/gpt-oss-120b` with tool calling. Verify

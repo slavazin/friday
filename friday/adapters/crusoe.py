@@ -17,6 +17,8 @@ response_format was sent. A failed call closes the span failed and raises.
 from __future__ import annotations
 
 import base64
+import contextlib
+import fcntl
 import json
 import os
 import random
@@ -88,6 +90,7 @@ class CrusoeClient:
         rng: random.Random | None = None,
         cache: ResponseCache | None = None,
         telemetry: Telemetry,
+        lock_dir: str | os.PathLike[str] | None = None,
     ) -> None:
         """`telemetry` is the process's log; every chat writes its `model.call` span there."""
         key = os.environ.get(models.endpoint.api_key_env)
@@ -100,6 +103,7 @@ class CrusoeClient:
             timeout=transport.request_timeout_s,
         )
         self._sleep, self._rng = sleep, rng or random.Random()
+        self._lock_dir = None if lock_dir is None else os.fspath(lock_dir)
         self._cache = cache
         self._telemetry = telemetry
         self._role_models: dict[str, str] = {}
@@ -132,7 +136,7 @@ class CrusoeClient:
         max_tokens: int | None = None, tag: str = "",
     ) -> ChatResult:
         """The reply to `messages` on `role`'s bound model, inside one `model.call` span."""
-        with self._telemetry.span("model.call", role=role, tag=tag) as span:
+        with self._telemetry.span("model.call", role=role, tag=tag) as span, self._slot(role, span):
             result = self._chat(role, messages, json_schema, max_tokens, tag, span)
             span.set(model=result.model, tokens_in=result.tokens_in, tokens_out=result.tokens_out,
                      cost_usd=result.cost_usd, cached=result.cached)
@@ -221,6 +225,34 @@ class CrusoeClient:
         if p_in is None or p_out is None:
             return None
         return (t_in * p_in + t_out * p_out) / 1e6
+
+    @contextlib.contextmanager
+    def _slot(self, role: str, span: SpanHandle):
+        """Holds one of the role's `max_concurrent` slots for the call, shared by every process of the run through
+        lock files under `lock_dir`; records the wait as `queued_s`. No cap or no lock dir: no wait."""
+        cap = self._models.roles[role].max_concurrent if role in self._models.roles else None
+        if not cap or self._lock_dir is None:
+            yield
+            return
+        folder = os.path.join(self._lock_dir, role)
+        os.makedirs(folder, exist_ok=True)
+        t0 = time.monotonic()
+        while True:
+            for k in range(cap):
+                f = open(os.path.join(folder, f"slot-{k}"), "a")  # noqa: SIM115 - held for the call, closed below
+                try:
+                    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    f.close()
+                    continue
+                span.set(queued_s=round(time.monotonic() - t0, 3), slot=k)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(f, fcntl.LOCK_UN)
+                    f.close()
+                return
+            time.sleep(0.25)
 
     def _deadline_request(self, method: str, path: str, body: dict[str, Any] | None,
                           deadline_s: float) -> httpx.Response:

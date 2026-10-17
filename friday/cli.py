@@ -233,7 +233,8 @@ class PassEnvFactory:
         browser = None
         try:
             client = with_optional(CrusoeClient, spec.models, spec.transport, spend,
-                                   cache=FileResponseCache(root / CACHE_DIR / "responses"), telemetry=tel)
+                                   cache=FileResponseCache(root / CACHE_DIR / "responses"), telemetry=tel,
+                                   lock_dir=root / "locks")
             client.list_models()
             models = dict(self.role_models)
             client.bind(models)
@@ -381,7 +382,8 @@ def build_runner(args: argparse.Namespace, *, live: bool = True):
     book = PromptBook(repo / spec.paths.prompts)
 
     client = with_optional(CrusoeClient, spec.models, spec.transport, stores.spend,
-                           cache=FileResponseCache(root / CACHE_DIR / "responses"), telemetry=tel)
+                           cache=FileResponseCache(root / CACHE_DIR / "responses"), telemetry=tel,
+                           lock_dir=root / "locks")
     roles = {r: pin for r, pin in spec.models.roles.items() if critic_run or r != "critic"}
     resolved = resolve(roles, client.list_models())
     role_models = {r: res.model for r, res in resolved.items()}

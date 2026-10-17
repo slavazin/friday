@@ -228,6 +228,7 @@ class RolePin:
     seed: int | None = None
     requires_image: bool = False
     slow_first_call_group: str | None = None
+    max_concurrent: int | None = None   # calls in flight on this role across every process of a run
 
 
 @dataclass(frozen=True)
