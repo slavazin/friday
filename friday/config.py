@@ -34,20 +34,23 @@ class RunSection:
 
 @dataclass(frozen=True)
 class PilotSection:
-    min_artifacts_passing: int
+    min_share_passing: float
     max_mean_a: float
 
 
 @dataclass(frozen=True)
-class BankSection:
+class StreamSection:
     path: str
-    training: int
+    held_out_path: str
+    tags_path: str
+    per_round: int
     held_out: int
     tags_per_request: tuple[int, int]
-    tag_vocabulary_size: tuple[int, int]
+    max_new_tags: int
     checks_per_regime: tuple[int, int]
-    split_max_draws: int
     check_regenerations: int
+    families: tuple[str, ...]
+    mix: dict[str, tuple[float, ...]]
 
 
 @dataclass(frozen=True)
@@ -66,14 +69,28 @@ class WorkerSection:
 class EvalSection:
     w_a: float
     w_r: float
-    viewport: tuple[int, int]
-    check_timeout_ms: int
+    a_weights: dict[str, float]
+    viewports: dict[str, tuple[tuple[int, int], ...]]
+    load_timeout_ms: int
     action_timeout_ms: int
     max_wait_ms: int
     rubric_scale: tuple[int, int]
     rubric_questions: int
     test_query: str
     eslint_config: str
+
+
+@dataclass(frozen=True)
+class ProbeSection:
+    max_controls: int
+    settle_ms: int
+    sample_text: str
+
+
+@dataclass(frozen=True)
+class HowToSection:
+    max_controls: int
+    repair_penalty: float
 
 
 @dataclass(frozen=True)
@@ -114,6 +131,7 @@ class PoolSection:
     expiry_rounds: int
     recurrence_min_observations: int
     recurrence_min_rounds: int
+    fast_track_share: float
     max_direction_labels: int
 
 
@@ -176,6 +194,12 @@ class JsonSection:
 
 
 @dataclass(frozen=True)
+class CriticSection:
+    max_requests: int
+    spend_cap_usd: float
+
+
+@dataclass(frozen=True)
 class EndpointSection:
     base_url: str
     api_key_env: str
@@ -221,10 +245,12 @@ class PathsSection:
 class RunSpec:
     run: RunSection
     pilot: PilotSection
-    bank: BankSection
+    stream: StreamSection
     drift: DriftSection
     worker: WorkerSection
     eval: EvalSection
+    probe: ProbeSection
+    how_to: HowToSection
     composition: CompositionSection
     gate: GateSection
     detect: DetectSection
@@ -236,6 +262,7 @@ class RunSpec:
     readout: ReadoutSection
     transport: TransportSection
     json: JsonSection
+    critic: CriticSection
     models: ModelsSection
     search: SearchSection
     paths: PathsSection
@@ -246,6 +273,20 @@ class RunSpec:
         problems: list[str] = []
         if abs(self.eval.w_a + self.eval.w_r - 1.0) > 1e-9:
             problems.append("eval.w_a + eval.w_r must equal 1")
+        a_w = self.eval.a_weights
+        if set(a_w) != {"probe", "how_to", "checks"} or abs(sum(a_w.values()) - 1) > 1e-9:
+            problems.append("eval.a_weights must hold probe, how_to and checks, summing to 1")
+        if set(self.eval.viewports) != {"R1", "R2"} or not all(self.eval.viewports.values()):
+            problems.append("eval.viewports must list at least one viewport for R1 and R2")
+        if set(self.stream.mix) != {"R1", "R2"}:
+            problems.append("stream.mix must hold R1 and R2")
+        for regime, shares in self.stream.mix.items():
+            if len(shares) != len(self.stream.families) or abs(sum(shares) - 1) > 1e-9:
+                problems.append(f"stream.mix.{regime} must give one share per family, summing to 1")
+        if not 0.5 < self.pool.fast_track_share <= 1.0:
+            problems.append("pool.fast_track_share must lie in (0.5, 1]")
+        if not 0.0 <= self.how_to.repair_penalty < 1.0:
+            problems.append("how_to.repair_penalty must lie in [0, 1)")
         if not 0.0 < self.gate.alpha < 1.0:
             problems.append("gate.alpha must lie in (0, 1)")
         if self.gate.n_min > self.gate.n_max:

@@ -10,13 +10,13 @@ fixture is `tests/data/models_2026-10-17.json`.
 
 | SPEC § 5 pin | Served as | Effect |
 | --- | --- | --- |
-| `nvidia/Nemotron-3-Nano-30B-A3B` (worker) | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` | id corrected in run.yml |
-| `nvidia/Nemotron-3-Super-120B-A12B` (judge; Ultra fallback) | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B` | id corrected in run.yml |
+| `nvidia/Nemotron-3-Nano-30B-A3B` (worker) | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` | id corrected in run.yml and SPEC § 5 |
+| `nvidia/Nemotron-3-Super-120B-A12B` (judge; Ultra fallback) | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B` | id corrected in run.yml and SPEC § 5 |
 | `nvidia/NVIDIA-Nemotron-3-Ultra-550B` (nominator, minters, pooling) | not served | those roles take the Super fallback, the same model as the judge |
-| `google/gemma-4-31b-it` (rubric, first choice) | served, multimodal | rubric pin holds |
+| `google/gemma-4-31b-it` (rubric, first choice at the time) | served, multimodal | now second; `nvidia/NVIDIA-Nemotron-3.5-Super-VL` leads the rubric pins |
 | `openai/gpt-oss-120b` (coordinator) | served; tags omit "tool calling" | tool calling unconfirmed for the coordinator |
 
-Other served models not in the spec: `nvidia/NVIDIA-Nemotron-3.5-Super-VL` (multimodal),
+Other served models not in the spec at the time: `nvidia/NVIDIA-Nemotron-3.5-Super-VL` (multimodal),
 `nvidia/Nemotron-3.5-Lightning-30B-A3B`, `zai-org/GLM-5.3`, `deepseek-ai/Deepseek-V4-Flash`,
 `deepseek-ai/DeepSeek-V4.1-Flash`.
 
@@ -25,38 +25,38 @@ The listing carries per-model prices, so cost is computed from it. A live struct
 
 ## Arithmetic read from the gate as built
 
-- **`gate.n_min` never binds.** Under λ₁ = 0.25 and λ_max = 0.9, wealth after 3 pairs is at most
-  1.25 · 1.9 · 1.9 ≈ 4.5, below 1/α = 5. No sequence of 3 pairs can admit, so `n_min = 4` only restates the
-  betting schedule. `tests/unit/test_gate.py` covers `n_min` with a larger value.
-- **The § 8 resolving-power table reproduces.** Run under the gate as built:
-  - admission rate 51 % at 0.10, 89 % at 0.15, 99 % at 0.20, each within 3 binomial standard errors;
-  - at no effect, about 1 % against the spec's 1.4 %, varying with the seed. The test bounds it at 2 %;
-  - median pairs to admission 16 at 0.15, 12 at 0.20, 8 at 0.30, each within 2.
-- **A constant effect of 0.3 needs about 8 pairs.** With 3–6 pairs a round, admission takes two rounds or
-  more.
+- **Under the spec's first rule (α 0.2, 24 pairs), `gate.n_min` never bound.** Wealth after 3 pairs is
+  at most 1.25 · 1.9 · 1.9 ≈ 4.5, below 1/α = 5. Under the rule now in `run.yml` (α 0.3, so 3.33), it
+  binds.
+- **SPEC § 8's resolving-power figures are simulated with the gate as built.** `tests/unit/test_gate.py`
+  re-reads them on every run, along with the earlier rule's figures as a cross-check.
+
+## Settled on 2026-10-17
+
+- The experiment: a goal stream with goal families and a mix shift at the drift, plus a phone-width
+  drift constraint (SPEC §§ 4, 10).
+- The eval's deterministic share: the probe suite, the how-to check with its repair chain, and
+  stub-validated acceptance checks (SPEC § 5).
+- The gate: α 0.3, at most 12 pairs, at most 2 in flight, and fast-track nomination at a 2/3 share
+  (SPEC §§ 7, 8).
+- The rubric pin: `nvidia/NVIDIA-Nemotron-3.5-Super-VL` first.
+- Lineage is a list (Appendix B), and `undisposed` joins the disposition vocabulary.
+- Status is read from the front matter. The event log is the append-only history, and a flip is validated
+  before either is written.
+- The critic run: optional, timeboxed (SPEC § 17).
 
 ## Open questions
 
-1. **Ultra is not served.** The nominator, minters and pooling call run on the judge's model. A pass's
-   observations are drafted into payloads by the same model that filed them. Pick another strong text model
-   (`zai-org/GLM-5.3`, `deepseek-ai/DeepSeek-V4-Pro`) to keep the roles independent, or accept and record it.
-2. **Coordinator tool calling.** `/v1/models` does not tag `openai/gpt-oss-120b` with tool calling;
-   `zai-org/GLM-5.3` and `deepseek-ai/DeepSeek-V4-Pro` carry the tag. Verify with one tool call before the
-   dry run.
-3. **Lineage is a DAG.** A decision can supersede two predecessors, and a fold has several. Appendix B's
-   scalar `supersedes` / `successor` cannot hold that, so the code uses lists. The spec's front-matter
-   example should follow.
-4. **One home for status.** § 2 L2 names the decision's front matter as the home of its status, and § 14
-   lists an `events` table. The code makes the event log canonical and writes the files and commits from it,
-   in the round close. The front matter is then a projection, not a second home.
-5. **Disposition vocabulary.** A pass whose report call is dropped after the quote re-ask leaves its fires
-   without a verdict. The code records them `undisposed`, and the detector's contradicted share skips them.
-   § 2's disposition set has no such value.
-6. **Lens value per judge model.** A lens answer records the judge's served model string. If the judge pin
-   falls back mid-run, the lens's value history mixes two answerers. Decide whether a fallback resets the
-   window.
-7. **Fold on correlation alone.** Two lenses whose `p` move together may still ask different things, and the
-   fold supersedes one on ρ > 0.85 with no look at their quotes. A cheap guard: fold only when the two lenses'
-   flagged quotes overlap on most passes.
-8. **Contradicted path.** A judge label alone moves a decision to `suspect` (§ 9). Retirement still needs
-   ablation pairs, which the code enforces. State in the readout that `suspect` can come from the judge alone.
+1. **Ultra is not served.** The nominator, the minters, the tagger and the pooling call run on the judge's
+   model. Pick another strong text model (`zai-org/GLM-5.3`, `deepseek-ai/DeepSeek-V4-Pro`) to keep the
+   roles independent, or accept it and record it beside D6.
+2. **Coordinator tool calling.** `/v1/models` does not tag `openai/gpt-oss-120b` with tool calling. Verify
+   it with one tool call before the dry run.
+3. **Lens value per judge model.** If the judge pin falls back mid-run, a lens's value history mixes two
+   answerers. Decide whether a fallback resets the window.
+4. **Fold on correlation alone.** Two lenses whose `p` move together may ask different things. A cheap
+   guard: fold only when their flagged quotes overlap on most passes.
+5. **The contradicted path.** A judge label alone moves a decision to `suspect` (§ 9); retirement still
+   needs ablation pairs. State it in the readout.
+6. **Smaller effects.** One acceptance check is now worth 0.10 of loss, not 0.15. Fewer decisions may clear
+   the gate within 12 pairs (§ 8). The falsifier "no candidate admitted by the drift round" (§ 16) reads it.

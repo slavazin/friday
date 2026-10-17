@@ -1,4 +1,7 @@
-"""The training / held-out split of the request bank (SPEC § 4)."""
+"""A seeded training / held-out split of a minted request set whose held-out tags lie within training tags.
+
+The goal stream mints its held-out set directly (SPEC § 4); this split serves a fixed-set experiment.
+"""
 
 from __future__ import annotations
 

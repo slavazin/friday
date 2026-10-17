@@ -1,11 +1,15 @@
 # The blinding list (SPEC § 2 Blinding). Applies to prompt TEMPLATE text only, never to request text or
-# artifact source. Frozen with the prompts before round 1.
+# artifact source. Frozen with the prompts before round 1. Goal family names (run.yml stream.families)
+# are blinded for every reader of the loop as well; tests/contract/test_prompts.py adds them.
 readers:
   worker: [check, checks, check id, loss, score, eval, evaluation, judge, regime, R1, R2, drift,
-           candidate, exposure, ablation, pair, arm, graded, test yourself, tested]
+           candidate, exposure, ablation, pair, arm, graded, test yourself, tested, probe, verify,
+           verified, verification]
   judge_lens: [eval report, rubric, check, checks, loss, regime, drift, pass or fail]
   judge_report: [regime, drift]
   nominator: [regime, drift, arm]
   lens_minter: [regime, drift, arm]
+  tagger: [regime, drift, arm, loss]
+  critic: [check, checks, loss, eval, judge, regime, drift, candidate, exposure, pair, arm]
 # Hedge words: recorded on a drafted payload as a reading, never a refusal cause.
 hedges: [consider, try to, where possible, if possible, might, maybe, perhaps, ideally, should probably]

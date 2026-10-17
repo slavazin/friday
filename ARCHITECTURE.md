@@ -18,7 +18,7 @@ friday/
   support/     the repairing JSON decoder                           pure
   eval/        the check DSL interpreter and the Evaluator          over the Page port only
   roles/       worker, judge, nominator, pooling call, lens minter, model-facing; over ports only
-               bank minter, coordinator tool surface, prompt loader
+               goal minter, tagger, coordinator tool surface, prompt loader
   adapters/    Crusoe client, Playwright, SQLite, markdown Journal  the only place a vendor SDK or the
                and lens set, git, in-memory stores                  network appears
   app/         composition root (wiring), round close, Ledger       orchestration; the single writer
@@ -33,7 +33,7 @@ import fails the suite.
 
 ## The seams that keep doors open
 
-**Interchangeable algorithms.** Every statistic that a reasonable person might swap is registered by name
+**Interchangeable algorithms.** Every statistic with a credible alternative is registered by name
 and selected in `run.yml`:
 
 | run.yml key             | Registry                         | Default            |
@@ -97,13 +97,15 @@ anywhere never moves the exposure coin of `(round 5, category c)`.
 | After a clear, the detector reads only ablation deltas and fires dated after the clear (likewise after admission) | `app/round_close.py` |
 | An artifact that cannot load fails every check and scores the rubric floor; it still gives a delta | `eval/evaluate.py`, `eval/dsl.py` |
 | The blinding scan matches listed words with plural and verb suffixes; a payload's backticked code and `#ids` are skipped | `algorithms/language.py` |
-| The self-repair turn's missing-id test is a source regex; it should move to `Page.exists` on the loaded page | `roles/worker.py` |
+| The self-repair turn's missing-id test is a source regex until S1 moves it to `Page.exists` on the loaded page | `roles/worker.py` |
 
 **Concurrency.** The Playwright sync API is not thread-safe, and SQLite allows one writer at a time.
 Parallel passes therefore run as separate processes, each with its own browser and connection. Passes
 write only their own rows. The round close runs in the parent process, alone.
 
 ## Build status
+
+The work slices to finish it, in order, are in [CARRY_FORWARD.md](CARRY_FORWARD.md).
 
 | Part | State |
 | --- | --- |
@@ -118,11 +120,14 @@ write only their own rows. The round close runs in the parent process, alone.
 | Round close, decision steps: gate, detector, supersede, refused-pool block | built, tested |
 | Round close orchestrator: steers, lens curation flips, pooling, nomination, expiry, in order | not written |
 | SQLite stores for passes, evals, lens answers, fires, observations, pools (the schema exists) | not written; in-memory only |
-| Bank loader (`bank/requests.json` into `Request` and `Check`) | not written |
 | Pass pipeline: compose, build with repair, eval, judge, store, `pair_deltas` | not written |
 | Response and rubric cache by content hash | not written |
-| Nominator, pooling call, lens minter, bank minter | interfaces only (`NotImplementedError`) |
-| Prompts for judge, nominator, pooling, minters, rubric | not written (tier 1, before the bank freezes) |
+| Nominator, pooling call, lens minter, goal minter, tagger | interfaces only (`NotImplementedError`) |
+| Probe suite, how-to check and its repair chain, A from P, H and C | not written (SPEC § 5) |
+| Goal source (`goals/` loader), regime viewports in the Evaluator | not written |
+| Fast-track in the recurrence bar | not written (SPEC § 7) |
+| Critic run (`run-critic.yml`, critic role, revision turn) | not written; optional (SPEC § 17) |
+| Prompts for judge, nominator, pooling, minters, tagger, rubric, critic | not written (tier 1, before the goal stream freezes) |
 | Quality probe (ESLint, axe-core), rubric adapter, You.com adapter | not written |
 | Coordinator loop, runner, readout runner, steer CLI, notes arm, demo page | not written |
 

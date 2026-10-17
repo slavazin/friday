@@ -1,8 +1,8 @@
 # Status-flip commit templates (SPEC § 2 Rendered text). One template per flip; every figure is rendered
 # from the Ledger and run.yml by friday/app/render.py. No hand-written flip commits, no adjectives.
 decision:
-  gate.admit: "{id} candidate → admitted: W {wealth:.1f} ≥ {threshold:g}, n {n} pairs, mean d {mean_d:.2f}, Q change upper bound {q_upper:.1f} ≤ {margin:g}"
-  gate.refuse: "{id} candidate → refused: harm W {mirror_wealth:.1f} ≥ {threshold:g}, n {n} pairs, mean d {mean_d:.2f}"
+  gate.admit: "{id} candidate → admitted: W {wealth:.1f} ≥ {threshold:.2f}, n {n} pairs, mean d {mean_d:.2f}, Q change upper bound {q_upper:.1f} ≤ {margin:g}"
+  gate.refuse: "{id} candidate → refused: harm W {mirror_wealth:.1f} ≥ {threshold:.2f}, n {n} pairs, mean d {mean_d:.2f}"
   gate.expire: "{id} candidate → expired: n {n} pairs ≥ {n_max}, W {wealth:.1f}, mean d {mean_d:.2f}"
   detect.suspect: "{id} admitted → suspect: {reasons}; window upper bound {window_upper}, harm W {harm_wealth:.1f}, contradicted share {contradicted}"
   detect.clear: "{id} suspect → admitted: {n} confirmation pairs, mean d {mean_d:.2f} ({level_pct:g} % upper bound {upper:.2f})"

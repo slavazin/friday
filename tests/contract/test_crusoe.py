@@ -20,15 +20,16 @@ def test_pins_resolve_against_the_served_list():
     served = parse_models(MODELS)
     res = resolve(SPEC.models.roles, served)
     assert res["worker"].model == "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B" and not res["worker"].replaced
-    assert res["rubric"].model == "google/gemma-4-31b-it"
+    assert res["rubric"].model == "nvidia/NVIDIA-Nemotron-3.5-Super-VL"
     assert res["nominator"].replaced and res["nominator"].model == "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B"
     demoted = demote_group(res, SPEC.models.roles, "ultra")
-    assert all(demoted[r].replaced for r in ("nominator", "lens_minter", "bank_minter", "pooling"))
+    assert all(demoted[r].replaced for r in ("nominator", "lens_minter", "goal_minter", "tagger", "pooling"))
     assert not demoted["judge"].replaced
 
 
 def test_image_role_skips_text_only_pins():
-    served = [m for m in parse_models(MODELS) if m.id != "google/gemma-4-31b-it"]
+    image_first = ("nvidia/NVIDIA-Nemotron-3.5-Super-VL", "google/gemma-4-31b-it")
+    served = [m for m in parse_models(MODELS) if m.id not in image_first]
     assert resolve(SPEC.models.roles, served)["rubric"].model == "zai-org/GLM-5.3-Flash"
 
 

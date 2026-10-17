@@ -53,3 +53,17 @@ def test_blinding_scan_catches_inflected_forms():
     assert set(blinding_hits(text, BOOK.blinding["worker"])) >= {
         "judge", "score", "candidate", "pair", "loss", "arm", "exposure"}
     assert blinding_hits("a checkbox and a scoreboard", ["check", "score"]) == []
+
+
+def test_worker_templates_name_no_goal_family():
+    from friday.config import load_spec
+
+    families = load_spec(ROOT / "run.yml").stream.families
+    templates = " ".join(p.read_text() for p in (ROOT / "prompts" / "worker").glob("*.md"))
+    assert blinding_hits(templates, families) == []
+
+
+def test_baseline_prompt_is_appendix_a_verbatim():
+    spec = (ROOT / "SPEC.md").read_text()
+    block = spec.split("## Appendix A", 1)[1].split("```", 2)[1].strip("\n")
+    assert block.strip() == (ROOT / "prompts/worker/baseline.md").read_text().strip()

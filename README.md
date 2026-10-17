@@ -13,6 +13,7 @@ paying.
 - [SPEC.md](SPEC.md) — the design.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — the code layout, its seams, and what is built.
 - [docs/spec-findings.md](docs/spec-findings.md) — facts read while scaffolding, and open questions.
+- [CARRY_FORWARD.md](CARRY_FORWARD.md) — work done, and the work slices left, in order.
 
 ## Quick start
 

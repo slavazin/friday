@@ -54,13 +54,13 @@ def test_in_flight_is_drafting_order():
     assert [d.id for d in got] == ["D-0002", "D-0003"]
 
 
-def _simulate(effect: float, runs: int, seed: int) -> tuple[float, float | None]:
-    g = rule()
+def _simulate(effect: float, runs: int, seed: int, **kw) -> tuple[float, float | None]:
+    g = rule(**kw)
     rng = random.Random(seed)
     admitted_at = []
     for _ in range(runs):
         ds: list[float] = []
-        for _ in range(24):
+        for _ in range(g.n_max):
             ds.append(max(-1.0, min(1.0, rng.gauss(effect, 0.2))))
             a = g.read(ds, [0.0] * len(ds)).action
             if a is GateAction.ADMIT:
@@ -72,25 +72,32 @@ def _simulate(effect: float, runs: int, seed: int) -> tuple[float, float | None]
     return rate, (statistics.median(admitted_at) if admitted_at else None)
 
 
+def _tol(rate: float) -> float:
+    """3 binomial standard errors at 4,000 runs, plus half a point."""
+    return 3 * (rate * (1 - rate) / 4000) ** 0.5 + 0.005
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize(("effect", "rate", "median"), [
-    (0.10, 0.51, None), (0.15, 0.89, 16), (0.20, 0.99, 12), (0.30, None, 8),
+    (0.10, 0.22, None), (0.15, 0.52, 9.5), (0.20, 0.84, 9), (0.30, 0.996, 6),
 ])
 def test_resolving_power_matches_the_spec_simulation(effect, rate, median):
-    """SPEC § 8: Gaussian deltas sd 0.2 clipped to [-1, 1], admitted within 24 pairs.
-
-    Tolerance: 3 binomial standard errors at 4,000 runs (at most 0.024), and 2 pairs on the median.
-    """
-    got_rate, got_median = _simulate(effect, 4000, seed=int(effect * 1000) + 1)
-    if rate is not None:
-        assert got_rate == pytest.approx(rate, abs=3 * (rate * (1 - rate) / 4000) ** 0.5 + 0.005)
+    """SPEC § 8, the pre-registered rule: alpha 0.3, up to 12 pairs; Gaussian deltas sd 0.2 clipped to [-1, 1]."""
+    got_rate, got_median = _simulate(effect, 4000, seed=int(effect * 1000) + 1, alpha=0.3, n_max=12)
+    assert got_rate == pytest.approx(rate, abs=_tol(rate))
     if median is not None:
         assert abs(got_median - median) <= 2
 
 
 @pytest.mark.slow
 def test_false_admission_rate_at_no_effect():
-    """SPEC § 8 reports 1.4 % at effect 0; measured here about 1 % (seed-dependent). Pre-registered bound:
-    at most 2 % within 24 pairs, far below alpha = 20 %."""
-    rate, _ = _simulate(0.0, 4000, seed=1)
+    """SPEC § 8 reports 0.8 % within 12 pairs at effect 0; bounded here at 2 %, far below alpha = 30 %."""
+    rate, _ = _simulate(0.0, 4000, seed=1, alpha=0.3, n_max=12)
     assert rate <= 0.02
+
+
+@pytest.mark.slow
+def test_the_superseded_rule_still_reproduces_its_figures():
+    """The spec's earlier rule (alpha 0.2, 24 pairs) as a cross-check of the implementation: 90 % at 0.15."""
+    rate, median = _simulate(0.15, 4000, seed=151, alpha=0.2, n_max=24)
+    assert rate == pytest.approx(0.89, abs=_tol(0.89)) and abs(median - 16) <= 2

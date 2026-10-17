@@ -12,24 +12,29 @@ run:
   ping_transport_share: 0.3333 # ping when more than this share of a round's passes failed after re-runs
 
 pilot:                         # the worker pin rule (SPEC § 5), read once
-  min_artifacts_passing: 5     # fewer artifacts passing >= 1 check -> switch the worker to its fallback
+  min_share_passing: 0.3       # fewer pilot artifacts passing >= 1 acceptance check -> worker takes its fallback
   max_mean_a: 0.85             # pilot mean A above this -> record the headroom premise as falsified
 
-bank:
-  path: bank/requests.json
-  training: 16
+stream:                        # the goal stream and the held-out set (SPEC § 4)
+  path: goals/stream.json
+  held_out_path: goals/held_out.json
+  tags_path: goals/tags.json
+  per_round: 10
   held_out: 6
   tags_per_request: [2, 4]
-  tag_vocabulary_size: [10, 14]
-  checks_per_regime: [4, 6]
-  split_max_draws: 1000
-  check_regenerations: 2
+  max_new_tags: 4              # tags the tagger may mint in one round
+  checks_per_regime: [2, 3]
+  check_regenerations: 1
+  families: [canvas game, data tool, timer or tracker, form or calculator, text tool]
+  mix:                         # share of each family per regime, in `families` order; each sums to 1
+    R1: [0.5, 0.15, 0.15, 0.1, 0.1]
+    R2: [0.15, 0.5, 0.15, 0.1, 0.1]
 
 drift:
   round: 8
   constraint: >-
-    It must be fully usable with the keyboard alone: every control reachable by Tab
-    and operable by Enter or Space, and any game or canvas control mapped to arrow keys.
+    It must work on a phone screen: at 375 px wide every control is visible and usable
+    without horizontal scrolling, and touch or click operates it.
 
 worker:
   repair_turns: 1
@@ -38,24 +43,36 @@ worker:
 eval:
   w_a: 0.75
   w_r: 0.25
-  viewport: [1280, 800]
-  check_timeout_ms: 15000      # page load / navigation
+  a_weights: {probe: 0.3, how_to: 0.3, checks: 0.4}   # A = weighted mean of P, H, C; sums to 1
+  viewports:                   # per regime; every reading runs at each and is averaged
+    R1: [[1280, 800]]
+    R2: [[1280, 800], [375, 812]]
+  load_timeout_ms: 15000       # page load / navigation
   action_timeout_ms: 2000      # one click, type or focus
   max_wait_ms: 3000
   rubric_scale: [1, 5]
-  rubric_questions: 3
+  rubric_questions: 3          # per viewport
   test_query: "?test=1"
   eslint_config: config/eslint.json
+
+probe:
+  max_controls: 12
+  settle_ms: 500
+  sample_text: "abc 123"
+
+how_to:
+  max_controls: 12
+  repair_penalty: 0.1          # H is multiplied by (1 - penalty) at repair rungs 2 and 3
 
 composition:
   cap: 6
   rank_by: e_value             # over the cap, the lowest-ranked admitted decisions are left out
 
 gate:
-  alpha: 0.2
+  alpha: 0.3                   # W >= 3.33 admits; see SPEC § 8 resolving power
   n_min: 4
-  n_max: 24
-  in_flight: 3
+  n_max: 12
+  in_flight: 2
   quality_margin: 2.0
   quality_level: 0.90
   betting:
@@ -77,6 +94,7 @@ pool:
   expiry_rounds: 6
   recurrence_min_observations: 3
   recurrence_min_rounds: 2
+  fast_track_share: 0.6667     # leading label's share of a pool's open observations that fast-tracks it
   max_direction_labels: 2
 
 lens:
@@ -123,6 +141,10 @@ transport:
 json:
   reasks: 1
 
+critic:                        # the critic run only (SPEC § 17); run-critic.yml overrides
+  max_requests: 2
+  spend_cap_usd: 10.0
+
 models:
   endpoint:
     base_url: https://managed-inference-api-proxy.crusoecloud.com/v1
@@ -137,7 +159,7 @@ models:
       temperature: 0.7
       seed: null
     rubric:
-      pins: [google/gemma-4-31b-it, zai-org/GLM-5.3-Flash, Qwen/Qwen3.8-27B]   # first listed wins
+      pins: [nvidia/NVIDIA-Nemotron-3.5-Super-VL, google/gemma-4-31b-it, zai-org/GLM-5.3-Flash, Qwen/Qwen3.8-27B]
       fallback: nvidia/Nemotron-3-Nano-Omni-Reasoning-30B-A3B
       temperature: 0.0
       requires_image: true
@@ -151,12 +173,17 @@ models:
       temperature: 0.3
       slow_first_call_group: ultra
     lens_minter: *ultra
-    bank_minter: *ultra
+    goal_minter: *ultra
+    tagger: *ultra
     pooling: *ultra
     coordinator:
       pins: [openai/gpt-oss-120b]
       fallback: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B
       temperature: 0.2
+    critic:
+      pins: [zai-org/GLM-5.3]
+      fallback: deepseek-ai/DeepSeek-V4-Pro
+      temperature: 0.3
 
 search:
   provider: youcom

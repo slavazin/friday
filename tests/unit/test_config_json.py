@@ -12,19 +12,19 @@ TEXT = (ROOT / "run.yml").read_text()
 
 def test_run_yml_loads_and_validates():
     spec = load_spec(ROOT / "run.yml")
-    assert spec.gate.alpha == 0.2 and spec.composition.cap == 6 and spec.drift.round == 8
+    assert spec.gate.alpha == 0.3 and spec.composition.cap == 6 and spec.drift.round == 8
     assert spec.models.roles["lens_minter"] == spec.models.roles["nominator"]
     assert len(spec.spec_hash) == 16
 
 
 def test_unknown_key_is_refused():
     with pytest.raises(ConfigError, match="unknown keys"):
-        parse_spec(TEXT.replace("  alpha: 0.2", "  alpha: 0.2\n  alfa: 0.3"))
+        parse_spec(TEXT.replace("  alpha: 0.3", "  alfa: 0.4\n  alpha: 0.3"))
 
 
 def test_missing_key_is_refused():
     with pytest.raises(ConfigError, match="missing"):
-        parse_spec(TEXT.replace("  n_max: 24\n", ""))
+        parse_spec(TEXT.replace("  n_max: 12\n", ""))
 
 
 def test_wrong_type_is_refused():
@@ -38,7 +38,7 @@ def test_weights_must_sum_to_one():
 
 
 def test_every_knob_reaches_its_algorithm():
-    spec = parse_spec(TEXT.replace("alpha: 0.2", "alpha: 0.1").replace("ablate_p: 0.75", "ablate_p: 0.5")
+    spec = parse_spec(TEXT.replace("alpha: 0.3", "alpha: 0.1").replace("ablate_p: 0.75", "ablate_p: 0.5")
                       .replace("fold_rho: 0.85", "fold_rho: 0.8").replace("lambda_max: 0.9", "lambda_max: 0.8"))
     m = build_mechanics(spec)
     assert m.gate.alpha == 0.1 and m.detector.alpha == 0.1 and m.gate.threshold == pytest.approx(10)

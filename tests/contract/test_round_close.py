@@ -69,7 +69,7 @@ def test_candidate_is_admitted_with_a_rendered_commit():
     flipped = c.close_gate(8)
     assert [d.status for d in flipped] == [DecisionStatus.ADMITTED]
     msg = c.journal.commits[-1]
-    assert msg.startswith("D-0001 candidate → admitted: W ") and "≥ 5, n 8 pairs" in msg and "≤ 2" in msg
+    assert msg.startswith("D-0001 candidate → admitted: W ") and "≥ 3.33, n 8 pairs" in msg and "≤ 2" in msg
     assert c.events.flips("D-0001")[0].cause.value == "gate.admit"
 
 

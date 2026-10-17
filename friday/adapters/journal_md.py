@@ -54,7 +54,7 @@ def render_decision(d: Decision) -> str:
         "## Lifecycle",
         "Retire when: the detector moves it to `suspect`, no successor is admitted, and the confirmation pairs "
         "hold; or a steer retires it.",
-        "Moot when: no request in the bank carries a `fires_when` tag.", "",
+        "Moot when: no request left in the goal stream or the held-out set carries a `fires_when` tag.", "",
     ]
     return "\n".join(lines)
 
