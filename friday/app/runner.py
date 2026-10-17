@@ -508,7 +508,10 @@ class Runner:
         stored = {o.pass_id for o in self.stores.observations.observations() if o.round == n}
         lost: list[str] = []
         for p in passes:
-            if p.arm is not Arm.JOURNAL or p.id not in evals or p.id in returned or p.id in stored:
+            if p.arm is not Arm.JOURNAL or p.id not in evals or p.id in returned:
+                continue
+            if p.id in stored:                      # written before a crashed close: hand them back so the
+                drafts.setdefault(p.id, [])         # close re-reads them as `again` and pools the unpooled
                 continue
             got = read_drafts(self.artifacts / p.id)
             if got is None:
