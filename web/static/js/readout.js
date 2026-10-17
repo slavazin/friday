@@ -5,7 +5,7 @@
 import { markFirst, term } from "./glossary.js";
 import { fmt, h, s } from "./util.js";
 
-const EARNED = new Set(["improves", "leaner than shared notes", "forgets what went stale", "the judge learns what to look at"]);
+const EARNED = new Set(["improves", "leaner than shared notes", "not shown worse than shared notes", "forgets what went stale", "the judge learns what to look at"]);
 
 function verdictEl(v) {
   if (v === null || v === undefined) return h("span", { class: "verdict v-unread", "data-verdict": "unread" }, "unread");
@@ -87,7 +87,7 @@ export class ReadoutPage {
     // The one figure derived here: the ratio of the two export means, as the readout lines print it.
     const ratio = tok.journal.mean === null || tok.notes.mean === null || tok.notes.mean === 0 ? null : tok.journal.mean / tok.notes.mean;
     const tokensBeside = h("div", { class: "rd-beside" },
-      h("div", { class: "muted small" }, "tokens composed per pass, beside R2 (never part of its verdict)"),
+      h("div", { class: "muted small" }, "tokens composed per pass, beside R2 (\"leaner\" needs the journal arm's mean below the notes arm's)"),
       h("div", { class: "kvs" },
         ...arms.map((a) => h("div", { class: "kv" }, h("span", { class: "muted" }, `${a} · ${tok[a].n} passes`), h("b", {}, fmt.tokens(tok[a].mean)))),
         h("div", { class: "kv" }, h("span", { class: "muted" }, "journal ÷ notes"), h("b", { "data-fig": "token-ratio" }, fmt.value(ratio)))));

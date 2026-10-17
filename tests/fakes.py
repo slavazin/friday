@@ -50,6 +50,7 @@ class FakeDom:
     scripts: dict[str, object] = field(default_factory=dict)      # source -> scripted result
     on_type: dict[str, Callable[[FakeDom], None]] = field(default_factory=dict)
     ticking: set[str] = field(default_factory=set)        # text elements that change with no input (a timer)
+    on_drag: dict[str, Callable[[FakeDom], None]] = field(default_factory=dict)
 
 
 class FakePage:
@@ -77,6 +78,11 @@ class FakePage:
 
     def focus(self, selector: str) -> None:
         self.dom.focus = selector
+
+    def drag(self, selector: str, dx: int, dy: int) -> None:
+        if selector not in self.dom.texts and selector not in self.dom.canvas:
+            raise LookupError(selector)
+        self.dom.on_drag.get(selector, lambda d: None)(self.dom)
 
     def wait(self, ms: int) -> None:
         for c in self.dom.animated:

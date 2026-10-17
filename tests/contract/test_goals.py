@@ -25,8 +25,10 @@ from friday.roles.goal_minter import (
     MintFailed,
     Slot,
     StubReading,
+    allocate_cells,
     element_kind,
     grid_cells,
+    mode_targets,
     plan_slots,
     quotas,
     request_text,
@@ -47,13 +49,31 @@ DSL = dsl_validator(SPEC.eval.max_wait_ms)
 COUNTER = {"#add": "button that adds one", "#count": "display of the running count"}
 BEHAVIOUR = {"steps": [{"click": "#add"}], "expect": {"text_changed": "#count"}}
 BEHAVIOUR_2 = {"steps": [{"click": "#add"}, {"click": "#add"}], "expect": {"text_matches": "#count", "regex": r"\b2\b"}}
-ON_STUB = {"steps": [], "expect": {"exists": "#count"}}
-ON_STUB_2 = {"steps": [], "expect": {"visible": "#count"}}
+ON_STUB = {"steps": [{"click": "#add"}], "expect": {"exists": "#count"}}
+ON_STUB_2 = {"steps": [{"click": "#add"}], "expect": {"visible": "#count"}}
 
 
 def draft(text="a tally counter that goes up by one each time I press add", checks=(BEHAVIOUR, ON_STUB),
           contract=COUNTER, timed=False) -> str:
     return json.dumps({"text": text, "timed": timed, "contract": contract, "checks": list(checks)})
+
+
+MODE_CONTRACT = {**COUNTER, "#entry": "input for a note"}
+MODE_CHECK = {
+    "click or tap": BEHAVIOUR,
+    "keyboard-driven": {"steps": [{"focus": "#add"}, {"key": "ArrowUp"}], "expect": {"text_changed": "#count"}},
+    "drag or pointer": {"steps": [{"drag": "#add", "dx": 60, "dy": 0}], "expect": {"text_changed": "#count"}},
+    "typing": {"steps": [{"type": "#entry", "text": "milk"}], "expect": {"text_changed": "#count"}},
+    "real-time": {"steps": [{"click": "#add"}, {"wait": 500}], "expect": {"text_changed": "#count"}},
+}
+
+
+def mode_draft(text="a tally counter that goes up by one each time I press add"):
+    """A scripted reply whose checks operate the app by the mode the draft prompt names."""
+    def reply(messages) -> str:
+        mode = next(m for m in MODE_CHECK if f"operates it by {m}." in messages[1].content)
+        return draft(text=text, checks=(MODE_CHECK[mode], BEHAVIOUR_2), contract=MODE_CONTRACT)
+    return reply
 
 
 def regen(check) -> str:
@@ -105,19 +125,37 @@ def test_regime_follows_the_drift_round_and_the_held_out_set_is_one_request_per_
     assert {m for _, m in stream_cells} == set(SPEC.stream.modes)
 
 
-def test_family_mix_holds_per_regime_and_modes_are_even_within_each_family():
+def test_family_mix_holds_per_regime_and_the_mode_axis_is_even_and_identical_across_the_drift():
     slots = [s for s in plan_slots(PARAMS) if s.round is not None]
     train, _ = grid_cells(PARAMS)
+    by_regime = {}
     for regime in (Regime.R1, Regime.R2):
         mine = [s for s in slots if s.regime is regime]
         counts = Counter(s.family for s in mine)
         for fam, share in zip(SPEC.stream.families, SPEC.stream.mix[regime.value], strict=True):
             assert abs(counts[fam] - share * len(mine)) <= 1
-            modes = Counter(s.mode for s in mine if s.family == fam)
-            allowed = {m for f, m in train if f == fam}
-            assert set(modes) <= allowed
-            if counts[fam] >= len(allowed):
-                assert max(modes.values()) - min(modes[m] for m in allowed) <= 1
+            assert {s.mode for s in mine if s.family == fam} <= {m for f, m in train if f == fam}
+        modes = Counter(s.mode for s in mine)
+        assert set(modes) == set(SPEC.stream.modes)
+        assert max(modes.values()) - min(modes.values()) <= 1
+        by_regime[regime] = modes
+    # the drift moves the family axis only: equal-sized regimes get the same mode counts
+    assert by_regime[Regime.R1] == by_regime[Regime.R2]
+
+
+def test_mode_counts_stay_even_on_a_grid_where_one_family_dominates_a_few_modes():
+    # The live grid's shape: the dominant family has three training modes, so an even split within each family
+    # would starve the other two modes in R1 and flood them in R2.
+    fams, modes = ("a", "b", "c"), ("m1", "m2", "m3", "m4", "m5")
+    train = [("a", "m1"), ("a", "m2"), ("a", "m3"), ("b", "m1"), ("b", "m2"), ("b", "m3"), ("b", "m4"),
+             ("b", "m5"), ("c", "m4"), ("c", "m5"), ("c", "m1")]
+    targets = mode_targets(50, modes, 7)
+    for rows in ({"a": 25, "b": 15, "c": 10}, {"a": 8, "b": 25, "c": 17}):
+        got = allocate_cells(rows, train, targets)
+        assert set(got) <= set(train)
+        for f in fams:
+            assert sum(v for (ff, _), v in got.items() if ff == f) == rows[f]
+        assert {m: sum(v for (_, mm), v in got.items() if mm == m) for m in modes} == targets
 
 
 def test_an_incoherent_cell_is_never_drawn():
@@ -144,9 +182,9 @@ def test_family_sequence_is_a_function_of_the_seed_alone():
 def test_family_sequence_does_not_move_when_model_calls_fail_and_retry():
     slots = plan_slots(PARAMS)[:3]
     script = ["not json", "still not json",           # slot 1: draft refused after its re-ask
-              draft(checks=(BEHAVIOUR, BEHAVIOUR_2)),               # slot 1: whole regeneration
-              draft(text="a shopping list I can add items to", checks=(BEHAVIOUR, BEHAVIOUR_2)),
-              draft(text="a mood log with one button per day", checks=(BEHAVIOUR, BEHAVIOUR_2))]
+              mode_draft(),               # slot 1: whole regeneration
+              mode_draft("a shopping list I can add items to"),
+              mode_draft("a mood log with one button per day")]
     m = minter(script, fails_on_stub)
     out = m.mint_requests(slots)
     assert [r.id for r in out.stream] == [s.id for s in slots]
@@ -307,8 +345,8 @@ def test_a_regenerated_check_that_fails_on_its_stub_is_kept():
 
 
 def test_a_request_with_no_surviving_check_is_regenerated_whole():
-    script = [draft(checks=(ON_STUB, ON_STUB_2)), regen({"steps": [], "expect": {"visible": "#add"}}),
-              regen({"steps": [], "expect": {"exists": "#add"}}),
+    script = [draft(checks=(ON_STUB, ON_STUB_2)), regen({"steps": [{"click": "#add"}], "expect": {"visible": "#add"}}),
+              regen({"steps": [{"click": "#add"}], "expect": {"exists": "#add"}}),
               draft(text="a counter that goes up when I press add", checks=(BEHAVIOUR, BEHAVIOUR_2))]
     out = minter(script, reading_by_expect({"exists", "visible"})).mint_requests([R1_SLOT])
     (r,) = out.stream
@@ -317,8 +355,8 @@ def test_a_request_with_no_surviving_check_is_regenerated_whole():
 
 
 def test_a_position_with_no_request_after_every_regeneration_raises():
-    drafts = [draft(checks=(ON_STUB, ON_STUB_2)), regen({"steps": [], "expect": {"visible": "#add"}}),
-              regen({"steps": [], "expect": {"exists": "#add"}})] * (PARAMS.request_regenerations + 1)
+    drafts = [draft(checks=(ON_STUB, ON_STUB_2)), regen({"steps": [{"click": "#add"}], "expect": {"visible": "#add"}}),
+              regen({"steps": [{"click": "#add"}], "expect": {"exists": "#add"}})] * (PARAMS.request_regenerations + 1)
     with pytest.raises(MintFailed):
         minter(drafts, reading_by_expect({"exists", "visible"})).mint_requests([R1_SLOT])
 
@@ -459,8 +497,8 @@ SMALL = replace(PARAMS, rounds=2, per_round=1, held_out=1, held_out_cells=1, dri
 def test_a_failed_position_does_not_discard_the_minted_ones_and_a_rerun_resumes_from_the_journal(tmp_path):
     journal = goals_json.JsonlMintJournal(tmp_path / "mint_journal.jsonl")
     sunk: list[MintedGoals] = []
-    first = GoalMinter(ScriptedClient([draft(checks=(BEHAVIOUR, BEHAVIOUR_2)), *[REFUSED] * REFUSALS_PER_POSITION,
-                                       draft(text="a counter for the held-out set", checks=(BEHAVIOUR, BEHAVIOUR_2))]),
+    first = GoalMinter(ScriptedClient([mode_draft(), *[REFUSED] * REFUSALS_PER_POSITION,
+                                       mode_draft("a counter for the held-out set")]),
                        BOOK, SMALL, fails_on_stub, DSL, sunk.append, journal)
     with pytest.raises(MintFailed) as e:
         first.mint()
@@ -469,7 +507,7 @@ def test_a_failed_position_does_not_discard_the_minted_ones_and_a_rerun_resumes_
     assert [r.id for r in e.value.partial.stream + e.value.partial.held_out] == ["G-001", "H-01"]
     assert ("G-002", "position_failed") in [(r["request"], r["event"]) for r in e.value.partial.report]
     assert sorted(journal.minted()) == ["G-001", "H-01"]
-    again = GoalMinter(ScriptedClient([draft(text="a counter that resumes", checks=(BEHAVIOUR, BEHAVIOUR_2))]),
+    again = GoalMinter(ScriptedClient([mode_draft("a counter that resumes")]),
                        BOOK, SMALL, fails_on_stub, DSL, sunk.append, journal)
     again.mint()
     assert len(again.client.calls) == 1                     # only the failed position is re-minted
@@ -523,8 +561,9 @@ def test_the_retry_block_states_the_reason_the_previous_draft_was_retried():
     retried = refused_then_ok.client.calls[2][1][1].content
     assert BOOK.text("goal_minter/retry_refused.md").strip() in retried
     assert BOOK.text("goal_minter/retry_block.md").strip() not in retried
-    script = [draft(checks=(ON_STUB, ON_STUB_2)), regen({"steps": [], "expect": {"visible": "#add"}}),
-              regen({"steps": [], "expect": {"exists": "#add"}}), draft(checks=(BEHAVIOUR, BEHAVIOUR_2))]
+    script = [draft(checks=(ON_STUB, ON_STUB_2)), regen({"steps": [{"click": "#add"}], "expect": {"visible": "#add"}}),
+              regen({"steps": [{"click": "#add"}], "expect": {"exists": "#add"}}),
+              draft(checks=(BEHAVIOUR, BEHAVIOUR_2))]
     no_behaviour = minter(script, reading_by_expect({"exists", "visible"}))
     no_behaviour.mint_requests([R1_SLOT])
     retried = no_behaviour.client.calls[-1][1][1].content
@@ -547,3 +586,68 @@ def test_stored_r2_text_carries_no_drift_constraint_so_the_pipeline_appends_it_o
         assert " ".join(SPEC.drift.constraint.split()) not in " ".join(r.text.split())
         for regime in r.checks:
             assert compose(r, regime, SPEC.drift.constraint).count("phone screen") == (regime is Regime.R2)
+
+
+# --- review fixes: the prior across shards, the mode in the checks -------------------------------------------
+
+def test_a_resumed_only_run_shows_the_drafter_every_journaled_text_of_any_family(tmp_path):
+    journal = goals_json.JsonlMintJournal(tmp_path / "mint_journal.jsonl")
+    slots = {s.id: s for s in plan_slots(SMALL)}
+    GoalMinter(ScriptedClient([mode_draft("a pocket tally for counting birds"),
+                               mode_draft("a jar that fills with marbles as I save")]),
+               BOOK, SMALL, fails_on_stub, DSL, no_sink, journal).mint_requests([slots["G-001"], slots["H-01"]])
+    shard = GoalMinter(ScriptedClient([mode_draft("a counter for laps around the track")]),
+                       BOOK, SMALL, fails_on_stub, DSL, no_sink, journal)
+    shard.mint_requests([slots["G-002"]])                       # `--only G-002` on the shared journal
+    asked = shard.client.calls[0][1][1].content
+    assert "- a pocket tally for counting birds" in asked
+    assert "- a jar that fills with marbles as I save" in asked        # another family and the held-out set too
+    assert "any kind of app" in asked
+
+
+@pytest.mark.parametrize("mode", [m for m in SPEC.stream.modes if m != "click or tap"])
+def test_a_click_only_draft_is_rejected_for_a_mode_other_than_click_or_tap(mode):
+    raw = json.loads(draft(checks=(BEHAVIOUR, BEHAVIOUR_2), contract=MODE_CONTRACT))
+    with pytest.raises(Rejected, match=mode):
+        validate_draft(raw, Regime.R1, PARAMS, DSL, mode)
+    ok = json.loads(draft(checks=(MODE_CHECK[mode], BEHAVIOUR_2), contract=MODE_CONTRACT))
+    assert validate_draft(ok, Regime.R1, PARAMS, DSL, mode).checks[0].steps == tuple(MODE_CHECK[mode]["steps"])
+
+
+def test_a_click_or_tap_draft_with_a_key_or_type_step_is_rejected():
+    keyed = json.loads(draft(checks=(BEHAVIOUR, MODE_CHECK["keyboard-driven"]), contract=MODE_CONTRACT))
+    with pytest.raises(Rejected, match="click or tap only"):
+        validate_draft(keyed, Regime.R1, PARAMS, DSL, "click or tap")
+
+
+def test_a_draft_whose_only_mode_check_fails_validation_is_regenerated_whole():
+    slot = replace(R1_SLOT, mode="keyboard-driven")
+    key_check = MODE_CHECK["keyboard-driven"]
+    script = [draft(checks=(key_check, BEHAVIOUR_2), contract=MODE_CONTRACT),
+              regen({"steps": [{"focus": "#add"}, {"key": "Enter"}], "expect": {"text_changed": "#count"}}),
+              draft(text="a counter I bump with the arrow keys",
+                    checks=({"steps": [{"focus": "#add"}, {"key": "ArrowUp"}, {"wait": 100}],
+                             "expect": {"text_matches": "#count", "regex": "1"}}, BEHAVIOUR_2),
+                    contract=MODE_CONTRACT)]
+
+    def stub(_rid, _contract, check, _regime):               # a keyed text_changed passes on the stub (as if inert)
+        return StubReading(check.expect.get("text_changed") == "#count" and any("key" in s for s in check.steps))
+
+    out = minter(script, stub).mint_requests([slot])
+    assert ("G-001", "request_regenerated") in [(e["request"], e["event"]) for e in out.report]
+    assert out.stream[0].text == "a counter I bump with the arrow keys"
+
+
+def test_a_drag_step_moves_the_pointer_in_chromium_and_reads_nothing_on_the_stub(chromium, tmp_path):
+    app = tmp_path / "slider.html"
+    app.write_text('<!doctype html><html><body><div id="knob" style="width:80px;height:40px;background:#888"></div>'
+                   '<div id="pos">0</div><script>let down=false,x0=0;const k=document.getElementById("knob");'
+                   'k.addEventListener("pointerdown",e=>{down=true;x0=e.clientX});'
+                   'addEventListener("pointermove",e=>{if(down)document.getElementById("pos").textContent='
+                   'String(Math.round(e.clientX-x0))});addEventListener("pointerup",()=>{down=false});'
+                   '</script></body></html>')
+    check = Check("c1", ({"drag": "#knob", "dx": 60, "dy": 0},), {"text_matches": "#pos", "regex": r"\b60\b"})
+    dsl.validate(check, SPEC.eval.max_wait_ms)
+    assert dsl.run_check(lambda: chromium.page(str(app), (1280, 800)), check).passed
+    stub = goals_json.write_stub(tmp_path, "G-001", stub_html({"#knob": "display knob", "#pos": "display offset"}))
+    assert not dsl.run_check(lambda: chromium.page(str(stub), (1280, 800)), check).passed

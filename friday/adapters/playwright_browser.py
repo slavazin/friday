@@ -252,6 +252,20 @@ class PlaywrightPage:
         self._page.focus(selector, timeout=self._t)
 
     @_translated
+    def drag(self, selector: str, dx: int, dy: int) -> None:
+        """Pointer down at the element's centre, a stepped move by (dx, dy), pointer up: mouse events and the
+        pointer events the browser derives from them fire on the way."""
+        box = self._page.locator(selector).first.bounding_box(timeout=self._t)
+        if box is None:
+            raise LookupError(f"{selector} has no box to drag")
+        x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+        mouse = self._page.mouse
+        mouse.move(x, y)
+        mouse.down()
+        mouse.move(x + dx, y + dy, steps=8)
+        mouse.up()
+
+    @_translated
     def wait(self, ms: int) -> None:
         self._page.wait_for_timeout(ms)
 

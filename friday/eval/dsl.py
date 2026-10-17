@@ -1,7 +1,7 @@
 """The check DSL (SPEC § 4): validation and an interpreter over the `Page` port.
 
 Steps: {"goto": query} {"click": sel} {"type": sel, "text": s} {"key": name, "times": n} {"focus": sel}
-{"wait": ms}. Expectations: {"exists": sel} {"visible": sel} {"focused": sel}
+{"drag": sel, "dx": px, "dy": py} {"wait": ms}. Expectations: {"exists": sel} {"visible": sel} {"focused": sel}
 {"text_matches": sel, "regex": r} {"text_changed": sel} {"canvas_changed": sel} {"no_console_errors": true}.
 
 "Before" snapshots for *_changed are taken after the check's leading `goto` steps, so the initial
@@ -20,7 +20,7 @@ from friday.ports.browser import Page
 
 STEP_KEYS: dict[str, frozenset[str]] = {
     "goto": frozenset(), "click": frozenset(), "type": frozenset({"text"}),
-    "key": frozenset({"times"}), "focus": frozenset(), "wait": frozenset(),
+    "key": frozenset({"times"}), "focus": frozenset(), "drag": frozenset({"dx", "dy"}), "wait": frozenset(),
 }
 EXPECT_KEYS: dict[str, frozenset[str]] = {
     "exists": frozenset(), "visible": frozenset(), "focused": frozenset(), "text_matches": frozenset({"regex"}),
@@ -60,6 +60,12 @@ def validate(check: Check, max_wait_ms: int) -> None:
             raise InvalidCheck(f"{where}: {verb} takes a string")
         if verb == "type" and not isinstance(step.get("text"), str):
             raise InvalidCheck(f"{where}: type needs a string text")
+        if verb == "drag":
+            for axis in ("dx", "dy"):
+                if not _int(step.get(axis)):
+                    raise InvalidCheck(f"{where}: drag needs an int {axis} (CSS px)")
+            if step["dx"] == 0 and step["dy"] == 0:
+                raise InvalidCheck(f"{where}: a drag moves the pointer: dx or dy is not 0")
         if verb == "key" and "times" in step and not (_int(step["times"]) and step["times"] >= 1):
             raise InvalidCheck(f"{where}: times must be an int >= 1")
     where = f"{check.id}.expect"
@@ -98,6 +104,8 @@ def _run_step(page: Page, step: dict[str, Any]) -> None:
         page.key(step["key"], int(step.get("times", 1)))
     elif "focus" in step:
         page.focus(step["focus"])
+    elif "drag" in step:
+        page.drag(step["drag"], int(step["dx"]), int(step["dy"]))
     elif "wait" in step:
         page.wait(int(step["wait"]))
 
