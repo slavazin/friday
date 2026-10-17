@@ -1,3 +1,5 @@
+import dataclasses
+
 """The goal minter, the contract stub check validation (real Chromium) and the goals/*.json adapters (SPEC § 4)."""
 
 import inspect
@@ -43,7 +45,11 @@ TEL = MemoryTelemetry(Scope("main"))
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = load_spec(ROOT / "run.yml")
 BOOK = PromptBook(ROOT / "prompts")
-PARAMS = mint_params(SPEC)
+# The stream was minted under the 14-round plan (drift at 8); the run reads rounds 1-3 and 8-11 of it
+# (goals/cells.json "remap"). The planner is tested at the shape it minted.
+MINTED = dataclasses.replace(SPEC, run=dataclasses.replace(SPEC.run, rounds=14),
+                             drift=dataclasses.replace(SPEC.drift, round=8))
+PARAMS = mint_params(MINTED)
 DSL = dsl_validator(SPEC.eval.max_wait_ms)
 
 COUNTER = {"#add": "button that adds one", "#count": "display of the running count"}
@@ -81,7 +87,7 @@ def regen(check) -> str:
 
 
 R1_SLOT = Slot("G-001", 1, 0, Regime.R1, SPEC.stream.families[0], SPEC.stream.modes[0])
-R2_SLOT = Slot("G-071", SPEC.drift.round, 0, Regime.R2, SPEC.stream.families[1])
+R2_SLOT = Slot("G-071", MINTED.drift.round, 0, Regime.R2, SPEC.stream.families[1])
 
 
 def no_sink(_: MintedGoals) -> None:
@@ -102,7 +108,7 @@ def fails_on_stub(*_):
 def test_family_shares_per_regime_match_the_mix_within_one_request_on_the_full_stream():
     slots = plan_slots(PARAMS)
     stream = [s for s in slots if s.round is not None]
-    assert len(stream) == SPEC.stream.per_round * SPEC.run.rounds == 140
+    assert len(stream) == MINTED.stream.per_round * MINTED.run.rounds == 140
     for regime in (Regime.R1, Regime.R2):
         mine = [s for s in stream if s.regime is regime]
         counts = Counter(s.family for s in mine)
@@ -114,7 +120,7 @@ def test_regime_follows_the_drift_round_and_the_held_out_set_is_one_request_per_
     slots = plan_slots(PARAMS)
     for s in slots:
         if s.round is not None:
-            assert s.regime is (Regime.R2 if s.round >= SPEC.drift.round else Regime.R1)
+            assert s.regime is (Regime.R2 if s.round >= MINTED.drift.round else Regime.R1)
     held = [s for s in slots if s.round is None]
     train, withheld = grid_cells(PARAMS)
     assert len(held) == SPEC.stream.held_out and all(s.regime is Regime.R2 for s in held)
@@ -440,7 +446,7 @@ def test_goal_source_round_trips_requests_and_reads_the_held_out_file_only_when_
     src = JsonGoalSource(tmp_path / "stream.json", tmp_path / "missing_held_out.json")
     loop_view = [replace(r, cell=None) for r in out.stream]      # the stream the loop reads carries no cell
     assert list(src.round(1)) == [loop_view[0]]
-    assert list(src.round(SPEC.drift.round)) == [loop_view[1]]
+    assert list(src.round(MINTED.drift.round)) == [loop_view[1]]
     with pytest.raises(FileNotFoundError):
         src.held_out()
     goals_json.write_requests(tmp_path / "held.json", out.held_out)

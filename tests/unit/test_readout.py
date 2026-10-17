@@ -287,13 +287,13 @@ def test_r3_windows_split_at_the_drift_round_without_off_by_one():
     # D-0002: admitted at the drift round: counts as admitted after, never as before.
     flip(ev, "D-0002", C, A, FlipCause.GATE_ADMIT, drift)
     # D-0003: admitted and retired before the drift round: neither count.
-    flip(ev, "D-0003", C, A, FlipCause.GATE_ADMIT, 2)
+    flip(ev, "D-0003", C, A, FlipCause.GATE_ADMIT, drift - 2)
     flip(ev, "D-0003", A, R, FlipCause.SUPERSEDE, drift - 1)
     # D-0004: admitted before, retired after by a steer: reported apart, not counted.
-    flip(ev, "D-0004", C, A, FlipCause.GATE_ADMIT, 3)
+    flip(ev, "D-0004", C, A, FlipCause.GATE_ADMIT, drift - 1)
     flip(ev, "D-0004", A, R, FlipCause.STEER_RETIRE, drift + 2)
     # D-0005: admitted before, superseded after: counted.
-    flip(ev, "D-0005", C, A, FlipCause.GATE_ADMIT, 4)
+    flip(ev, "D-0005", C, A, FlipCause.GATE_ADMIT, drift - 1)
     flip(ev, "D-0005", A, R, FlipCause.SUPERSEDE, drift + 1)
     for did in ("D-0001", "D-0002", "D-0006"):
         s.ledger.append(LedgerDelta(did, 2, "c", DeltaKind.EXPOSURE, 0.1, 0.0))
