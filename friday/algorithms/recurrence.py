@@ -5,14 +5,35 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 
 from friday.domain.types import Observation, ObservationStatus, Pool, PoolStatus
 
 
+class Route(StrEnum):
+    """Which rule sent a pool to the nominator (SPEC § 7)."""
+
+    FAST_TRACK = "fast-track"
+    BAR = "bar"
+
+
+@dataclass(frozen=True)
+class Nomination:
+    pool: Pool
+    label: str
+    route: Route
+
+
 @dataclass(frozen=True)
 class RecurrenceBar:
+    """The recurrence bar and the fast-track rule. With `fast_track_share` None no pool is fast-tracked.
+
+    Both rules decide only when a pool goes to the nominator; neither reads or moves a gate constant.
+    """
+
     min_observations: int
     min_rounds: int
+    fast_track_share: float | None = None
 
     def label_at_bar(self, pool: Pool, observations: Sequence[Observation]) -> str | None:
         """The direction label whose open observations in `pool` reach the bar; None when none does.
@@ -22,42 +43,83 @@ class RecurrenceBar:
         """
         if pool.status is PoolStatus.MERGED:
             return None
-        after = pool.refused_at_round if pool.status is PoolStatus.REFUSED else None
-        by_label: dict[str, list[Observation]] = defaultdict(list)
-        for o in observations:
-            if o.pool_id != pool.id or o.direction_label is None:
-                continue
-            if o.status is not ObservationStatus.OPEN or (after is not None and o.round <= after):
-                continue
-            by_label[o.direction_label].append(o)
-        ranked = sorted(
-            by_label.items(),
-            key=lambda kv: (-len(kv[1]), _label_index(pool, kv[0])),
-        )
-        for label, obs in ranked:
+        for label, obs in _ranked_labels(pool, _counted(pool, observations)):
             if len(obs) >= self.min_observations and len({o.round for o in obs}) >= self.min_rounds:
                 return label
         return None
+
+    def fast_tracked_label(self, pool: Pool, observations: Sequence[Observation]) -> str | None:
+        """The leading direction label when `pool` is fast-tracked; None when it is not.
+
+        Fast-tracked: at least `min_observations` counted open observations, and the leading label holds at
+        least `fast_track_share` of them (an open observation with no label counts in the denominator only).
+        No round spread is required. For a refused pool only observations dated after the refusal count,
+        exactly as for the bar.
+        """
+        if self.fast_track_share is None or pool.status is PoolStatus.MERGED:
+            return None
+        counted = _counted(pool, observations)
+        if len(counted) < self.min_observations:
+            return None
+        ranked = _ranked_labels(pool, counted)
+        if not ranked:
+            return None
+        label, obs = ranked[0]
+        return label if len(obs) / len(counted) >= self.fast_track_share else None
+
+
+def _counted(pool: Pool, observations: Sequence[Observation]) -> list[Observation]:
+    """The open observations of `pool` that count toward nomination (after the refusal, for a refused pool)."""
+    after = pool.refused_at_round if pool.status is PoolStatus.REFUSED else None
+    if pool.status is PoolStatus.REFUSED and after is None:
+        raise ValueError(f"{pool.id} is refused but records no refusal round")
+    return [
+        o for o in observations
+        if o.pool_id == pool.id and o.status is ObservationStatus.OPEN and (after is None or o.round > after)
+    ]
+
+
+def _ranked_labels(pool: Pool, counted: Sequence[Observation]) -> list[tuple[str, list[Observation]]]:
+    """Labels by observation count, then the label minted first."""
+    by_label: dict[str, list[Observation]] = defaultdict(list)
+    for o in counted:
+        if o.direction_label is not None:
+            by_label[o.direction_label].append(o)
+    return sorted(by_label.items(), key=lambda kv: (-len(kv[1]), _label_index(pool, kv[0])))
 
 
 def _label_index(pool: Pool, label: str) -> int:
     return pool.direction_labels.index(label) if label in pool.direction_labels else len(pool.direction_labels)
 
 
-def nomination_queue(
+def nominations(
     pools: Sequence[Pool], observations: Sequence[Observation], bar: RecurrenceBar, room: int,
-) -> list[tuple[Pool, str]]:
-    """Pools to nominate this close, oldest id first, at most `room`; nominated pools are skipped."""
-    out: list[tuple[Pool, str]] = []
+) -> list[Nomination]:
+    """At most `room` pools to nominate this close, with the route that sent each.
+
+    Fast-tracked pools come first, then pools at the bar; oldest id first within each. A pool that
+    qualifies by both routes is fast-tracked. Nominated and merged pools are skipped.
+    """
+    fast: list[Nomination] = []
+    slow: list[Nomination] = []
     for pool in sorted(pools, key=lambda p: p.id):
-        if len(out) >= room:
-            break
         if pool.status in (PoolStatus.NOMINATED, PoolStatus.MERGED):
+            continue
+        label = bar.fast_tracked_label(pool, observations)
+        if label is not None:
+            fast.append(Nomination(pool, label, Route.FAST_TRACK))
             continue
         label = bar.label_at_bar(pool, observations)
         if label is not None:
-            out.append((pool, label))
-    return out
+            slow.append(Nomination(pool, label, Route.BAR))
+    return [*fast, *slow][:max(room, 0)]
+
+
+def nomination_queue(
+    pools: Sequence[Pool], observations: Sequence[Observation], bar: RecurrenceBar, room: int,
+) -> list[tuple[Pool, str]]:
+    """(pool, label) pairs of `nominations`, in its order: fast-tracked first, then at the bar."""
+    return [(n.pool, n.label) for n in nominations(pools, observations, bar, room)]
 
 
 def expired(observations: Sequence[Observation], round_: int, expiry_rounds: int) -> list[str]:
