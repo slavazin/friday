@@ -1,0 +1,157 @@
+"""The quality reading Q (SPEC § 5): ESLint errors over the inline script plus axe-core violations on the
+loaded page, from the local Node install, never read as 0 when a tool is missing or fails."""
+
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from friday.adapters import quality
+from friday.adapters.quality import NodeQualityProbe, QualityToolFailed, QualityUnavailable, inline_script
+from friday.config import load_spec
+from tests.fakes import FakeDom, FakePage
+
+ROOT = Path(__file__).resolve().parents[2]
+SPEC = load_spec(ROOT / "run.yml")
+DATA = ROOT / "tests/data/quality"
+
+# Hand count of tests/data/quality/flawed.html.
+# ESLint (config/eslint.json): no-unused-vars `unused`; no-constant-condition `if (true)`; no-empty `catch { }`;
+# no-undef `missingFn` inside the onclick attribute. The how-to JSON script is not linted.
+FLAWED_ESLINT = 4
+# axe-core rules violated: html-has-lang, document-title, image-alt, label, button-name.
+FLAWED_AXE = 5
+
+
+@pytest.fixture(scope="module")
+def probe():
+    return NodeQualityProbe.from_spec(SPEC, ROOT)
+
+
+@pytest.fixture(scope="module")
+def browser():
+    pytest.importorskip("playwright")
+    from friday.adapters.playwright_browser import PlaywrightBrowser
+
+    b = PlaywrightBrowser(SPEC.eval.action_timeout_ms, SPEC.eval.load_timeout_ms)
+    yield b
+    b.close()
+
+
+def _with_run_script(page):
+    """The Playwright page, given `run_script` as `page.evaluate` when the adapter does not implement it yet."""
+    if not hasattr(page, "run_script"):
+        page.run_script = page._page.evaluate
+    return page
+
+
+def _axe(probe, browser, name):
+    with browser.page(str(DATA / name), (1280, 800)) as page:
+        return probe.axe_violations(_with_run_script(page))
+
+
+def test_eslint_count_on_the_flawed_fixture_matches_the_hand_count(probe):
+    assert probe.eslint_errors((DATA / "flawed.html").read_text()) == FLAWED_ESLINT
+
+
+def test_eslint_count_on_the_clean_fixture_is_zero(probe):
+    assert probe.eslint_errors((DATA / "clean.html").read_text()) == 0
+
+
+def test_q_on_the_flawed_fixture_matches_the_hand_count(probe, browser):
+    q = probe.eslint_errors((DATA / "flawed.html").read_text()) + _axe(probe, browser, "flawed.html")
+    assert q == FLAWED_ESLINT + FLAWED_AXE
+    assert _axe(probe, browser, "clean.html") == 0
+
+
+def test_axe_count_is_stable_across_two_runs(probe, browser):
+    assert _axe(probe, browser, "flawed.html") == _axe(probe, browser, "flawed.html") == FLAWED_AXE
+
+
+def test_inline_script_skips_src_scripts_and_json_data_and_keeps_handlers():
+    html = ('<script>var a = 1;</script><script src="x.js">ignored()</script>'
+            '<script type="application/json" id="how-to-data">{"summary": 1}</script>'
+            '<button onclick="go(event)">x</button><img src=x onerror="fail()"/><script type="module">b()</script>')
+    code = inline_script(html)
+    assert "var a = 1;" in code and "b()" in code and "go(event)" in code and "fail()" in code
+    assert "ignored" not in code and "summary" not in code
+
+
+def test_a_function_called_only_from_a_handler_attribute_is_not_unused(probe):
+    html = '<button onclick="start()">Go</button><script>function start() { return 1; }</script>'
+    assert probe.eslint_errors(html) == 0
+    assert probe.eslint_errors("<script>function start() { return 1; }</script>") == 1
+
+
+def test_inline_eslint_comments_cannot_switch_a_rule_off(probe):
+    html = "<script>/* eslint-disable */\n// eslint-disable-next-line no-undef\nmissing();</script>"
+    assert probe.eslint_errors(html) == 1
+
+
+def test_a_parse_error_counts_as_an_error_not_as_zero(probe):
+    assert probe.eslint_errors("<script>var = ;</script>") == 1
+
+
+def test_a_user_eslint_config_in_the_root_is_never_read(tmp_path):
+    (tmp_path / "node_modules").symlink_to(ROOT / "node_modules")
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config/eslint.json").write_text((ROOT / "config/eslint.json").read_text())
+    (tmp_path / "eslint.config.js").write_text("export default [{ rules: { 'no-undef': 'off' } }];\n")
+    (tmp_path / ".eslintrc.json").write_text('{"rules": {"no-undef": "off"}}')
+    p = NodeQualityProbe(tmp_path, Path("config/eslint.json"))
+    assert p.eslint_errors("<script>missing();</script>") == 1
+
+
+def test_missing_node_raises_at_construction(monkeypatch):
+    monkeypatch.setattr(quality.shutil, "which", lambda name: None)
+    with pytest.raises(QualityUnavailable, match="node"):
+        NodeQualityProbe.from_spec(SPEC, ROOT)
+
+
+def test_missing_node_modules_raises_at_construction(tmp_path):
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config/eslint.json").write_text("{}")
+    with pytest.raises(QualityUnavailable, match="npm ci"):
+        NodeQualityProbe(tmp_path, Path("config/eslint.json"))
+
+
+def test_missing_config_raises_at_construction():
+    with pytest.raises(QualityUnavailable, match="config"):
+        NodeQualityProbe(ROOT, Path("config/absent.json"))
+
+
+def test_an_eslint_crash_raises_instead_of_counting_zero(probe, monkeypatch):
+    def crashed(*args, **kwargs):
+        return subprocess.CompletedProcess(args[0], 2, stdout="", stderr="Error: boom")
+
+    monkeypatch.setattr(quality.subprocess, "run", crashed)
+    with pytest.raises(QualityToolFailed, match="boom"):
+        probe.eslint_errors("<script>var a;</script>")
+
+
+def test_eslint_output_without_a_count_raises(probe, monkeypatch):
+    monkeypatch.setattr(quality.subprocess, "run",
+                        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, stdout='{"messages": []}', stderr=""))
+    with pytest.raises(QualityToolFailed):
+        probe.eslint_errors("<script>var a;</script>")
+
+
+@pytest.mark.parametrize("result", [None, "3", -1, True, 2.5, {"violations": []}])
+def test_an_axe_result_that_is_not_a_count_raises(probe, result):
+    dom = FakeDom(scripts={probe.axe_script(): result})
+    with pytest.raises(QualityToolFailed):
+        probe.axe_violations(FakePage(dom))
+
+
+def test_axe_runs_eval_side_through_run_script_after_load(probe):
+    src = probe.axe_script()
+    dom = FakeDom(scripts={src: 3})
+    assert probe.axe_violations(FakePage(dom)) == 3
+    assert src.startswith("async () => {") and "readyState !== 'complete'" in src
+    assert (ROOT / "node_modules/axe-core/axe.min.js").read_text()[:200] in src
+
+
+def test_node_modules_is_not_committed():
+    tracked = subprocess.run(["git", "ls-files", "node_modules"], cwd=ROOT, capture_output=True, text=True,
+                             check=True)
+    assert tracked.stdout == ""

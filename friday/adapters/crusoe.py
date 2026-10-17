@@ -3,11 +3,17 @@
 Retries 429/5xx with full-jitter exponential backoff (a Retry-After header wins), records one spend row
 per call (failed calls included), and echoes the served model string. Prices come from GET /v1/models unless
 `models.price_overrides` names the model.
+
+With a `ResponseCache`, a call at temperature 0 is looked up by `request_key(body)` before it is sent; a hit
+returns the stored reply (with the model string the service echoed when it was stored) and records a
+zero-cost spend row marked cached. A call at a temperature above 0 is never cached: a sampled role (the
+worker, the drafting roles) must draw a fresh reply each time.
 """
 
 from __future__ import annotations
 
 import base64
+import json
 import os
 import random
 import time
@@ -16,8 +22,9 @@ from typing import Any
 
 import httpx
 
+from friday.adapters.cache import request_key
 from friday.config import ModelsSection, RolePin, TransportSection
-from friday.ports.models import ChatResult, Message, ModelInfo
+from friday.ports.models import ChatResult, Message, ModelInfo, ResponseCache
 from friday.ports.stores import SpendLog
 
 
@@ -69,6 +76,7 @@ class CrusoeClient:
         http: httpx.Client | None = None,
         sleep: Callable[[float], None] = time.sleep,
         rng: random.Random | None = None,
+        cache: ResponseCache | None = None,
     ) -> None:
         key = os.environ.get(models.endpoint.api_key_env)
         if not key:
@@ -80,6 +88,7 @@ class CrusoeClient:
             timeout=transport.request_timeout_s,
         )
         self._sleep, self._rng = sleep, rng or random.Random()
+        self._cache = cache
         self._role_models: dict[str, str] = {}
         self._catalog: dict[str, ModelInfo] = {}
 
@@ -124,6 +133,11 @@ class CrusoeClient:
         if json_schema is not None and info is not None and info.structured_output:
             schema = {"name": (tag or role).replace(":", "_"), "schema": json_schema}
             body["response_format"] = {"type": "json_schema", "json_schema": schema}
+        key = request_key(body) if self._cache is not None and body["temperature"] == 0 else None
+        if key is not None:
+            hit = self._cache_hit(role, tag, key, body)
+            if hit is not None:
+                return hit
         try:
             resp = self._request("POST", "/chat/completions", body)
         except TransportFailure as e:
@@ -144,6 +158,29 @@ class CrusoeClient:
             tokens_out=t_out,
             cost_usd=self._cost(model, t_in, t_out),
             raw={"id": resp.get("id"), "sent": {k: v for k, v in body.items() if k != "messages"}},
+        )
+        self._spend.record(role, tag, result, ok=True)
+        if key is not None:
+            entry = {"text": text, "model": served, "id": resp.get("id"), "tokens_in": t_in, "tokens_out": t_out}
+            self._cache.put(key, json.dumps(entry, sort_keys=True))
+        return result
+
+    def _cache_hit(self, role: str, tag: str, key: str, body: dict[str, Any]) -> ChatResult | None:
+        """The stored reply for `key` as a zero-cost cached result (its spend row recorded), or None on a miss."""
+        stored = self._cache.get(key)
+        if stored is None:
+            return None
+        # The cache holds this client's own JSON (written above), never model output, so plain json applies.
+        entry = json.loads(stored)
+        result = ChatResult(
+            text=entry["text"],
+            model=entry["model"],
+            tokens_in=0,
+            tokens_out=0,
+            cost_usd=0.0,
+            cached=True,
+            raw={"id": entry["id"], "cache_key": key, "stored_tokens": [entry["tokens_in"], entry["tokens_out"]],
+                 "requested": {k: v for k, v in body.items() if k != "messages"}},
         )
         self._spend.record(role, tag, result, ok=True)
         return result
