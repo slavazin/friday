@@ -6,7 +6,6 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from friday.stats.bounds import t_interval
 from friday.stats.significance import OneSidedTest
 
 
@@ -16,7 +15,7 @@ class PairedReading:
     per_category: Mapping[str, float]
     mean: float
     p: float
-    interval: tuple[float, float] | None
+    lower_bound: float | None     # one-sided `level` bound from inverting `test`; None reads -inf
     level: float
 
 
@@ -37,8 +36,10 @@ def per_category_mean_diff(
 
 
 def paired_reading(per_category: Mapping[str, float], test: OneSidedTest, level: float) -> PairedReading:
-    """p for H1 'treated has lower loss' and the two-sided `level` t-interval over category means."""
+    """p for H1 'treated has lower loss' and the one-sided `level` lower bound from inverting the same test,
+    so the bound is above 0 exactly when p <= 1 - level."""
     xs = list(per_category.values())
     if not xs:
         raise ValueError("no categories to read")
-    return PairedReading(len(xs), dict(per_category), sum(xs) / len(xs), test.p_value(xs), t_interval(xs, level), level)
+    return PairedReading(len(xs), dict(per_category), sum(xs) / len(xs), test.p_value(xs),
+                         test.lower_bound(xs, 1.0 - level), level)

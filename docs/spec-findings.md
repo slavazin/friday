@@ -48,6 +48,13 @@ The listing carries per-model prices, so cost is computed from it. A live struct
   `zai-org/GLM-5.3`, since Ultra is not served. The drafting model then differs from the judge's, which
   keeps the roles independent. A live structured call answered in 0.8 s. The critic moves to
   `deepseek-ai/DeepSeek-V4-Pro`, so it differs from both.
+- **Readout bounds come from the test that decides the verdict.** R1 had shown a two-sided t-interval beside
+  a sign-flip p. At 6 categories the two can split, which puts "improves" next to an interval that crosses
+  0 and leaves the choice of reading to the writer. The bound is now the inversion of the sign-flip test
+  (the (k+1)-th smallest subset mean, k = ⌊α·2ⁿ⌋ − 1), so p ≤ 0.1 is exactly the bound lying above 0.
+  R2 became non-inferiority with a margin (`readout.r2_margin`, 0.05 loss): "the interval does not lie
+  below 0" was earned by any reading too noisy to show harm. R2's token condition left the verdict, since
+  § 12 pre-registers tokens as reported. Ruled before round 1, with no readout data in existence.
 
 ## Open questions
 

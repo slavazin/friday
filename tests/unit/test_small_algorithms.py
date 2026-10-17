@@ -105,7 +105,7 @@ def test_readout_pairs_by_category():
     diffs = per_category_mean_diff(base, treated)
     assert diffs == pytest.approx({"a": 0.2, "b": 0.1})
     r = paired_reading(diffs, SignFlipExact(), 0.9)
-    assert r.n_categories == 2 and r.p == 0.25 and r.interval[0] < r.mean < r.interval[1]
+    assert r.n_categories == 2 and r.p == 0.25 and r.lower_bound is None    # 2^2 flips: no bound at 0.1
 
 
 def test_withheld_cells_keep_every_level_in_training():
