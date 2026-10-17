@@ -62,6 +62,11 @@ export class ReplayPage {
         this.starts.set(r.round, { t, readout: r.name === "readout" });
       }
     }
+    // A jump lands just before the round's first pass closes: its first wave of lanes is on screen.
+    for (const { t, r } of this.events) {
+      const st = this.starts.get(r.round);
+      if (st && r.name === "pass" && r.ended_at !== null && st.jump === undefined) st.jump = Math.max(st.t, t - 1e-6);
+    }
     this.roundBtns.replaceChildren(...[...this.starts].map(([n, { readout }]) =>
       h("button", { class: "btn seg", type: "button", "data-jump": String(n), onclick: () => this.jumpTo(n) },
         readout ? "readout" : `round ${n}`)));
@@ -116,7 +121,7 @@ export class ReplayPage {
     const st = this.starts?.get(n);
     if (!st) return;
     this.pick = null;
-    this.seek(st.t);
+    this.seek(st.jump ?? st.t);
   }
 
   // Rebuilds the state from the first row through time `t`.

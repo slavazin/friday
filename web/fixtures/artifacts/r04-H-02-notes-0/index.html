@@ -1,0 +1,22 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>A text editor I rearrange by dragging</title><style>
+*{box-sizing:border-box}body{margin:0;font:15px/1.4 system-ui,sans-serif;background:#1a1416;color:#f4f4f6;
+padding:14px;min-height:100vh}h1{font-size:18px;margin:0 0 10px}button{font:inherit;padding:6px 12px;
+border-radius:6px;border:0;background:#a3e635;color:#111;cursor:pointer}input,select{font:inherit;padding:5px;
+border-radius:6px;border:1px solid #555;background:#222;color:#eee}#how-to{margin-top:12px;font-size:12px;
+color:#bbb;border-top:1px solid #444;padding-top:8px}table{border-collapse:collapse;width:100%}
+td,th{border-bottom:1px solid #444;padding:4px 6px;text-align:left}
+</style></head><body>
+<h1>A text editor I rearrange by dragging</h1>
+<textarea id="text" rows="6" style="width:100%;font:inherit;background:#222;color:#eee;border-radius:6px">
+The quick brown fox jumps over the lazy dog.</textarea>
+<p>Words: <b id="words">0</b> · Characters: <b id="chars">0</b>
+<button id="upper">UPPER</button> <button id="clear">Clear</button></p>
+<script>
+const ta=document.getElementById('text');
+function count(){const v=ta.value.trim();document.getElementById('words').textContent=v?v.split(/\s+/).length:0;
+document.getElementById('chars').textContent=ta.value.length;}
+ta.addEventListener('input',count);
+document.getElementById('upper').onclick=()=>{ta.value=ta.value.toUpperCase();count();};
+document.getElementById('clear').onclick=()=>{ta.value='';count();};count();
+</script>
+<section id="how-to"><b>How to use:</b> A word counter: typing updates the word and character counts; UPPER and Clear edit the text.</section><script type="application/json" id="how-to-data">{"summary": "A word counter: typing updates the word and character counts; UPPER and Clear edit the text.", "controls": [{"control": "#text", "action": "type", "effect": "the counts update"}, {"control": "#upper", "action": "click", "effect": "the text turns upper case"}]}</script></body></html>

@@ -1,0 +1,23 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>A ball game I play with the mouse</title><style>
+*{box-sizing:border-box}body{margin:0;font:15px/1.4 system-ui,sans-serif;background:#1c1a14;color:#f4f4f6;
+padding:14px;min-height:100vh}h1{font-size:18px;margin:0 0 10px}button{font:inherit;padding:6px 12px;
+border-radius:6px;border:0;background:#f0abfc;color:#111;cursor:pointer}input,select{font:inherit;padding:5px;
+border-radius:6px;border:1px solid #555;background:#222;color:#eee}#how-to{margin-top:12px;font-size:12px;
+color:#bbb;border-top:1px solid #444;padding-top:8px}table{border-collapse:collapse;width:100%}
+td,th{border-bottom:1px solid #444;padding:4px 6px;text-align:left}
+</style></head><body>
+<h1>A ball game I play with the mouse</h1>
+<canvas id="board" width="360" height="200" style="background:#111;border-radius:8px;width:100%"></canvas>
+<p><button id="start">Start</button> Score: <span id="score">0</span></p>
+<script>
+const c=document.getElementById('board'),g=c.getContext('2d');let x=40,y=100,vx=3,vy=2,run=false,s=0,px=180;
+function draw(){g.fillStyle='#111';g.fillRect(0,0,c.width,c.height);g.fillStyle='#f0abfc';
+g.beginPath();g.arc(x,y,9,0,7);g.fill();g.fillRect(px-30,188,60,8);}
+function step(){if(!run)return;x+=vx;y+=vy;if(x<9||x>351)vx=-vx;if(y<9)vy=-vy;
+if(y>180&&Math.abs(x-px)<34){vy=-Math.abs(vy);s++;document.getElementById('score').textContent=s;}
+if(y>200){y=20;}draw();requestAnimationFrame(step);}
+document.getElementById('start').onclick=()=>{run=!run;step();};
+document.addEventListener('keydown',e=>{if(e.key==='ArrowLeft')px-=20;if(e.key==='ArrowRight')px+=20;draw();});
+draw();
+</script>
+<section id="how-to"><b>How to use:</b> A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.</section><script type="application/json" id="how-to-data">{"summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.", "controls": [{"control": "#start", "action": "click", "effect": "the ball starts moving"}, {"control": "#board", "action": "ArrowLeft", "effect": "the paddle moves left"}]}</script></body></html>

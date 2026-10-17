@@ -95,7 +95,7 @@ KEY_SENTINEL = "sk-planted-fixture-key-55e1"
 OVERRIDES: dict[str, dict[str, Any]] = {
     "run": {"rounds": 3},
     "drift": {"round": 3},
-    "stream": {"per_round": 4, "held_out": 2, "held_out_cells": 2},
+    "stream": {"per_round": 4, "held_out": 4, "held_out_cells": 4},
     "readout": {"reps": 2},
     "lens": {"window": 16, "n_min": 6},
     "gate": {"n_min": 3},
@@ -121,7 +121,8 @@ class Cat:
 
 
 TRAINING: dict[int, list[Cat]] = {
-    1: [Cat("C-101", "canvas game", "keyboard-driven", ("canvas", "keyboard", "score"), "a paddle game I steer with arrows"),
+    1: [Cat("C-101", "canvas game", "keyboard-driven", ("canvas", "keyboard", "score"),
+            "a paddle game I steer with arrows"),
         Cat("C-102", "canvas game", "drag or pointer", ("canvas", "pointer"), "a ball game I play with the mouse"),
         Cat("C-103", "timer or tracker", "click or tap", ("timer", "list"), "a stopwatch with laps"),
         Cat("C-104", "data tool", "typing", ("table", "filter"), "a shopping list I can filter")],
@@ -135,7 +136,9 @@ TRAINING: dict[int, list[Cat]] = {
         Cat("C-304", "timer or tracker", "typing", ("timer", "list"), "a habit tracker with daily timers")],
 }
 HELD_OUT = [Cat("H-01", "form or calculator", "real-time", ("form", "table"), "a loan calculator with a payment table"),
-            Cat("H-02", "text tool", "drag or pointer", ("text", "pointer"), "a text editor I rearrange by dragging")]
+            Cat("H-02", "text tool", "drag or pointer", ("text", "pointer"), "a text editor I rearrange by dragging"),
+            Cat("H-03", "data tool", "real-time", ("table", "chart", "timer"), "a live chart of a ticking counter"),
+            Cat("H-04", "canvas game", "typing", ("canvas", "keyboard", "text"), "a word game typed onto a canvas")]
 
 TAG_GLOSSES = {"canvas": "draws on a canvas element", "keyboard": "operated from the keyboard",
                "score": "keeps a score", "pointer": "operated by mouse or touch", "timer": "measures time",
@@ -425,8 +428,9 @@ def build_world(spec: RunSpec) -> World:
                                {"wealth": round(w1, 4), "n": n1, "mean_d": round(m1, 4)}))
     flips[3].append(StatusFlip("D-0002", "candidate", "admitted", FlipCause.GATE_ADMIT, 3,
                                {"wealth": round(w2, 4), "n": n2, "mean_d": round(m2, 4)}))
-    composed = [pl.p for pl in sorted(plans, key=lambda x: (x.p.round, x.p.id)) if pl.report is not None
-                and pl.p.arm is Arm.JOURNAL and pl.p.round <= spec.run.rounds and "D-0001" in pl.p.composition.decision_ids]
+    composed = [pl.p for pl in sorted(plans, key=lambda x: (x.p.round, x.p.id))
+                if pl.report is not None and pl.p.arm is Arm.JOURNAL and pl.p.round <= spec.run.rounds
+                and "D-0001" in pl.p.composition.decision_ids]
     window = composed[-spec.detect.window:]
     contradicted = sum(_disposition("D-0001", x) is Disposition.CONTRADICTED for x in window)
     if not contradicted / len(window) > spec.detect.contradicted_share:
@@ -685,7 +689,8 @@ def _pass_script(s: _Script, tel: Any, pl: PassPlan, t: float, spec: RunSpec, re
     s.span(tel, "eval.rubric", a, b, {"model": RUBRIC_MODEL, "questions": spec.eval.rubric_questions})
     _model_call(s, tel, a + 0.01, b - 0.01, "rubric", "rubric", call, structured=True)
     a, b = adv(1 + rng.random())
-    s.span(tel, "eval.quality", a, b, {}, {"eslint_errors": report.eslint_errors, "axe_violations": report.axe_violations})
+    s.span(tel, "eval.quality", a, b, {}, {"eslint_errors": report.eslint_errors,
+                                           "axe_violations": report.axe_violations})
     s.span(tel, "eval.browser_context", ctx0, cur, {}, {"shared_server": True})
     s.span(tel, "eval", e0, cur + 0.01, {"viewports": len(viewports)})
     cur += 0.03
@@ -727,7 +732,8 @@ def write_telemetry(world: World, doc: dict[str, Any], db: Path) -> None:
     run_start = t
     s.event(runner, t + 0.01, "run.manifest", spec_hash=spec.spec_hash, git_sha=_sha(seed, "git"), seed=seed,
             role_models={k: v.pins[0] for k, v in spec.models.roles.items()}, fallbacks_taken=[], python="3.12.7",
-            playwright="1.55.0", chromium="140.0.7339.16", host_cpus=12, max_parallel_passes=spec.run.max_parallel_passes)
+            playwright="1.55.0", chromium="140.0.7339.16", host_cpus=12,
+            max_parallel_passes=spec.run.max_parallel_passes)
     t += 0.5
     spend_so_far = 0.0
     lens_values = {x["id"]: {h["round"]: h for h in x["value_history"]} for x in doc["lenses"]}
@@ -831,7 +837,7 @@ def write_telemetry(world: World, doc: dict[str, Any], db: Path) -> None:
             s.metric(rt, e, "round.spend", round(by_role[role], 6), "usd", role=role)
         s.metric(rt, e + 0.01, "run.spend", round(spend_so_far, 6), "usd")
         regime = "R2" if r >= spec.drift.round else "R1"
-        s.span(runner, "round", r0, e + 0.05, {"regime": regime, "requests": len(TRAINING[r]),
+        s.span(rt, "round", r0, e + 0.05, {"regime": regime, "requests": len(TRAINING[r]),
                                                "pairs_planned": len(TRAINING[r])})
         t = e + 2.0
         halt_at = {"round": r}
@@ -860,7 +866,8 @@ def write_telemetry(world: World, doc: dict[str, Any], db: Path) -> None:
     for key, label in (("r1", "R1"), ("r2", "R2")):
         c = readout[key]
         s.event(ro, r1, "readout.reading", reading=label, population=c["population"], estimate=c["mean"],
-                interval=c["interval"], p=c["p"], verdict=c["verdict"])
+                interval=None, lower_bound=c["lower_bound"], claim_above=c["claim_above"], p=c["p"],
+                verdict=c["verdict"])   # the catalogue's `interval` is null: R1 and R2 read a one-sided bound
     r3, r4 = readout["r3"], readout["r4"]
     s.event(ro, r1, "readout.reading", reading="R3", population=r3["population"],
             estimate=len(r3["admitted_before_retired_after"]), interval=None, p=None, verdict=r3["verdict"])

@@ -62,7 +62,8 @@ _TIMER = """
 <ol id="laps"></ol>
 <script>
 let t0=0,acc=0,on=false,h=null;const el=document.getElementById('clock');
-function fmt(ms){const s=ms/1000;return String(Math.floor(s/60)).padStart(2,'0')+':'+(s%%60).toFixed(1).padStart(4,'0');}
+function fmt(ms){const s=ms/1000;
+return String(Math.floor(s/60)).padStart(2,'0')+':'+(s%%60).toFixed(1).padStart(4,'0');}
 function tick(){el.textContent=fmt(acc+(on?Date.now()-t0:0));}
 document.getElementById('start').onclick=()=>{if(on){acc+=Date.now()-t0;on=false;clearInterval(h);}
 else{t0=Date.now();on=true;h=setInterval(tick,100);}tick();};
@@ -76,7 +77,8 @@ document.getElementById('laps').innerHTML='';};
 _FORM = """
 <h1>%(title)s</h1>
 <p><label>Bill <input id="bill" type="number" value="48"></label></p>
-<p><label>Tip <select id="tip"><option>10</option><option selected>15</option><option>20</option></select> %%</label></p>
+<p><label>Tip <select id="tip"><option>10</option><option selected>15</option><option>20</option></select>
+%%</label></p>
 <p><label>People <input id="people" type="number" value="2" min="1"></label></p>
 <p style="font-size:22px">Each pays: <span id="each"></span></p>
 <script>

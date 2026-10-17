@@ -68,6 +68,7 @@ export class RoundView {
     setText(this.roundSub, [status, regime].filter(Boolean).join(" · ") + drift);
     this._lanes(r);
     this._phases(r.readout ? null : r);
+    setClass(this.root, "is-readout", r.readout);
   }
 
   _counter(state, current) {
@@ -170,7 +171,7 @@ export class RoundView {
     setClass(el.root, "is-failed", failed);
     setClass(el.root, "is-running", !scored && !failed);
     if (scored) {
-      setText(el.step, card.repaired ? "scored after a self-repair turn" : "scored");
+      setText(el.step, card.repaired ? "scored · repaired" : "scored");
       setText(el.loss, fmt.loss(card.loss));
       setText(el.lossLabel, "loss");
       el.root.style.setProperty("--loss-color", lossColor(card.loss));
@@ -187,7 +188,7 @@ export class RoundView {
 
   _phases(r) {
     setText(this.closeLabel.querySelector(".close-state"),
-      !r ? "" : r.close.state === "pending" ? " · waiting for the passes" : r.close.state === "running" ? " · running" : " · done");
+      !r ? " · none" : r.close.state === "pending" ? " · waiting for the passes" : r.close.state === "running" ? " · running" : " · done");
     for (const p of PHASES) {
       const { el, count } = this.phaseEls.get(p);
       const ph = r?.close.phases.get(p);
