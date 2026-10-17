@@ -250,3 +250,9 @@ class SqliteTelemetry(_Log):
     def spans(self, *, name_prefix: str | None = None, run: str | None = None, round: int | None = None,  # noqa: A002
               pass_id: str | None = None) -> Sequence[TelemetryRow]:
         return _merge_spans(self.rows(kind="span", name_prefix=name_prefix, run=run, round=round, pass_id=pass_id))
+
+
+def open_run_telemetry(db_path: str | Path, run: str, *, busy_timeout_ms: int) -> SqliteTelemetry:
+    """The run's telemetry log for this process: one connection to `db_path`, scoped to `run`
+    (`main` or `critic`). Call once per process, pass processes included; narrow with `.scoped()`."""
+    return SqliteTelemetry(connect_telemetry(db_path, busy_timeout_ms=busy_timeout_ms), Scope(run))

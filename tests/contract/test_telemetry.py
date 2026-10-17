@@ -123,3 +123,11 @@ def test_time_table_and_span_tree_read_durations_and_failures():
     tree = span_tree(log, run="main", round_=1)
     assert "  eval.probe  1.00s" in tree and "[failed: RuntimeError: x]" in tree
     assert time_table(log, run="main", round_=1).splitlines()[0].startswith("step")
+
+
+def test_open_run_telemetry_scopes_to_the_run_and_reads_back(tmp_path):
+    from friday.adapters.telemetry import open_run_telemetry
+
+    t = open_run_telemetry(tmp_path / "r.db", "critic", busy_timeout_ms=1000)
+    t.scoped(round=2).event("run.halt", reason="rounds")
+    assert [(r.scope.run, r.scope.round) for r in t.rows()] == [("critic", 2)]
