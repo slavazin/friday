@@ -278,6 +278,44 @@ def test_live_view_applies_a_span_that_opened_and_closed_between_two_polls_witho
         conn.close()
 
 
+@pytest.mark.parametrize("readout_pass_round", [4, None])
+def test_live_view_reads_a_readout_span_at_run_scope_as_the_readout_not_round_n_plus_one(
+        browser, tmp_path, readout_pass_round):
+    db = tmp_path / "live.db"
+    conn = connect_telemetry(db, busy_timeout_ms=1000)
+    tel = SqliteTelemetry(conn, Scope("main"))
+    srv = Served(P["spec"], db, P["export"], P["artifacts"])
+    try:
+        for n in (1, 2, 3):
+            rt = tel.scoped(round=n)
+            pa = rt.scoped(pass_id=f"r0{n}-C-900-journal-0")
+            with rt.span("round", regime="R1", requests=1, pairs_planned=1), \
+                    pa.span("pass", request_id="C-900", arm="journal"):
+                pass
+        # The readout span at run scope (round unknown); its passes carry round 4 or no round.
+        with tel.span("readout", passes=1, reps=1):
+            pa = tel.scoped(round=readout_pass_round, pass_id="ro-C-901-empty-0")
+            with pa.span("pass", request_id="C-901", arm="empty"):
+                pass
+            pa.metric("pass.loss", 0.25, "score")
+            pa.event("pass.outcome", outcome="scored", error="")
+        ctx = browser.new_context(viewport=VIEW)
+        page = ctx.new_page()
+        open_tab(page, srv.url, "live")
+        page.wait_for_selector("#page-live .card[data-pass='ro-C-901-empty-0'].is-scored")
+        assert page.inner_text("#page-live .round-title") == "Readout"
+        assert "finished" in page.inner_text("#page-live .round-sub")
+        dots = page.eval_on_selector_all("#page-live .dot", "els => els.map(e => e.textContent)")
+        assert dots[:3] == ["1", "2", "3drift"] and dots[3] == "readout" and len(dots) == 4, dots
+        page.click("#page-live .dot[data-round='2']")
+        page.wait_for_selector("#page-live .card[data-pass='r02-C-900-journal-0']")
+        assert "Round 2 of 3" in page.inner_text("#page-live .round-title")
+        ctx.close()
+    finally:
+        srv.close()
+        conn.close()
+
+
 def test_gallery_reads_cells_from_pass_spans_and_reads_unread_without_the_log(browser, tmp_path):
     empty = tmp_path / "none.db"
     srv = Served(P["spec"], empty, P["export"], P["artifacts"])
