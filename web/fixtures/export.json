@@ -1,0 +1,2267 @@
+{
+  "decisions": [
+    {
+      "drafted_round": 1,
+      "fires": {
+        "applied": 1,
+        "contradicted": 3
+      },
+      "fires_when": [
+        "canvas"
+      ],
+      "id": "D-0001",
+      "ledger": {
+        "ablation": {
+          "deltas": [
+            {
+              "category": "C-303",
+              "d": -0.3339,
+              "dQ": 2,
+              "round": 3
+            }
+          ],
+          "harm_wealth_since_admitted": 1.083475,
+          "mean_d": -0.3339,
+          "n": 1,
+          "n_since_admitted": 1
+        },
+        "exposure": {
+          "deltas": [
+            {
+              "category": "C-201",
+              "d": 0.7604,
+              "dQ": -1,
+              "round": 2
+            },
+            {
+              "category": "C-202",
+              "d": 0.8147,
+              "dQ": 1,
+              "round": 2
+            },
+            {
+              "category": "C-203",
+              "d": 0.8556,
+              "dQ": 0,
+              "round": 2
+            }
+          ],
+          "mean_d": 0.8102333333333332,
+          "mirror_wealth": 0.8099000000000001,
+          "n": 3,
+          "wealth": 3.65109163939092,
+          "wealth_path": [
+            1.1901,
+            2.062717023,
+            3.65109163939092
+          ]
+        }
+      },
+      "not_this": [],
+      "payload": "Size the canvas from its container's width on load and on resize, and redraw at that size. Place every control outside the canvas and label it with its key.",
+      "pool_id": "P-0001",
+      "status": "suspect",
+      "status_history": [
+        {
+          "cause": "gate.admit",
+          "evidence": {
+            "mean_d": 0.8102,
+            "n": 3,
+            "wealth": 3.6511
+          },
+          "new": "admitted",
+          "old": "candidate",
+          "round": 2,
+          "successors": []
+        },
+        {
+          "cause": "detect.suspect",
+          "evidence": {
+            "contradicted": 3,
+            "window": 4
+          },
+          "new": "suspect",
+          "old": "admitted",
+          "round": 3,
+          "successors": []
+        }
+      ],
+      "successors": [],
+      "supersedes": []
+    },
+    {
+      "drafted_round": 1,
+      "fires": {
+        "applied": 3
+      },
+      "fires_when": [
+        "table"
+      ],
+      "id": "D-0002",
+      "ledger": {
+        "ablation": {
+          "deltas": [],
+          "harm_wealth_since_admitted": 1.0,
+          "mean_d": null,
+          "n": 0,
+          "n_since_admitted": 0
+        },
+        "exposure": {
+          "deltas": [
+            {
+              "category": "C-204",
+              "d": 0.7755,
+              "dQ": 0,
+              "round": 2
+            },
+            {
+              "category": "C-301",
+              "d": 0.7097,
+              "dQ": 3,
+              "round": 3
+            },
+            {
+              "category": "C-302",
+              "d": 0.8789,
+              "dQ": 0,
+              "round": 3
+            }
+          ],
+          "mean_d": 0.7880333333333334,
+          "mirror_wealth": 0.806125,
+          "n": 3,
+          "wealth": 3.5040014171290377,
+          "wealth_path": [
+            1.193875,
+            1.9564387787500002,
+            3.5040014171290377
+          ]
+        }
+      },
+      "not_this": [],
+      "payload": "When the table holds no rows, show one row saying what to add first. Remove that row on the first insert and keep the header visible.",
+      "pool_id": "P-0002",
+      "status": "admitted",
+      "status_history": [
+        {
+          "cause": "gate.admit",
+          "evidence": {
+            "mean_d": 0.788,
+            "n": 3,
+            "wealth": 3.504
+          },
+          "new": "admitted",
+          "old": "candidate",
+          "round": 3,
+          "successors": []
+        }
+      ],
+      "successors": [],
+      "supersedes": []
+    },
+    {
+      "drafted_round": 3,
+      "fires": {},
+      "fires_when": [
+        "canvas",
+        "pointer"
+      ],
+      "id": "D-0003",
+      "ledger": {
+        "ablation": {
+          "deltas": [],
+          "harm_wealth_since_admitted": null,
+          "mean_d": null,
+          "n": 0,
+          "n_since_admitted": null
+        },
+        "exposure": {
+          "deltas": [],
+          "mean_d": null,
+          "mirror_wealth": 1.0,
+          "n": 0,
+          "wealth": 1.0,
+          "wealth_path": []
+        }
+      },
+      "not_this": [
+        "keyboard"
+      ],
+      "payload": "Draw the canvas at the full viewport width up to 640 px. Scale pointer coordinates by the canvas's displayed size before hit-testing.",
+      "pool_id": "P-0003",
+      "status": "candidate",
+      "status_history": [],
+      "successors": [],
+      "supersedes": []
+    }
+  ],
+  "git_log": [
+    {
+      "sha": "84eec3dc6e02",
+      "subject": "D-0001 candidate → admitted: W 3.65 ≥ 3.33, n 3 pairs, mean d 0.81"
+    },
+    {
+      "sha": "599a4be65615",
+      "subject": "D-0002 candidate → admitted: W 3.50 ≥ 3.33, n 3 pairs, mean d 0.79"
+    },
+    {
+      "sha": "4fb121ac28cf",
+      "subject": "D-0001 admitted → suspect: contradicted on 3 of its last 4 composed passes"
+    },
+    {
+      "sha": "0ea00a78ade6",
+      "subject": "L-09 minted lens clears its floor at round 2"
+    },
+    {
+      "sha": "f5be028e59a3",
+      "subject": "L-04 folds into L-03: ρ 0.91"
+    }
+  ],
+  "lenses": [
+    {
+      "angle": "Which stated requirement does the code not implement? Quote the requirement's nearest code.",
+      "counterfactual": "Which requirement is implemented in a form the request did not ask for?",
+      "has_cleared_floor": true,
+      "id": "L-01",
+      "minted_round": null,
+      "status": "active",
+      "status_history": [],
+      "superseded_by": null,
+      "value_history": [
+        {
+          "n": 8,
+          "round": 1,
+          "value": 0.8125
+        },
+        {
+          "n": 16,
+          "round": 2,
+          "value": 1.0
+        },
+        {
+          "n": 16,
+          "round": 3,
+          "value": 0.984375
+        }
+      ]
+    },
+    {
+      "angle": "Which contract id is missing, misspelled or bound to the wrong element?",
+      "counterfactual": "Which present id is wired to nothing a user can trigger?",
+      "has_cleared_floor": true,
+      "id": "L-02",
+      "minted_round": null,
+      "status": "active",
+      "status_history": [],
+      "superseded_by": null,
+      "value_history": [
+        {
+          "n": 8,
+          "round": 1,
+          "value": 0.6875
+        },
+        {
+          "n": 16,
+          "round": 2,
+          "value": 0.8125
+        },
+        {
+          "n": 16,
+          "round": 3,
+          "value": 0.8359375
+        }
+      ]
+    },
+    {
+      "angle": "Where does an input event fail to reach the handler meant for it?",
+      "counterfactual": "Which handler is reached but changes no visible state?",
+      "has_cleared_floor": true,
+      "id": "L-03",
+      "minted_round": null,
+      "status": "active",
+      "status_history": [],
+      "superseded_by": null,
+      "value_history": [
+        {
+          "n": 8,
+          "round": 1,
+          "value": 0.5625
+        },
+        {
+          "n": 16,
+          "round": 2,
+          "value": 0.8125
+        },
+        {
+          "n": 16,
+          "round": 3,
+          "value": 0.96875
+        }
+      ]
+    },
+    {
+      "angle": "Where does state fail to reset, restart or persist as the request implies?",
+      "counterfactual": "Which persistence did the request never ask for?",
+      "has_cleared_floor": true,
+      "id": "L-04",
+      "minted_round": null,
+      "status": "superseded",
+      "status_history": [
+        {
+          "cause": "lens.fold",
+          "evidence": {
+            "rho": 0.91
+          },
+          "new": "superseded",
+          "old": "active",
+          "round": 3,
+          "successors": [
+            "L-03"
+          ]
+        }
+      ],
+      "superseded_by": "L-03",
+      "value_history": [
+        {
+          "n": 8,
+          "round": 1,
+          "value": 0.8125
+        },
+        {
+          "n": 16,
+          "round": 2,
+          "value": 0.890625
+        },
+        {
+          "n": 16,
+          "round": 3,
+          "value": 1.0
+        }
+      ]
+    },
+    {
+      "angle": "Which code path throws on load or on first interaction? Name the line.",
+      "counterfactual": "Which suspicious line never runs?",
+      "has_cleared_floor": true,
+      "id": "L-05",
+      "minted_round": null,
+      "status": "active",
+      "status_history": [],
+      "superseded_by": null,
+      "value_history": [
+        {
+          "n": 8,
+          "round": 1,
+          "value": 0.5625
+        },
+        {
+          "n": 16,
+          "round": 2,
+          "value": 0.78125
+        },
+        {
+          "n": 16,
+          "round": 3,
+          "value": 0.796875
+        }
+      ]
+    },
+    {
+      "angle": "Which composed decision does the artifact contradict?",
+      "counterfactual": "Which composed decision does not apply to this request at all?",
+      "has_cleared_floor": true,
+      "id": "L-06",
+      "minted_round": null,
+      "status": "active",
+      "status_history": [],
+      "superseded_by": null,
+      "value_history": [
+        {
+          "n": 8,
+          "round": 1,
+          "value": 0.6875
+        },
+        {
+          "n": 16,
+          "round": 2,
+          "value": 0.921875
+        },
+        {
+          "n": 16,
+          "round": 3,
+          "value": 0.96875
+        }
+      ]
+    },
+    {
+      "angle": "Where is the output truncated, stubbed or left as a placeholder?",
+      "counterfactual": "Where did the worker build beyond the request at the cost of a requested feature?",
+      "has_cleared_floor": true,
+      "id": "L-07",
+      "minted_round": null,
+      "status": "active",
+      "status_history": [],
+      "superseded_by": null,
+      "value_history": [
+        {
+          "n": 8,
+          "round": 1,
+          "value": 0.75
+        },
+        {
+          "n": 16,
+          "round": 2,
+          "value": 0.578125
+        },
+        {
+          "n": 16,
+          "round": 3,
+          "value": 0.5
+        }
+      ]
+    },
+    {
+      "angle": "Which requested control is laid out invisible, overlapped or off-screen at 1280×800?",
+      "counterfactual": "Which hidden element is meant to be hidden?",
+      "has_cleared_floor": true,
+      "id": "L-08",
+      "minted_round": null,
+      "status": "active",
+      "status_history": [],
+      "superseded_by": null,
+      "value_history": [
+        {
+          "n": 8,
+          "round": 1,
+          "value": 0.5
+        },
+        {
+          "n": 16,
+          "round": 2,
+          "value": 0.84375
+        },
+        {
+          "n": 16,
+          "round": 3,
+          "value": 0.9375
+        }
+      ]
+    },
+    {
+      "angle": "Where is a drawing sized in fixed pixels while its container can be narrower? Quote the size.",
+      "counterfactual": "Which fixed size is the request's own?",
+      "has_cleared_floor": true,
+      "id": "L-09",
+      "minted_round": 1,
+      "status": "active",
+      "status_history": [
+        {
+          "cause": "lens.clear_floor",
+          "evidence": {},
+          "new": "active",
+          "old": "hidden",
+          "round": 2,
+          "successors": []
+        }
+      ],
+      "superseded_by": null,
+      "value_history": [
+        {
+          "n": 0,
+          "round": 1,
+          "value": null
+        },
+        {
+          "n": 8,
+          "round": 2,
+          "value": 1.0
+        },
+        {
+          "n": 16,
+          "round": 3,
+          "value": 0.984375
+        }
+      ]
+    },
+    {
+      "angle": "Which table renders nothing at all when it holds no rows?",
+      "counterfactual": "Which empty table is meant to stay blank?",
+      "has_cleared_floor": false,
+      "id": "L-10",
+      "minted_round": 2,
+      "status": "hidden",
+      "status_history": [],
+      "superseded_by": null,
+      "value_history": [
+        {
+          "n": 0,
+          "round": 1,
+          "value": null
+        },
+        {
+          "n": 0,
+          "round": 2,
+          "value": null
+        },
+        {
+          "n": 8,
+          "round": 3,
+          "value": 0.875
+        }
+      ]
+    }
+  ],
+  "passes": [
+    {
+      "Q": 3,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r01-C-101-journal-0/index.html",
+      "category": "C-101",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 2,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r01-C-101-journal-0",
+      "loss": 0.9239,
+      "notes": false,
+      "pair_slot": 0,
+      "readout": false,
+      "regime": "R1",
+      "repaired": true,
+      "round": 1,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 5,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r01-C-101-journal-1/index.html",
+      "category": "C-101",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 2,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r01-C-101-journal-1",
+      "loss": 0.9015,
+      "notes": false,
+      "pair_slot": 1,
+      "readout": false,
+      "regime": "R1",
+      "repaired": true,
+      "round": 1,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 2,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r01-C-101-notes-0/index.html",
+      "category": "C-101",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r01-C-101-notes-0",
+      "loss": 0.8401,
+      "notes": true,
+      "pair_slot": null,
+      "readout": false,
+      "regime": "R1",
+      "repaired": false,
+      "round": 1,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 3,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r01-C-102-journal-0/index.html",
+      "category": "C-102",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r01-C-102-journal-0",
+      "loss": 0.9021,
+      "notes": false,
+      "pair_slot": 0,
+      "readout": false,
+      "regime": "R1",
+      "repaired": false,
+      "round": 1,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 2,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r01-C-102-journal-1/index.html",
+      "category": "C-102",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 2,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r01-C-102-journal-1",
+      "loss": 0.9094,
+      "notes": false,
+      "pair_slot": 1,
+      "readout": false,
+      "regime": "R1",
+      "repaired": false,
+      "round": 1,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 5,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r01-C-102-notes-0/index.html",
+      "category": "C-102",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 2,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r01-C-102-notes-0",
+      "loss": 0.7496,
+      "notes": true,
+      "pair_slot": null,
+      "readout": false,
+      "regime": "R1",
+      "repaired": true,
+      "round": 1,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 3,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r01-C-103-journal-0/index.html",
+      "category": "C-103",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A stopwatch: Start and stop the clock, Lap records the time, Reset clears it.",
+      "id": "r01-C-103-journal-0",
+      "loss": 0.4581,
+      "notes": false,
+      "pair_slot": 0,
+      "readout": false,
+      "regime": "R1",
+      "repaired": true,
+      "round": 1,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": null,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": null,
+      "category": "C-103",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": null,
+      "how_to_summary": null,
+      "id": "r01-C-103-journal-1",
+      "loss": null,
+      "notes": false,
+      "pair_slot": 1,
+      "readout": false,
+      "regime": "R1",
+      "repaired": false,
+      "round": 1,
+      "transport_failed": true,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 4,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r01-C-103-journal-1-rr/index.html",
+      "category": "C-103",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 4,
+      "how_to_summary": "",
+      "id": "r01-C-103-journal-1-rr",
+      "loss": 0.4519,
+      "notes": false,
+      "pair_slot": 1,
+      "readout": false,
+      "regime": "R1",
+      "repaired": true,
+      "round": 1,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 4,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r01-C-103-notes-0/index.html",
+      "category": "C-103",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 3,
+      "how_to_summary": "A stopwatch: Start and stop the clock, Lap records the time, Reset clears it.",
+      "id": "r01-C-103-notes-0",
+      "loss": 0.5617,
+      "notes": true,
+      "pair_slot": null,
+      "readout": false,
+      "regime": "R1",
+      "repaired": true,
+      "round": 1,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 1,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r01-C-104-journal-0/index.html",
+      "category": "C-104",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 2,
+      "how_to_summary": "A quantity table: Add row appends an item, Sort orders rows by quantity, the total updates.",
+      "id": "r01-C-104-journal-0",
+      "loss": 0.9126,
+      "notes": false,
+      "pair_slot": 0,
+      "readout": false,
+      "regime": "R1",
+      "repaired": true,
+      "round": 1,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 3,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r01-C-104-journal-1/index.html",
+      "category": "C-104",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A quantity table: Add row appends an item, Sort orders rows by quantity, the total updates.",
+      "id": "r01-C-104-journal-1",
+      "loss": 0.9124,
+      "notes": false,
+      "pair_slot": 1,
+      "readout": false,
+      "regime": "R1",
+      "repaired": true,
+      "round": 1,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 2,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r01-C-104-notes-0/index.html",
+      "category": "C-104",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 4,
+      "how_to_summary": "",
+      "id": "r01-C-104-notes-0",
+      "loss": 0.5324,
+      "notes": true,
+      "pair_slot": null,
+      "readout": false,
+      "regime": "R1",
+      "repaired": true,
+      "round": 1,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 4,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r02-C-201-journal-0/index.html",
+      "category": "C-201",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r02-C-201-journal-0",
+      "loss": 0.8281,
+      "notes": false,
+      "pair_slot": 0,
+      "readout": false,
+      "regime": "R1",
+      "repaired": false,
+      "round": 2,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 3,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r02-C-201-journal-1/index.html",
+      "category": "C-201",
+      "decisions_composed": [
+        "D-0001"
+      ],
+      "exposed": "D-0001",
+      "how_to_rung": 1,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r02-C-201-journal-1",
+      "loss": 0.0677,
+      "notes": false,
+      "pair_slot": 1,
+      "readout": false,
+      "regime": "R1",
+      "repaired": false,
+      "round": 2,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 1,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r02-C-201-notes-0/index.html",
+      "category": "C-201",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r02-C-201-notes-0",
+      "loss": 0.9176,
+      "notes": true,
+      "pair_slot": null,
+      "readout": false,
+      "regime": "R1",
+      "repaired": false,
+      "round": 2,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 3,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r02-C-202-journal-0/index.html",
+      "category": "C-202",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r02-C-202-journal-0",
+      "loss": 0.9338,
+      "notes": false,
+      "pair_slot": 0,
+      "readout": false,
+      "regime": "R1",
+      "repaired": true,
+      "round": 2,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 4,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r02-C-202-journal-1/index.html",
+      "category": "C-202",
+      "decisions_composed": [
+        "D-0001"
+      ],
+      "exposed": "D-0001",
+      "how_to_rung": 1,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r02-C-202-journal-1",
+      "loss": 0.1191,
+      "notes": false,
+      "pair_slot": 1,
+      "readout": false,
+      "regime": "R1",
+      "repaired": true,
+      "round": 2,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 3,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r02-C-202-notes-0/index.html",
+      "category": "C-202",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r02-C-202-notes-0",
+      "loss": 0.7825,
+      "notes": true,
+      "pair_slot": null,
+      "readout": false,
+      "regime": "R1",
+      "repaired": false,
+      "round": 2,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 1,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r02-C-203-journal-0/index.html",
+      "category": "C-203",
+      "decisions_composed": [
+        "D-0001"
+      ],
+      "exposed": "D-0001",
+      "how_to_rung": 1,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r02-C-203-journal-0",
+      "loss": 0.0552,
+      "notes": false,
+      "pair_slot": 0,
+      "readout": false,
+      "regime": "R1",
+      "repaired": false,
+      "round": 2,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 1,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r02-C-203-journal-1/index.html",
+      "category": "C-203",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r02-C-203-journal-1",
+      "loss": 0.9108,
+      "notes": false,
+      "pair_slot": 1,
+      "readout": false,
+      "regime": "R1",
+      "repaired": false,
+      "round": 2,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 1,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r02-C-203-notes-0/index.html",
+      "category": "C-203",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r02-C-203-notes-0",
+      "loss": 0.775,
+      "notes": true,
+      "pair_slot": null,
+      "readout": false,
+      "regime": "R1",
+      "repaired": false,
+      "round": 2,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 4,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r02-C-204-journal-0/index.html",
+      "category": "C-204",
+      "decisions_composed": [
+        "D-0002"
+      ],
+      "exposed": "D-0002",
+      "how_to_rung": 1,
+      "how_to_summary": "A quantity table: Add row appends an item, Sort orders rows by quantity, the total updates.",
+      "id": "r02-C-204-journal-0",
+      "loss": 0.1468,
+      "notes": false,
+      "pair_slot": 0,
+      "readout": false,
+      "regime": "R1",
+      "repaired": true,
+      "round": 2,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 4,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r02-C-204-journal-1/index.html",
+      "category": "C-204",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A quantity table: Add row appends an item, Sort orders rows by quantity, the total updates.",
+      "id": "r02-C-204-journal-1",
+      "loss": 0.9223,
+      "notes": false,
+      "pair_slot": 1,
+      "readout": false,
+      "regime": "R1",
+      "repaired": false,
+      "round": 2,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": null,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": null,
+      "category": "C-204",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": null,
+      "how_to_summary": null,
+      "id": "r02-C-204-notes-0",
+      "loss": null,
+      "notes": true,
+      "pair_slot": null,
+      "readout": false,
+      "regime": "R1",
+      "repaired": false,
+      "round": 2,
+      "transport_failed": true,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 3,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r02-C-204-notes-0-rr/index.html",
+      "category": "C-204",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A quantity table: Add row appends an item, Sort orders rows by quantity, the total updates.",
+      "id": "r02-C-204-notes-0-rr",
+      "loss": 0.6263,
+      "notes": true,
+      "pair_slot": null,
+      "readout": false,
+      "regime": "R1",
+      "repaired": false,
+      "round": 2,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 4,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r03-C-301-journal-0/index.html",
+      "category": "C-301",
+      "decisions_composed": [
+        "D-0002"
+      ],
+      "exposed": "D-0002",
+      "how_to_rung": 1,
+      "how_to_summary": "A quantity table: Add row appends an item, Sort orders rows by quantity, the total updates.",
+      "id": "r03-C-301-journal-0",
+      "loss": 0.0698,
+      "notes": false,
+      "pair_slot": 0,
+      "readout": false,
+      "regime": "R2",
+      "repaired": false,
+      "round": 3,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 1,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r03-C-301-journal-1/index.html",
+      "category": "C-301",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 2,
+      "how_to_summary": "A quantity table: Add row appends an item, Sort orders rows by quantity, the total updates.",
+      "id": "r03-C-301-journal-1",
+      "loss": 0.7795,
+      "notes": false,
+      "pair_slot": 1,
+      "readout": false,
+      "regime": "R2",
+      "repaired": false,
+      "round": 3,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 0,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r03-C-301-notes-0/index.html",
+      "category": "C-301",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A quantity table: Add row appends an item, Sort orders rows by quantity, the total updates.",
+      "id": "r03-C-301-notes-0",
+      "loss": 0.5888,
+      "notes": true,
+      "pair_slot": null,
+      "readout": false,
+      "regime": "R2",
+      "repaired": false,
+      "round": 3,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 3,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r03-C-302-journal-0/index.html",
+      "category": "C-302",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A quantity table: Add row appends an item, Sort orders rows by quantity, the total updates.",
+      "id": "r03-C-302-journal-0",
+      "loss": 0.9582,
+      "notes": false,
+      "pair_slot": 0,
+      "readout": false,
+      "regime": "R2",
+      "repaired": true,
+      "round": 3,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 3,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r03-C-302-journal-1/index.html",
+      "category": "C-302",
+      "decisions_composed": [
+        "D-0002"
+      ],
+      "exposed": "D-0002",
+      "how_to_rung": 2,
+      "how_to_summary": "A quantity table: Add row appends an item, Sort orders rows by quantity, the total updates.",
+      "id": "r03-C-302-journal-1",
+      "loss": 0.0793,
+      "notes": false,
+      "pair_slot": 1,
+      "readout": false,
+      "regime": "R2",
+      "repaired": true,
+      "round": 3,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 1,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r03-C-302-notes-0/index.html",
+      "category": "C-302",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A quantity table: Add row appends an item, Sort orders rows by quantity, the total updates.",
+      "id": "r03-C-302-notes-0",
+      "loss": 0.4945,
+      "notes": true,
+      "pair_slot": null,
+      "readout": false,
+      "regime": "R2",
+      "repaired": false,
+      "round": 3,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 4,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r03-C-303-journal-0/index.html",
+      "category": "C-303",
+      "decisions_composed": [
+        "D-0001"
+      ],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r03-C-303-journal-0",
+      "loss": 0.6025,
+      "notes": false,
+      "pair_slot": 0,
+      "readout": false,
+      "regime": "R2",
+      "repaired": true,
+      "round": 3,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 2,
+      "ablated": "D-0001",
+      "arm": "journal",
+      "artifact_path": "artifacts/r03-C-303-journal-1/index.html",
+      "category": "C-303",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 2,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r03-C-303-journal-1",
+      "loss": 0.2686,
+      "notes": false,
+      "pair_slot": 1,
+      "readout": false,
+      "regime": "R2",
+      "repaired": false,
+      "round": 3,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 3,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r03-C-303-notes-0/index.html",
+      "category": "C-303",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r03-C-303-notes-0",
+      "loss": 0.4853,
+      "notes": true,
+      "pair_slot": null,
+      "readout": false,
+      "regime": "R2",
+      "repaired": false,
+      "round": 3,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 4,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r03-C-304-journal-0/index.html",
+      "category": "C-304",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A stopwatch: Start and stop the clock, Lap records the time, Reset clears it.",
+      "id": "r03-C-304-journal-0",
+      "loss": 0.458,
+      "notes": false,
+      "pair_slot": 0,
+      "readout": false,
+      "regime": "R2",
+      "repaired": false,
+      "round": 3,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 0,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r03-C-304-journal-1/index.html",
+      "category": "C-304",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 2,
+      "how_to_summary": "A stopwatch: Start and stop the clock, Lap records the time, Reset clears it.",
+      "id": "r03-C-304-journal-1",
+      "loss": 0.4754,
+      "notes": false,
+      "pair_slot": 1,
+      "readout": false,
+      "regime": "R2",
+      "repaired": false,
+      "round": 3,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 2,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r03-C-304-notes-0/index.html",
+      "category": "C-304",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A stopwatch: Start and stop the clock, Lap records the time, Reset clears it.",
+      "id": "r03-C-304-notes-0",
+      "loss": 0.4398,
+      "notes": true,
+      "pair_slot": null,
+      "readout": false,
+      "regime": "R2",
+      "repaired": false,
+      "round": 3,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 3,
+      "ablated": null,
+      "arm": "empty",
+      "artifact_path": "artifacts/r04-H-01-empty-0/index.html",
+      "category": "H-01",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A tip splitter: the bill, the tip share and the head count give each person's share.",
+      "id": "r04-H-01-empty-0",
+      "loss": 0.5675,
+      "notes": false,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 2,
+      "ablated": null,
+      "arm": "empty",
+      "artifact_path": "artifacts/r04-H-01-empty-1/index.html",
+      "category": "H-01",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A tip splitter: the bill, the tip share and the head count give each person's share.",
+      "id": "r04-H-01-empty-1",
+      "loss": 0.5993,
+      "notes": false,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": true,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 1,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r04-H-01-journal-0/index.html",
+      "category": "H-01",
+      "decisions_composed": [
+        "D-0002"
+      ],
+      "exposed": null,
+      "how_to_rung": 2,
+      "how_to_summary": "A tip splitter: the bill, the tip share and the head count give each person's share.",
+      "id": "r04-H-01-journal-0",
+      "loss": 0.5318,
+      "notes": false,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 2,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r04-H-01-journal-1/index.html",
+      "category": "H-01",
+      "decisions_composed": [
+        "D-0002"
+      ],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A tip splitter: the bill, the tip share and the head count give each person's share.",
+      "id": "r04-H-01-journal-1",
+      "loss": 0.4836,
+      "notes": false,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": true,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 4,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r04-H-01-notes-0/index.html",
+      "category": "H-01",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A tip splitter: the bill, the tip share and the head count give each person's share.",
+      "id": "r04-H-01-notes-0",
+      "loss": 0.5448,
+      "notes": true,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 5,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r04-H-01-notes-1/index.html",
+      "category": "H-01",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A tip splitter: the bill, the tip share and the head count give each person's share.",
+      "id": "r04-H-01-notes-1",
+      "loss": 0.4524,
+      "notes": true,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 2,
+      "ablated": null,
+      "arm": "empty",
+      "artifact_path": "artifacts/r04-H-02-empty-0/index.html",
+      "category": "H-02",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A word counter: typing updates the word and character counts; UPPER and Clear edit the text.",
+      "id": "r04-H-02-empty-0",
+      "loss": 0.6607,
+      "notes": false,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 2,
+      "ablated": null,
+      "arm": "empty",
+      "artifact_path": "artifacts/r04-H-02-empty-1/index.html",
+      "category": "H-02",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A word counter: typing updates the word and character counts; UPPER and Clear edit the text.",
+      "id": "r04-H-02-empty-1",
+      "loss": 0.611,
+      "notes": false,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 4,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r04-H-02-journal-0/index.html",
+      "category": "H-02",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 2,
+      "how_to_summary": "A word counter: typing updates the word and character counts; UPPER and Clear edit the text.",
+      "id": "r04-H-02-journal-0",
+      "loss": 0.3447,
+      "notes": false,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 3,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r04-H-02-journal-1/index.html",
+      "category": "H-02",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A word counter: typing updates the word and character counts; UPPER and Clear edit the text.",
+      "id": "r04-H-02-journal-1",
+      "loss": 0.3799,
+      "notes": false,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": true,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 4,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r04-H-02-notes-0/index.html",
+      "category": "H-02",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A word counter: typing updates the word and character counts; UPPER and Clear edit the text.",
+      "id": "r04-H-02-notes-0",
+      "loss": 0.4234,
+      "notes": true,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": null,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": null,
+      "category": "H-02",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": null,
+      "how_to_summary": null,
+      "id": "r04-H-02-notes-1",
+      "loss": null,
+      "notes": true,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": true,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 2,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r04-H-02-notes-1-rr/index.html",
+      "category": "H-02",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A word counter: typing updates the word and character counts; UPPER and Clear edit the text.",
+      "id": "r04-H-02-notes-1-rr",
+      "loss": 0.3925,
+      "notes": true,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": true,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 3,
+      "ablated": null,
+      "arm": "empty",
+      "artifact_path": "artifacts/r04-H-03-empty-0/index.html",
+      "category": "H-03",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A quantity table: Add row appends an item, Sort orders rows by quantity, the total updates.",
+      "id": "r04-H-03-empty-0",
+      "loss": 0.9786,
+      "notes": false,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": true,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 2,
+      "ablated": null,
+      "arm": "empty",
+      "artifact_path": "artifacts/r04-H-03-empty-1/index.html",
+      "category": "H-03",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A quantity table: Add row appends an item, Sort orders rows by quantity, the total updates.",
+      "id": "r04-H-03-empty-1",
+      "loss": 0.9675,
+      "notes": false,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 4,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r04-H-03-journal-0/index.html",
+      "category": "H-03",
+      "decisions_composed": [
+        "D-0002"
+      ],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A quantity table: Add row appends an item, Sort orders rows by quantity, the total updates.",
+      "id": "r04-H-03-journal-0",
+      "loss": 0.0775,
+      "notes": false,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 1,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r04-H-03-journal-1/index.html",
+      "category": "H-03",
+      "decisions_composed": [
+        "D-0002"
+      ],
+      "exposed": null,
+      "how_to_rung": 2,
+      "how_to_summary": "A quantity table: Add row appends an item, Sort orders rows by quantity, the total updates.",
+      "id": "r04-H-03-journal-1",
+      "loss": 0.045,
+      "notes": false,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 1,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r04-H-03-notes-0/index.html",
+      "category": "H-03",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 2,
+      "how_to_summary": "A quantity table: Add row appends an item, Sort orders rows by quantity, the total updates.",
+      "id": "r04-H-03-notes-0",
+      "loss": 0.3991,
+      "notes": true,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 5,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r04-H-03-notes-1/index.html",
+      "category": "H-03",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 4,
+      "how_to_summary": "",
+      "id": "r04-H-03-notes-1",
+      "loss": 0.3946,
+      "notes": true,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 3,
+      "ablated": null,
+      "arm": "empty",
+      "artifact_path": "artifacts/r04-H-04-empty-0/index.html",
+      "category": "H-04",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r04-H-04-empty-0",
+      "loss": 0.4113,
+      "notes": false,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 3,
+      "ablated": null,
+      "arm": "empty",
+      "artifact_path": "artifacts/r04-H-04-empty-1/index.html",
+      "category": "H-04",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r04-H-04-empty-1",
+      "loss": 0.4345,
+      "notes": false,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 4,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r04-H-04-journal-0/index.html",
+      "category": "H-04",
+      "decisions_composed": [
+        "D-0001"
+      ],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r04-H-04-journal-0",
+      "loss": 0.6922,
+      "notes": false,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": true,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 2,
+      "ablated": null,
+      "arm": "journal",
+      "artifact_path": "artifacts/r04-H-04-journal-1/index.html",
+      "category": "H-04",
+      "decisions_composed": [
+        "D-0001"
+      ],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r04-H-04-journal-1",
+      "loss": 0.5581,
+      "notes": false,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 5,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r04-H-04-notes-0/index.html",
+      "category": "H-04",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 2,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r04-H-04-notes-0",
+      "loss": 0.389,
+      "notes": true,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    },
+    {
+      "Q": 5,
+      "ablated": null,
+      "arm": "notes",
+      "artifact_path": "artifacts/r04-H-04-notes-1/index.html",
+      "category": "H-04",
+      "decisions_composed": [],
+      "exposed": null,
+      "how_to_rung": 1,
+      "how_to_summary": "A paddle game: Start runs the ball, the arrow keys move the paddle, the score counts returns.",
+      "id": "r04-H-04-notes-1",
+      "loss": 0.4393,
+      "notes": true,
+      "pair_slot": null,
+      "readout": true,
+      "regime": "R2",
+      "repaired": false,
+      "round": 4,
+      "transport_failed": false,
+      "worker": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B"
+    }
+  ],
+  "pools": [
+    {
+      "direction_labels": [
+        "size the canvas from its container"
+      ],
+      "id": "P-0001",
+      "lens_id": "L-08",
+      "merged_into": null,
+      "observations": 6,
+      "open_observations": 0,
+      "refused_at_round": null,
+      "shape": "canvas drawn at a fixed pixel size",
+      "status": "nominated"
+    },
+    {
+      "direction_labels": [
+        "show an empty-state row"
+      ],
+      "id": "P-0002",
+      "lens_id": "L-07",
+      "merged_into": null,
+      "observations": 5,
+      "open_observations": 0,
+      "refused_at_round": null,
+      "shape": "empty table renders nothing",
+      "status": "nominated"
+    },
+    {
+      "direction_labels": [
+        "scale pointer coordinates",
+        "widen the canvas"
+      ],
+      "id": "P-0003",
+      "lens_id": "L-09",
+      "merged_into": null,
+      "observations": 2,
+      "open_observations": 0,
+      "refused_at_round": null,
+      "shape": "pointer coordinates off on a narrow screen",
+      "status": "nominated"
+    },
+    {
+      "direction_labels": [
+        "clear the interval on reset"
+      ],
+      "id": "P-0004",
+      "lens_id": "free",
+      "merged_into": null,
+      "observations": 3,
+      "open_observations": 0,
+      "refused_at_round": null,
+      "shape": "timer keeps running after reset",
+      "status": "open"
+    },
+    {
+      "direction_labels": [
+        "size the canvas from its container"
+      ],
+      "id": "P-0005",
+      "lens_id": "L-08",
+      "merged_into": "P-0001",
+      "observations": 0,
+      "open_observations": 0,
+      "refused_at_round": null,
+      "shape": "canvas overflows its panel",
+      "status": "merged"
+    }
+  ],
+  "readout": {
+    "cost": {
+      "admitted": 2,
+      "total_usd": 0.98529,
+      "usd_per_admitted": 0.492645
+    },
+    "held_out": [
+      "H-01",
+      "H-02",
+      "H-03",
+      "H-04"
+    ],
+    "hook_transfer": {
+      "categories_composed": [
+        "H-01",
+        "H-03",
+        "H-04"
+      ],
+      "population": "4 held-out requests, 2 decisions in S*",
+      "requests_fired": [
+        "H-01",
+        "H-03",
+        "H-04"
+      ],
+      "s_star": [
+        "D-0001",
+        "D-0002"
+      ],
+      "untagged": []
+    },
+    "how_to": {
+      "empty": {
+        "contract_declared_share": {
+          "mean": 1.0,
+          "n": 8
+        },
+        "declared_passed_share": {
+          "mean": 0.46875,
+          "n": 8
+        },
+        "n_passes": 8,
+        "no_how_to": 0,
+        "rung_share": {
+          "none": 0.0,
+          "repaired": 0.0,
+          "salvaged": 0.0,
+          "strict": 1.0
+        },
+        "silent_per_pass": {
+          "mean": 0.875,
+          "n": 8
+        }
+      },
+      "journal": {
+        "contract_declared_share": {
+          "mean": 1.0,
+          "n": 8
+        },
+        "declared_passed_share": {
+          "mean": 0.75,
+          "n": 8
+        },
+        "n_passes": 8,
+        "no_how_to": 0,
+        "rung_share": {
+          "none": 0.0,
+          "repaired": 0.375,
+          "salvaged": 0.0,
+          "strict": 0.625
+        },
+        "silent_per_pass": {
+          "mean": 1.25,
+          "n": 8
+        }
+      },
+      "notes": {
+        "contract_declared_share": {
+          "mean": 0.875,
+          "n": 8
+        },
+        "declared_passed_share": {
+          "mean": 0.75,
+          "n": 7
+        },
+        "n_passes": 8,
+        "no_how_to": 0,
+        "rung_share": {
+          "none": 0.125,
+          "repaired": 0.25,
+          "salvaged": 0.0,
+          "strict": 0.625
+        },
+        "silent_per_pass": {
+          "mean": 1.125,
+          "n": 8
+        }
+      }
+    },
+    "population": "4 held-out categories × 2 reps planned, regime R2",
+    "quality": {
+      "empty": {
+        "mean": 2.5,
+        "n": 8
+      },
+      "journal": {
+        "mean": 2.625,
+        "n": 8
+      },
+      "notes": {
+        "mean": 3.875,
+        "n": 8
+      }
+    },
+    "r1": {
+      "baseline": "empty",
+      "claim_above": 0.0,
+      "level": 0.9,
+      "lower_bound": -0.2022500000000001,
+      "mean": 0.26469999999999994,
+      "n_categories": 4,
+      "p": 0.1875,
+      "per_category": {
+        "H-01": 0.07569999999999999,
+        "H-02": 0.27355,
+        "H-03": 0.9117999999999999,
+        "H-04": -0.2022500000000001
+      },
+      "population": "4 held-out categories × 2 reps",
+      "reading": "R1",
+      "reps": {
+        "empty": [
+          2,
+          2
+        ],
+        "journal": [
+          2,
+          2
+        ]
+      },
+      "unread_categories": [],
+      "verdict": "unresolved"
+    },
+    "r2": {
+      "baseline": "notes",
+      "claim_above": -0.05,
+      "level": 0.9,
+      "lower_bound": -0.21100000000000008,
+      "mean": 0.040287499999999976,
+      "n_categories": 4,
+      "p": 0.375,
+      "per_category": {
+        "H-01": -0.009100000000000052,
+        "H-02": 0.045650000000000024,
+        "H-03": 0.3356,
+        "H-04": -0.21100000000000008
+      },
+      "population": "4 held-out categories × 2 reps",
+      "reading": "R2",
+      "reps": {
+        "journal": [
+          2,
+          2
+        ],
+        "notes": [
+          2,
+          2
+        ]
+      },
+      "unread_categories": [],
+      "verdict": "unearned"
+    },
+    "r3": {
+      "admitted_after": [
+        "D-0002"
+      ],
+      "admitted_before_retired_after": [],
+      "alpha": 0.3,
+      "alpha_c": 0.6,
+      "c": 2,
+      "drift_round": 3,
+      "population": "3 decisions drafted; drift at round 3",
+      "steered_retired_after": [],
+      "suspected_after": [
+        "D-0001"
+      ],
+      "verdict": "unearned"
+    },
+    "r4": {
+      "hidden_minted": [
+        "L-10"
+      ],
+      "kept_minted": [
+        "L-09"
+      ],
+      "population": "10 lenses at the close, 2 minted during the run",
+      "verdict": "the judge learns what to look at"
+    },
+    "regime": "R2",
+    "tokens_composed": {
+      "empty": {
+        "mean": 0.0,
+        "n": 8
+      },
+      "journal": {
+        "mean": 45.0,
+        "n": 8
+      },
+      "notes": {
+        "mean": 2428.375,
+        "n": 8
+      }
+    },
+    "unscored": {
+      "empty": 0,
+      "journal": 0,
+      "notes": 1
+    }
+  },
+  "rounds": [
+    {
+      "flips": [],
+      "journal_plain": {
+        "mean_loss": 0.7964875,
+        "n": 8
+      },
+      "notes": {
+        "mean_loss": 0.6709499999999999,
+        "n": 4
+      },
+      "passes": 13,
+      "round": 1,
+      "transport_failed": 1
+    },
+    {
+      "flips": [
+        {
+          "cause": "gate.admit",
+          "evidence": {
+            "mean_d": 0.8102,
+            "n": 3,
+            "wealth": 3.6511
+          },
+          "new": "admitted",
+          "old": "candidate",
+          "round": 2,
+          "subject_id": "D-0001",
+          "successors": []
+        },
+        {
+          "cause": "lens.clear_floor",
+          "evidence": {},
+          "new": "active",
+          "old": "hidden",
+          "round": 2,
+          "subject_id": "L-09",
+          "successors": []
+        }
+      ],
+      "journal_plain": {
+        "mean_loss": 0.8987499999999999,
+        "n": 4
+      },
+      "notes": {
+        "mean_loss": 0.77535,
+        "n": 4
+      },
+      "passes": 13,
+      "round": 2,
+      "transport_failed": 1
+    },
+    {
+      "flips": [
+        {
+          "cause": "gate.admit",
+          "evidence": {
+            "mean_d": 0.788,
+            "n": 3,
+            "wealth": 3.504
+          },
+          "new": "admitted",
+          "old": "candidate",
+          "round": 3,
+          "subject_id": "D-0002",
+          "successors": []
+        },
+        {
+          "cause": "detect.suspect",
+          "evidence": {
+            "contradicted": 3,
+            "window": 4
+          },
+          "new": "suspect",
+          "old": "admitted",
+          "round": 3,
+          "subject_id": "D-0001",
+          "successors": []
+        },
+        {
+          "cause": "lens.fold",
+          "evidence": {
+            "rho": 0.91
+          },
+          "new": "superseded",
+          "old": "active",
+          "round": 3,
+          "subject_id": "L-04",
+          "successors": [
+            "L-03"
+          ]
+        }
+      ],
+      "journal_plain": {
+        "mean_loss": 0.65472,
+        "n": 5
+      },
+      "notes": {
+        "mean_loss": 0.5021,
+        "n": 4
+      },
+      "passes": 12,
+      "round": 3,
+      "transport_failed": 0
+    }
+  ],
+  "run": {
+    "drift_round": 3,
+    "readout_regime": "R2",
+    "readout_reps": 2,
+    "rounds": 3,
+    "seed": 20261017,
+    "spec_hash": "ce422c29eb870652",
+    "spend_usd": 0.98529
+  },
+  "schema_version": 1
+}

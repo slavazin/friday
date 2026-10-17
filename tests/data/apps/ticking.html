@@ -1,0 +1,10 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Clock</title></head>
+<body>
+<p>Time: <span id="clock">0</span></p>
+<button id="noop">Does nothing</button>
+<script>
+  let t = 0;
+  setInterval(() => { document.getElementById('clock').textContent = String(++t); }, 50);
+</script>
+</body></html>

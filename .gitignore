@@ -1,0 +1,36 @@
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+dist/
+build/
+
+# Logs
+*.log
+
+# Run state (high-volume; a curated sample is published separately)
+friday.db
+friday.db-*
+artifacts/*
+!artifacts/.gitkeep
+var/
+.cache/

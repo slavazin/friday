@@ -1,0 +1,26 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>A shopping list I can filter</title><style>
+*{box-sizing:border-box}body{margin:0;font:15px/1.4 system-ui,sans-serif;background:#1a1622;color:#f4f4f6;
+padding:14px;min-height:100vh}h1{font-size:18px;margin:0 0 10px}button{font:inherit;padding:6px 12px;
+border-radius:6px;border:0;background:#5eead4;color:#111;cursor:pointer}input,select{font:inherit;padding:5px;
+border-radius:6px;border:1px solid #555;background:#222;color:#eee}#how-to{margin-top:12px;font-size:12px;
+color:#bbb;border-top:1px solid #444;padding-top:8px}table{border-collapse:collapse;width:100%}
+td,th{border-bottom:1px solid #444;padding:4px 6px;text-align:left}
+</style></head><body>
+<h1>A shopping list I can filter</h1>
+<p><input id="name" placeholder="Item"> <input id="qty" type="number" value="1" style="width:70px">
+<button id="add">Add row</button> <button id="sort">Sort by qty</button></p>
+<table><thead><tr><th>Item</th><th>Qty</th></tr></thead><tbody id="rows"></tbody></table>
+<p>Total: <span id="total">0</span></p>
+<script>
+let rows=[['apples',3],['pears',5]];
+function render(){const b=document.getElementById('rows');b.innerHTML='';
+if(!rows.length){b.innerHTML='<tr><td colspan=2>Add an item to start the table.</td></tr>';}
+for(const r of rows){const tr=document.createElement('tr');tr.innerHTML='<td></td><td></td>';
+tr.children[0].textContent=r[0];tr.children[1].textContent=r[1];b.appendChild(tr);}
+document.getElementById('total').textContent=rows.reduce((a,r)=>a+r[1],0);}
+document.getElementById('add').onclick=()=>{const n=document.getElementById('name').value||'item';
+rows.push([n,+document.getElementById('qty').value||0]);render();};
+document.getElementById('sort').onclick=()=>{rows.sort((a,b)=>b[1]-a[1]);render();};
+render();
+</script>
+</body></html>

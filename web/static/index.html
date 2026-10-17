@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Friday</title>
+<link rel="stylesheet" href="/static/app.css">
+<script type="module" src="/static/js/main.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">F</span>
+    <div>
+      <div class="name">Friday</div>
+      <div class="tagline">a self-improving builder team with a journal it can account for</div>
+    </div>
+  </div>
+  <nav class="tabs" aria-label="Pages">
+    <a href="#stage" data-tab="stage">Stage</a>
+    <a href="#gallery" data-tab="gallery">Gallery</a>
+    <a href="#live" data-tab="live">Live round</a>
+    <a href="#replay" data-tab="replay">Replay</a>
+    <a href="#timeline" data-tab="timeline">Timeline</a>
+    <a href="#readout" data-tab="readout">Readout</a>
+    <a href="#whatif" data-tab="whatif">What if</a>
+    <a href="#architecture" data-tab="architecture">Architecture</a>
+  </nav>
+  <div class="runmeta" id="runmeta"></div>
+</header>
+<main>
+  <section id="page-stage" class="page" data-page="stage" tabindex="-1"></section>
+  <section id="page-gallery" class="page" data-page="gallery"></section>
+  <section id="page-live" class="page" data-page="live"></section>
+  <section id="page-replay" class="page" data-page="replay"></section>
+  <section id="page-timeline" class="page" data-page="timeline"></section>
+  <section id="page-readout" class="page" data-page="readout"></section>
+  <section id="page-whatif" class="page" data-page="whatif"></section>
+  <section id="page-architecture" class="page" data-page="architecture"></section>
+</main>
+<div id="tip" class="tip" role="tooltip" hidden></div>
+</body>
+</html>

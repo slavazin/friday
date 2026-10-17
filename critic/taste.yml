@@ -1,0 +1,65 @@
+# The manager's taste (SPEC § 17 Taste). Generator-side: read only by the critic (as its own habits, for the
+# requests in scope) and by the critic run's eval (each in-scope quirk's check joins the acceptance checks).
+# No other reader of the loop ever receives this file's text: not the worker's build prompt, the judge, the
+# pooling call, the nominator, the lens minter or the tagger.
+#
+# scope: {family: <stream.families entry>} | {mode: <stream.modes entry>} | any
+# preference: one sentence in a user's words; it names the ids its check reads and never a family or a mode.
+# check: one acceptance check in the check DSL (SPEC § 4); it fails on every in-scope request's contract stub.
+#
+# Density over the critic run's 4 rounds (40 requests, goals/cells.json): the canvas family is dense in every
+# round, the data family only from the drift round, the text and form families are sparse, the keyboard mode
+# is spread thin, and the control is in scope everywhere.
+quirks:
+  - id: pause
+    scope: {family: canvas game}
+    preference: >-
+      I always want a pause button with the id pause, and pressing it shows the word Paused in an element
+      with the id pause-note.
+    check:
+      id: c11
+      steps: [{goto: ""}, {click: "#pause"}, {wait: 300}]
+      expect: {text_matches: "#pause-note", regex: "(?i)paused"}
+  - id: row-count
+    scope: {family: data tool}
+    preference: >-
+      I always want a line with the id row-count that shows, as a number, how many entries there are right now.
+    check:
+      id: c12
+      steps: [{goto: ""}]
+      expect: {text_matches: "#row-count", regex: "\\d"}
+  - id: dark-mode
+    scope: {family: text tool}
+    preference: >-
+      I always want a dark mode button with the id theme-toggle, and pressing it shows the word Dark in an
+      element with the id theme-name.
+    check:
+      id: c13
+      steps: [{goto: ""}, {click: "#theme-toggle"}, {wait: 300}]
+      expect: {text_matches: "#theme-name", regex: "(?i)dark"}
+  - id: clear-all
+    scope: {family: form or calculator}
+    preference: >-
+      I always want a button with the id clear-all that empties every box, and a note with the id cleared-note
+      that says Cleared once I press it.
+    check:
+      id: c14
+      steps: [{goto: ""}, {click: "#clear-all"}, {wait: 300}]
+      expect: {text_matches: "#cleared-note", regex: "(?i)cleared"}
+  - id: key-help
+    scope: {mode: keyboard-driven}
+    preference: >-
+      I always want the question mark key to open a help panel with the id key-help that lists every key I
+      can press.
+    check:
+      id: c15
+      steps: [{goto: ""}, {key: "?"}, {wait: 300}]
+      expect: {visible: "#key-help"}
+  - id: app-title
+    scope: any
+    preference: >-
+      I always want the name of the app at the top of the page in an element with the id app-title.
+    check:
+      id: c16
+      steps: [{goto: ""}]
+      expect: {text_matches: "#app-title", regex: "\\w{3}"}

@@ -1,0 +1,11 @@
+<!doctype html><html><body>
+<canvas id="g" width="200" height="200" tabindex="0"></canvas>
+<script>
+const c = document.getElementById('g'), x = c.getContext('2d');
+let px = 100, py = 100, f = 0;
+addEventListener('keydown', (e) => { if (e.key === 'ArrowUp') py -= 10; if (e.key === 'ArrowRight') px += 10; });
+const loop = () => { f++; x.fillStyle = '#000'; x.fillRect(0,0,200,200);
+  x.fillStyle = 'hsl(' + (f % 360) + ',80%,50%)'; x.fillRect(0,0,20,20);   // animated background element
+  x.fillStyle = '#fff'; x.fillRect(px, py, 10, 10); requestAnimationFrame(loop); };
+loop();
+</script></body></html>

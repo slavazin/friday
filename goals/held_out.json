@@ -1,0 +1,434 @@
+[
+ {
+  "id": "H-01",
+  "text": "a garden game where moles pop up out of their holes and I bonk them with a tap of my finger before they duck back down: I press start and the first mole always pops up right in the middle of the garden the very moment I do, each mole stays up for only a moment, my bonked tally goes up by one for every mole I tap, and my missed tally ticks up for every mole that ducks away untouched. With ?test=1 in the address, every duration is at most 2 seconds.",
+  "round": null,
+  "held_out": true,
+  "contract": {
+   "#start": "button that starts the game",
+   "#canvas": "canvas that shows the garden with its holes and moles",
+   "#whacks": "display of how many moles I have bonked",
+   "#missed": "display of how many moles have ducked away untouched"
+  },
+  "checks": {
+   "R2": [
+    {
+     "id": "c1",
+     "steps": [
+      {
+       "goto": "?test=1"
+      },
+      {
+       "click": "#start"
+      },
+      {
+       "click": "#canvas"
+      }
+     ],
+     "expect": {
+      "text_matches": "#whacks",
+      "regex": "\\b1\\b"
+     }
+    },
+    {
+     "id": "c2",
+     "steps": [
+      {
+       "goto": "?test=1"
+      },
+      {
+       "click": "#start"
+      },
+      {
+       "wait": 2500
+      }
+     ],
+     "expect": {
+      "text_changed": "#missed"
+     }
+    },
+    {
+     "id": "c3",
+     "steps": [
+      {
+       "goto": "?test=1"
+      },
+      {
+       "click": "#start"
+      },
+      {
+       "wait": 500
+      }
+     ],
+     "expect": {
+      "canvas_changed": "#canvas"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "H-02",
+  "text": "balloons float up my screen one at a time, each carrying a word \u2014 the first always says 'cat', then 'dog', then 'sun' \u2014 and I type the word into the box to pop its balloon; it bursts the moment I finish the word, the box clears itself ready for the next, my popped tally goes up by one for every balloon I burst, and my escaped tally ticks up whenever a balloon slips off the top unpopped. With ?test=1 in the address, every duration is at most 2 seconds.",
+  "round": null,
+  "held_out": true,
+  "contract": {
+   "#canvas": "canvas that shows the balloons floating up the screen with their words",
+   "#typed": "input where I type the word shown on the balloon",
+   "#popped": "display showing how many balloons I have popped",
+   "#escaped": "display showing how many balloons have floated off the top"
+  },
+  "checks": {
+   "R2": [
+    {
+     "id": "c1",
+     "steps": [
+      {
+       "goto": "?test=1"
+      },
+      {
+       "type": "#typed",
+       "text": "cat"
+      }
+     ],
+     "expect": {
+      "text_matches": "#popped",
+      "regex": "\\b1\\b"
+     }
+    },
+    {
+     "id": "c2",
+     "steps": [
+      {
+       "goto": "?test=1"
+      },
+      {
+       "wait": 2900
+      }
+     ],
+     "expect": {
+      "text_changed": "#escaped"
+     }
+    },
+    {
+     "id": "c3",
+     "steps": [
+      {
+       "goto": "?test=1"
+      },
+      {
+       "type": "#typed",
+       "text": "cat"
+      },
+      {
+       "type": "#typed",
+       "text": "dog"
+      }
+     ],
+     "expect": {
+      "text_matches": "#popped",
+      "regex": "\\b2\\b"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "H-03",
+  "text": "a column of my ten sales figures with a slider underneath that starts at zero: I drag the slider to the right to set the bar, the figures that don't clear it drop off the column, and the page tells me straight away how many made the cut and what they add up to.",
+  "round": null,
+  "held_out": true,
+  "contract": {
+   "#figures": "display listing the sales figures that clear the cutoff",
+   "#cutoff": "input slider that sets the cutoff",
+   "#count": "display showing how many figures clear the cutoff",
+   "#total": "display showing the sum of the figures that clear the cutoff"
+  },
+  "checks": {
+   "R2": [
+    {
+     "id": "c1",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "drag": "#cutoff",
+       "dx": 120,
+       "dy": 0
+      }
+     ],
+     "expect": {
+      "text_changed": "#figures"
+     }
+    },
+    {
+     "id": "c2",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "drag": "#cutoff",
+       "dx": 120,
+       "dy": 0
+      }
+     ],
+     "expect": {
+      "text_changed": "#count"
+     }
+    },
+    {
+     "id": "c3",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "drag": "#cutoff",
+       "dx": 200,
+       "dy": 0
+      }
+     ],
+     "expect": {
+      "text_changed": "#total"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "H-04",
+  "text": "a sentence transformer: the words 'the quick brown fox' are already waiting in my panel, a second sentence 'lazy dogs bark' sits on a chip I tap to swap in, and I tap Shout to turn every letter into a capital, tap Tidy to give every word a capital start, or tap Flip to read the whole sentence back to front, and the panel shows my new sentence the moment I tap",
+  "round": null,
+  "held_out": true,
+  "contract": {
+   "#fox-chip": "button that loads the sentence 'the quick brown fox' into the panel",
+   "#dog-chip": "button that loads the sentence 'lazy dogs bark' into the panel",
+   "#caps-button": "button that turns the loaded sentence into all capitals",
+   "#title-button": "button that gives every word of the loaded sentence a capital start",
+   "#reverse-button": "button that flips the loaded sentence back to front",
+   "#output-panel": "display that shows the loaded sentence and its transformed version"
+  },
+  "checks": {
+   "R2": [
+    {
+     "id": "c1",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "click": "#caps-button"
+      }
+     ],
+     "expect": {
+      "text_matches": "#output-panel",
+      "regex": "THE QUICK BROWN FOX"
+     }
+    },
+    {
+     "id": "c2",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "click": "#dog-chip"
+      },
+      {
+       "click": "#title-button"
+      }
+     ],
+     "expect": {
+      "text_matches": "#output-panel",
+      "regex": "Lazy Dogs Bark"
+     }
+    },
+    {
+     "id": "c3",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "click": "#reverse-button"
+      }
+     ],
+     "expect": {
+      "text_matches": "#output-panel",
+      "regex": "xof nworb kciuq eht"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "H-05",
+  "text": "a case switcher for my text: I type or paste my words into the box and they show up below, then I press the up arrow key to step the whole thing up into SHOUTING CAPITALS, press it again to give every word a capital start, press it a third time to bring the small letters back, and press the down arrow key to step back down the other way",
+  "round": null,
+  "held_out": true,
+  "contract": {
+   "#text-in": "textarea where I type or paste my text",
+   "#text-out": "display showing my text in the case I have landed on"
+  },
+  "checks": {
+   "R2": [
+    {
+     "id": "c1",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "focus": "#text-in"
+      },
+      {
+       "type": "#text-in",
+       "text": "hello world"
+      },
+      {
+       "key": "ArrowUp",
+       "times": 1
+      }
+     ],
+     "expect": {
+      "text_matches": "#text-out",
+      "regex": "HELLO WORLD"
+     }
+    },
+    {
+     "id": "c2",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "focus": "#text-in"
+      },
+      {
+       "type": "#text-in",
+       "text": "hello world"
+      },
+      {
+       "key": "ArrowUp",
+       "times": 2
+      }
+     ],
+     "expect": {
+      "text_matches": "#text-out",
+      "regex": "Hello World"
+     }
+    },
+    {
+     "id": "c3",
+     "steps": [
+      {
+       "goto": ""
+      },
+      {
+       "focus": "#text-in"
+      },
+      {
+       "type": "#text-in",
+       "text": "hello world"
+      },
+      {
+       "key": "ArrowUp",
+       "times": 1
+      },
+      {
+       "key": "ArrowDown",
+       "times": 1
+      }
+     ],
+     "expect": {
+      "text_matches": "#text-out",
+      "regex": "hello world"
+     }
+    }
+   ]
+  }
+ },
+ {
+  "id": "H-06",
+  "text": "a little typewriter for my text: I type or paste the words I want on the page, tap the play button, and watch them type themselves out on the screen one letter at a time, while a little counter keeps tally of how many letters have landed. With ?test=1 in the address, every duration is at most 2 seconds.",
+  "round": null,
+  "held_out": true,
+  "contract": {
+   "#text-box": "textarea where the person types or pastes the words to be typed out",
+   "#play": "button that starts the typing-out",
+   "#typed-out": "display that shows the words appearing one letter at a time",
+   "#letter-tally": "display that shows how many letters have landed"
+  },
+  "checks": {
+   "R2": [
+    {
+     "id": "c1",
+     "steps": [
+      {
+       "goto": "?test=1"
+      },
+      {
+       "type": "#text-box",
+       "text": "hello"
+      },
+      {
+       "click": "#play"
+      },
+      {
+       "wait": 2500
+      }
+     ],
+     "expect": {
+      "text_changed": "#typed-out"
+     }
+    },
+    {
+     "id": "c2",
+     "steps": [
+      {
+       "goto": "?test=1"
+      },
+      {
+       "type": "#text-box",
+       "text": "banana"
+      },
+      {
+       "click": "#play"
+      },
+      {
+       "wait": 2500
+      }
+     ],
+     "expect": {
+      "text_matches": "#typed-out",
+      "regex": "banana"
+     }
+    },
+    {
+     "id": "c3",
+     "steps": [
+      {
+       "goto": "?test=1"
+      },
+      {
+       "type": "#text-box",
+       "text": "cat"
+      },
+      {
+       "click": "#play"
+      },
+      {
+       "wait": 2500
+      }
+     ],
+     "expect": {
+      "text_matches": "#letter-tally",
+      "regex": "\\b3\\b"
+     }
+    }
+   ]
+  }
+ }
+]

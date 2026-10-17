@@ -1,0 +1,697 @@
+{
+ "incoherent": [],
+ "training": [
+  [
+   "canvas game",
+   "drag or pointer"
+  ],
+  [
+   "canvas game",
+   "keyboard-driven"
+  ],
+  [
+   "canvas game",
+   "real-time"
+  ],
+  [
+   "data tool",
+   "click or tap"
+  ],
+  [
+   "data tool",
+   "keyboard-driven"
+  ],
+  [
+   "data tool",
+   "real-time"
+  ],
+  [
+   "data tool",
+   "typing"
+  ],
+  [
+   "form or calculator",
+   "click or tap"
+  ],
+  [
+   "form or calculator",
+   "drag or pointer"
+  ],
+  [
+   "form or calculator",
+   "keyboard-driven"
+  ],
+  [
+   "form or calculator",
+   "real-time"
+  ],
+  [
+   "form or calculator",
+   "typing"
+  ],
+  [
+   "text tool",
+   "drag or pointer"
+  ],
+  [
+   "text tool",
+   "typing"
+  ],
+  [
+   "timer or tracker",
+   "click or tap"
+  ],
+  [
+   "timer or tracker",
+   "drag or pointer"
+  ],
+  [
+   "timer or tracker",
+   "keyboard-driven"
+  ],
+  [
+   "timer or tracker",
+   "real-time"
+  ],
+  [
+   "timer or tracker",
+   "typing"
+  ]
+ ],
+ "withheld": [
+  [
+   "canvas game",
+   "click or tap"
+  ],
+  [
+   "canvas game",
+   "typing"
+  ],
+  [
+   "data tool",
+   "drag or pointer"
+  ],
+  [
+   "text tool",
+   "click or tap"
+  ],
+  [
+   "text tool",
+   "keyboard-driven"
+  ],
+  [
+   "text tool",
+   "real-time"
+  ]
+ ],
+ "requests": {
+  "G-001": [
+   "canvas game",
+   "keyboard-driven"
+  ],
+  "G-013": [
+   "canvas game",
+   "drag or pointer"
+  ],
+  "G-025": [
+   "canvas game",
+   "real-time"
+  ],
+  "G-037": [
+   "canvas game",
+   "real-time"
+  ],
+  "G-049": [
+   "canvas game",
+   "keyboard-driven"
+  ],
+  "G-061": [
+   "form or calculator",
+   "keyboard-driven"
+  ],
+  "G-073": [
+   "data tool",
+   "click or tap"
+  ],
+  "G-085": [
+   "data tool",
+   "click or tap"
+  ],
+  "G-097": [
+   "canvas game",
+   "drag or pointer"
+  ],
+  "G-109": [
+   "data tool",
+   "real-time"
+  ],
+  "G-121": [
+   "data tool",
+   "keyboard-driven"
+  ],
+  "G-133": [
+   "data tool",
+   "click or tap"
+  ],
+  "H-05": [
+   "text tool",
+   "keyboard-driven"
+  ],
+  "G-002": [
+   "canvas game",
+   "keyboard-driven"
+  ],
+  "G-014": [
+   "data tool",
+   "click or tap"
+  ],
+  "G-026": [
+   "text tool",
+   "drag or pointer"
+  ],
+  "G-038": [
+   "canvas game",
+   "real-time"
+  ],
+  "G-050": [
+   "canvas game",
+   "drag or pointer"
+  ],
+  "G-062": [
+   "timer or tracker",
+   "click or tap"
+  ],
+  "G-074": [
+   "timer or tracker",
+   "click or tap"
+  ],
+  "G-086": [
+   "canvas game",
+   "drag or pointer"
+  ],
+  "G-098": [
+   "data tool",
+   "typing"
+  ],
+  "G-110": [
+   "timer or tracker",
+   "typing"
+  ],
+  "G-122": [
+   "form or calculator",
+   "drag or pointer"
+  ],
+  "G-134": [
+   "data tool",
+   "typing"
+  ],
+  "H-06": [
+   "text tool",
+   "real-time"
+  ],
+  "G-003": [
+   "canvas game",
+   "real-time"
+  ],
+  "G-015": [
+   "text tool",
+   "typing"
+  ],
+  "G-027": [
+   "canvas game",
+   "drag or pointer"
+  ],
+  "G-039": [
+   "text tool",
+   "typing"
+  ],
+  "G-051": [
+   "canvas game",
+   "keyboard-driven"
+  ],
+  "G-063": [
+   "data tool",
+   "real-time"
+  ],
+  "G-075": [
+   "timer or tracker",
+   "drag or pointer"
+  ],
+  "G-087": [
+   "canvas game",
+   "keyboard-driven"
+  ],
+  "G-099": [
+   "form or calculator",
+   "click or tap"
+  ],
+  "G-111": [
+   "data tool",
+   "keyboard-driven"
+  ],
+  "G-123": [
+   "data tool",
+   "real-time"
+  ],
+  "G-135": [
+   "form or calculator",
+   "click or tap"
+  ],
+  "G-004": [
+   "canvas game",
+   "real-time"
+  ],
+  "G-016": [
+   "timer or tracker",
+   "drag or pointer"
+  ],
+  "G-028": [
+   "text tool",
+   "typing"
+  ],
+  "G-040": [
+   "timer or tracker",
+   "typing"
+  ],
+  "G-052": [
+   "canvas game",
+   "real-time"
+  ],
+  "G-064": [
+   "canvas game",
+   "drag or pointer"
+  ],
+  "G-076": [
+   "data tool",
+   "click or tap"
+  ],
+  "G-088": [
+   "data tool",
+   "real-time"
+  ],
+  "G-100": [
+   "data tool",
+   "typing"
+  ],
+  "G-112": [
+   "text tool",
+   "typing"
+  ],
+  "G-124": [
+   "data tool",
+   "typing"
+  ],
+  "G-136": [
+   "canvas game",
+   "real-time"
+  ],
+  "G-005": [
+   "timer or tracker",
+   "keyboard-driven"
+  ],
+  "G-017": [
+   "canvas game",
+   "drag or pointer"
+  ],
+  "G-029": [
+   "canvas game",
+   "drag or pointer"
+  ],
+  "G-041": [
+   "form or calculator",
+   "drag or pointer"
+  ],
+  "G-053": [
+   "canvas game",
+   "keyboard-driven"
+  ],
+  "G-065": [
+   "text tool",
+   "drag or pointer"
+  ],
+  "G-077": [
+   "data tool",
+   "click or tap"
+  ],
+  "G-089": [
+   "timer or tracker",
+   "real-time"
+  ],
+  "G-101": [
+   "data tool",
+   "real-time"
+  ],
+  "G-113": [
+   "text tool",
+   "drag or pointer"
+  ],
+  "G-125": [
+   "data tool",
+   "real-time"
+  ],
+  "G-137": [
+   "timer or tracker",
+   "keyboard-driven"
+  ],
+  "G-006": [
+   "timer or tracker",
+   "drag or pointer"
+  ],
+  "G-018": [
+   "canvas game",
+   "real-time"
+  ],
+  "G-030": [
+   "canvas game",
+   "real-time"
+  ],
+  "G-042": [
+   "data tool",
+   "click or tap"
+  ],
+  "G-054": [
+   "timer or tracker",
+   "real-time"
+  ],
+  "G-066": [
+   "timer or tracker",
+   "click or tap"
+  ],
+  "G-078": [
+   "data tool",
+   "keyboard-driven"
+  ],
+  "G-090": [
+   "data tool",
+   "typing"
+  ],
+  "G-102": [
+   "data tool",
+   "keyboard-driven"
+  ],
+  "G-114": [
+   "data tool",
+   "click or tap"
+  ],
+  "G-126": [
+   "canvas game",
+   "drag or pointer"
+  ],
+  "G-138": [
+   "text tool",
+   "drag or pointer"
+  ],
+  "G-007": [
+   "canvas game",
+   "keyboard-driven"
+  ],
+  "G-019": [
+   "form or calculator",
+   "typing"
+  ],
+  "G-031": [
+   "canvas game",
+   "keyboard-driven"
+  ],
+  "G-043": [
+   "form or calculator",
+   "drag or pointer"
+  ],
+  "G-055": [
+   "canvas game",
+   "keyboard-driven"
+  ],
+  "G-067": [
+   "data tool",
+   "real-time"
+  ],
+  "G-079": [
+   "canvas game",
+   "keyboard-driven"
+  ],
+  "G-091": [
+   "form or calculator",
+   "keyboard-driven"
+  ],
+  "G-103": [
+   "timer or tracker",
+   "typing"
+  ],
+  "G-115": [
+   "text tool",
+   "drag or pointer"
+  ],
+  "G-127": [
+   "text tool",
+   "drag or pointer"
+  ],
+  "G-139": [
+   "canvas game",
+   "real-time"
+  ],
+  "G-008": [
+   "text tool",
+   "drag or pointer"
+  ],
+  "G-020": [
+   "data tool",
+   "typing"
+  ],
+  "G-032": [
+   "canvas game",
+   "drag or pointer"
+  ],
+  "G-044": [
+   "canvas game",
+   "keyboard-driven"
+  ],
+  "G-056": [
+   "data tool",
+   "keyboard-driven"
+  ],
+  "G-068": [
+   "text tool",
+   "drag or pointer"
+  ],
+  "G-080": [
+   "data tool",
+   "click or tap"
+  ],
+  "G-092": [
+   "data tool",
+   "real-time"
+  ],
+  "G-104": [
+   "data tool",
+   "keyboard-driven"
+  ],
+  "G-116": [
+   "data tool",
+   "real-time"
+  ],
+  "G-128": [
+   "data tool",
+   "click or tap"
+  ],
+  "G-140": [
+   "canvas game",
+   "keyboard-driven"
+  ],
+  "G-009": [
+   "data tool",
+   "real-time"
+  ],
+  "G-021": [
+   "canvas game",
+   "keyboard-driven"
+  ],
+  "G-033": [
+   "data tool",
+   "keyboard-driven"
+  ],
+  "G-045": [
+   "data tool",
+   "typing"
+  ],
+  "G-057": [
+   "form or calculator",
+   "click or tap"
+  ],
+  "G-069": [
+   "data tool",
+   "keyboard-driven"
+  ],
+  "G-081": [
+   "text tool",
+   "typing"
+  ],
+  "G-093": [
+   "data tool",
+   "real-time"
+  ],
+  "G-105": [
+   "data tool",
+   "keyboard-driven"
+  ],
+  "G-117": [
+   "data tool",
+   "typing"
+  ],
+  "G-129": [
+   "form or calculator",
+   "real-time"
+  ],
+  "H-01": [
+   "canvas game",
+   "click or tap"
+  ],
+  "G-010": [
+   "canvas game",
+   "real-time"
+  ],
+  "G-022": [
+   "canvas game",
+   "drag or pointer"
+  ],
+  "G-034": [
+   "canvas game",
+   "real-time"
+  ],
+  "G-046": [
+   "canvas game",
+   "real-time"
+  ],
+  "G-058": [
+   "timer or tracker",
+   "keyboard-driven"
+  ],
+  "G-070": [
+   "timer or tracker",
+   "real-time"
+  ],
+  "G-082": [
+   "data tool",
+   "typing"
+  ],
+  "G-094": [
+   "timer or tracker",
+   "drag or pointer"
+  ],
+  "G-106": [
+   "data tool",
+   "click or tap"
+  ],
+  "G-118": [
+   "canvas game",
+   "keyboard-driven"
+  ],
+  "G-130": [
+   "timer or tracker",
+   "real-time"
+  ],
+  "H-02": [
+   "canvas game",
+   "typing"
+  ],
+  "G-011": [
+   "canvas game",
+   "keyboard-driven"
+  ],
+  "G-023": [
+   "canvas game",
+   "drag or pointer"
+  ],
+  "G-035": [
+   "timer or tracker",
+   "typing"
+  ],
+  "G-047": [
+   "canvas game",
+   "keyboard-driven"
+  ],
+  "G-059": [
+   "canvas game",
+   "drag or pointer"
+  ],
+  "G-071": [
+   "form or calculator",
+   "typing"
+  ],
+  "G-083": [
+   "data tool",
+   "real-time"
+  ],
+  "G-095": [
+   "form or calculator",
+   "drag or pointer"
+  ],
+  "G-107": [
+   "canvas game",
+   "real-time"
+  ],
+  "G-119": [
+   "data tool",
+   "keyboard-driven"
+  ],
+  "G-131": [
+   "data tool",
+   "keyboard-driven"
+  ],
+  "H-03": [
+   "data tool",
+   "drag or pointer"
+  ],
+  "G-012": [
+   "canvas game",
+   "drag or pointer"
+  ],
+  "G-024": [
+   "form or calculator",
+   "real-time"
+  ],
+  "G-036": [
+   "data tool",
+   "click or tap"
+  ],
+  "G-048": [
+   "form or calculator",
+   "click or tap"
+  ],
+  "G-060": [
+   "canvas game",
+   "drag or pointer"
+  ],
+  "G-072": [
+   "timer or tracker",
+   "click or tap"
+  ],
+  "G-084": [
+   "canvas game",
+   "drag or pointer"
+  ],
+  "G-096": [
+   "timer or tracker",
+   "keyboard-driven"
+  ],
+  "G-108": [
+   "text tool",
+   "typing"
+  ],
+  "G-120": [
+   "data tool",
+   "typing"
+  ],
+  "G-132": [
+   "data tool",
+   "keyboard-driven"
+  ],
+  "H-04": [
+   "text tool",
+   "click or tap"
+  ]
+ },
+ "remap": {
+  "rounds": "stream rounds 1-3 kept; minted rounds 8-11 became 4-7; minted rounds 4-7 and 12-14 are not in the run",
+  "reason": "pilot timing fit to the 17:00 deadline"
+ }
+}

@@ -1,0 +1,8 @@
+<!doctype html><html><body>
+<h2>Prices</h2><table><tr><td>ACME</td><td id="p1">100.00</td></tr><tr><td>BETA</td><td id="p2">50.00</td></tr></table>
+<input id="filter" placeholder="filter"><select id="sort"><option>name</option><option>price</option></select>
+<button id="d1">Export</button><button id="d2">Help</button><button id="d3">About</button><button id="d4">Share</button>
+<script>
+let k = 0; setInterval(() => { k++; document.getElementById('p1').textContent = (100 + k * 0.37).toFixed(2);
+  document.getElementById('p2').textContent = (50 - k * 0.21).toFixed(2); }, 2000);
+</script></body></html>

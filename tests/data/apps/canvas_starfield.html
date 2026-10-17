@@ -1,0 +1,12 @@
+<!doctype html><html><body>
+<canvas id="g" width="400" height="300" tabindex="0"></canvas>
+<script>
+const c = document.getElementById('g'), x = c.getContext('2d');
+const stars = Array.from({length: 150}, (_, k) => ({x: (k*97)%400, y: (k*53)%300, v: 1 + k%3}));
+let px = 200, py = 250;
+addEventListener('keydown', (e) => { if (e.key === 'ArrowUp') py -= 10; if (e.key === 'ArrowRight') px += 10; if (e.key === 'ArrowLeft') px -= 10; });
+const loop = () => { x.fillStyle = '#000'; x.fillRect(0,0,400,300); x.fillStyle = '#fff';
+  for (const s of stars) { s.y = (s.y + s.v) % 300; x.fillRect(s.x, s.y, 2, 2); }
+  x.fillStyle = '#0f0'; x.fillRect(px, py, 20, 20); requestAnimationFrame(loop); };
+loop();
+</script></body></html>

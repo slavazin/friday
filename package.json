@@ -1,0 +1,10 @@
+{
+  "name": "friday-quality",
+  "private": true,
+  "description": "Node tools for the quality reading Q (SPEC § 5): ESLint over the inline script, axe-core on the loaded page.",
+  "devDependencies": {
+    "axe-core": "4.13.0",
+    "eslint": "9.39.5",
+    "globals": "14.0.0"
+  }
+}

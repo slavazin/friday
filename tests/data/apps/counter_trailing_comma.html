@@ -1,0 +1,19 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Counter</title></head>
+<body>
+<h1>Counter</h1>
+<p>Count: <span id="count">0</span></p>
+<button id="inc">Add one</button>
+<script>
+  const count = document.getElementById('count');
+  document.getElementById('inc').addEventListener('click', () => {
+    count.textContent = String(Number(count.textContent) + 1);
+  });
+</script>
+<section id="how-to"><p>A counter. Press "Add one" to raise the count by one.</p></section>
+<script type=application/json id=how-to-data>
+{"summary": "A counter.", "controls": [
+  {"id": "#inc", "does": "adds one", "action": {"click": "#inc"}, "effect": {"text_changed": "#count"}},
+]}
+</script>
+</body></html>
