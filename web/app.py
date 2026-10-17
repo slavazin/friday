@@ -106,7 +106,8 @@ def with_esc_relay(html: bytes) -> bytes:
 
 
 def create_app(spec: RunSpec, db_path: str | Path, export_path: str | Path, artifacts_dir: str | Path,
-               *, render_posters: bool = False, whatif_dir: str | Path | None = None) -> FastAPI:
+               *, render_posters: bool = False, whatif_dir: str | Path | None = None,
+               telemetry_run: str = "main") -> FastAPI:
     """The demo app over one run's telemetry log, export file and artifacts folder. With `render_posters`, a
     background thread renders a still poster per built app (`web/posters.py`) for the gallery's frozen cards."""
     export = _ExportFile(Path(export_path))
@@ -159,7 +160,7 @@ def create_app(spec: RunSpec, db_path: str | Path, export_path: str | Path, arti
     def get_config() -> dict[str, Any]:
         return {"live_poll_ms": spec.telemetry.live_poll_ms, "alpha": spec.gate.alpha,
                 "admit_wealth": 1.0 / spec.gate.alpha, "drift_round": spec.drift.round, "rounds": spec.run.rounds,
-                "spend_cap_usd": spec.run.spend_cap_usd}
+                "spend_cap_usd": spec.run.spend_cap_usd, "telemetry_run": telemetry_run}
 
     @app.get("/api/telemetry")
     def get_telemetry(after_seq: int = Query(0, ge=0), run: str | None = None, round: int | None = None,  # noqa: A002
@@ -278,12 +279,14 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--export", type=Path, default=None)
     ap.add_argument("--artifacts", type=Path, default=None)
     ap.add_argument("--whatif", type=Path, default=None, help="the what-if showcase folder (scripts/whatif.py)")
+    ap.add_argument("--run", default="main", help="the telemetry run name to show (the critic run writes 'critic')")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8765)
     args = ap.parse_args(argv)
     spec, db, export, artifacts = resolve_paths(args)
     whatif = args.whatif or (args.root.parent / "whatif" if args.root is not None else None)
-    app = create_app(load_spec(spec), db, export, artifacts, render_posters=True, whatif_dir=whatif)
+    app = create_app(load_spec(spec), db, export, artifacts, render_posters=True, whatif_dir=whatif,
+                     telemetry_run=args.run)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 
 if __name__ == "__main__":

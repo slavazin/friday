@@ -40,7 +40,7 @@ export class LivePage {
     try {
       let more = true;
       while (more) {
-        const q = new URLSearchParams({ after_seq: String(this.state.lastSeq), run: "main" });
+        const q = new URLSearchParams({ after_seq: String(this.state.lastSeq), run: this.cfg.telemetry_run ?? "main" });
         const page = await getJSON(`/api/telemetry?${q}`);
         for (const row of page.rows) this.state.apply(row);
         more = page.more;

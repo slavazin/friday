@@ -51,7 +51,7 @@ export class ReplayPage {
 
   async _load() {
     setText(this.stateLabel, "loading the recorded log…");
-    const { rows } = await allRows({ run: "main" });
+    const { rows } = await allRows({ run: this.cfg.telemetry_run ?? "main" });
     this.events = rows.map((r, k) => ({ t: eventTime(r), k, r })).sort((a, b) => a.t - b.t || a.k - b.k);
     if (!this.events.length) {
       setText(this.stateLabel, "the telemetry log holds no rows yet");
