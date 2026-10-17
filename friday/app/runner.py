@@ -30,7 +30,7 @@ import yaml
 from friday.algorithms.composition import compose_pair, select_composed
 from friday.algorithms.exposure import PairKind
 from friday.algorithms.gate import select_in_flight
-from friday.algorithms.halt import RoundSummary
+from friday.algorithms.halt import HaltReason, RoundSummary
 from friday.app import export as export_doc
 from friday.app import pipeline, tempo
 from friday.app.goals import tag_held_out, tag_round
@@ -483,6 +483,8 @@ class Runner:
         closed = list(self.close_log.closed())
         history = [c.summary for c in closed]
         halt = closed[-1].halt if closed else None
+        if halt is None and history and history[-1].round >= self.spec.run.rounds:
+            halt = HaltReason.ROUNDS.value          # run.rounds lowered after the last close: halt before a new round
         with self.telemetry.span("run") as run_span:
             self.telemetry.event("run.manifest", **self.manifest)
             for f in self.fallbacks:
