@@ -1164,7 +1164,7 @@ skill file, per million tokens): per round 20 journal-arm and 10 notes-arm
 worker passes, 20 × 2 judge calls, up to 30 rubric calls per viewport, one
 tagger call, one round close. Over 14 rounds plus a 72-build readout: workers
 about $1, judge about $5, rubric about $1, nominator, pooling, tagger and
-minters about $3, goal minting about $1. About $11 against the $50 credit,
+minters about $3, goal minting about $1. About $11 against the $55 credit (2026-10-17),
 with the spend cap at $30. Prices are read per call from `/v1/models`.
 
 **Time estimate:** a pass is about 1–2 min (a ≤ 30 KB file at Nano speed,
