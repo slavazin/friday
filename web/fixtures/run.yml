@@ -167,7 +167,7 @@ transport:
   - 520
   - 522
   - 524
-  request_timeout_s: 180
+  request_timeout_s: 150
 json:
   reasks: 1
 telemetry:
@@ -221,9 +221,10 @@ models:
       temperature: 0.2
     critic:
       pins:
-      - deepseek-ai/DeepSeek-V4-Pro
-      fallback: deepseek-ai/Deepseek-V4-Flash
+      - nvidia/Nemotron-3-Nano-Omni-Reasoning-30B-A3B
+      fallback: google/gemma-4-31b-it
       temperature: 0.3
+      requires_image: true
 search:
   provider: youcom
   api_key_env: you_key

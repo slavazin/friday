@@ -45,3 +45,22 @@ def demote_group(
         if pin.slow_first_call_group == group:
             out[role] = Resolution(role, pin.fallback, True, pin.pins)
     return out
+
+
+class CriticNotIndependent(RuntimeError):
+    """The critic is bound to a model another role reads the pass with (SPEC § 17 Independence)."""
+
+
+CRITIC_INDEPENDENT_OF = ("rubric", "judge", "nominator")
+
+
+def check_critic_independence(bound: Mapping[str, str]) -> None:
+    """Raises CriticNotIndependent when the critic's bound model equals the bound rubric, judge or nominator
+    model. The rubric's model would steer revisions toward the scorer's taste and bias the critic run's loss
+    comparison; the judge's and the nominator's would read their own reaction back (SPEC § 17)."""
+    critic = bound.get("critic")
+    if critic is None:
+        raise KeyError("the critic role is not bound")
+    clash = [r for r in CRITIC_INDEPENDENT_OF if bound.get(r) == critic]
+    if clash:
+        raise CriticNotIndependent(f"critic bound to {critic}, the same model as {', '.join(clash)}")

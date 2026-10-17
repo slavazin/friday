@@ -193,10 +193,11 @@ models:
       pins: [openai/gpt-oss-120b]
       fallback: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B
       temperature: 0.2
-    critic:                     # differs from the judge and the drafting roles (SPEC § 17)
-      pins: [deepseek-ai/DeepSeek-V4-Pro]
-      fallback: deepseek-ai/Deepseek-V4-Flash
+    critic:                     # reads the screenshot; differs from the rubric, the judge and the nominator (SPEC § 17)
+      pins: [nvidia/Nemotron-3-Nano-Omni-Reasoning-30B-A3B]
+      fallback: google/gemma-4-31b-it
       temperature: 0.3
+      requires_image: true
 
 search:
   provider: youcom

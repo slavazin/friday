@@ -484,3 +484,100 @@ def lines(r: Readout) -> list[str]:
     else:
         out.append("Hook transfer: unread (no held-out set)")
     return out
+
+
+# ---------------------------------------------------------------------------------------------------------
+# The critic run's readings (SPEC § 17): descriptive; the pre-registered R1-R4 belong to the main run
+
+
+@dataclass(frozen=True)
+class HonoredRound:
+    round: int
+    honored: int
+    requests: int
+    passes: int                   # critic-run passes whose requests were read
+    share: float | None           # honored / requests; None when the round's critic asked for nothing
+
+
+@dataclass(frozen=True)
+class LossBeside:
+    category: str
+    main: float                   # the main run's mean loss over its scored training passes on the request
+    critic: float                 # the critic run's mean loss over its scored passes on the same request
+    main_passes: int
+    critic_passes: int
+
+
+@dataclass(frozen=True)
+class CriticReadings:
+    honored: tuple[HonoredRound, ...]
+    honored_unread: tuple[str, ...]          # scored critic-run passes with no requests-honored record
+    loss: tuple[LossBeside, ...]
+    mean_main: float | None                  # the mean of the per-request means, over the shared requests
+    mean_critic: float | None
+    mean_diff: float | None                  # critic - main; None with no shared request
+    admitted_main: tuple[tuple[str, str], ...]     # (decision id, payload)
+    admitted_critic: tuple[tuple[str, str], ...]
+
+
+def _training_scored(passes: PassStore, held_out: frozenset[str]) -> list[tuple[Pass, EvalReport]]:
+    return scored(passes, [p for p in passes.passes() if p.category not in held_out])
+
+
+def critic_readings(
+    main: PassStore, critic: PassStore, honored: Mapping[str, Mapping[str, object]], main_journal: Journal,
+    critic_journal: Journal, held_out: frozenset[str],
+) -> CriticReadings:
+    """Requests honored per round, the mean loss of each run on the requests both built, and the decisions each
+    run admitted. `honored` maps a critic-run pass id to its `requests_honored.json` record.
+
+    Only training passes count (held-out requests are the main run's readout). Absent data reads unread."""
+    crit_rows = _training_scored(critic, held_out)
+    by_round: dict[int, list[tuple[int, int]]] = defaultdict(list)
+    unread: list[str] = []
+    for p, _ in crit_rows:
+        rec = honored.get(p.id)
+        if rec is None:
+            unread.append(p.id)
+            continue
+        by_round[p.round].append((int(rec["honored"]), int(rec["of"])))  # type: ignore[call-overload]
+    rounds = tuple(
+        HonoredRound(n, sum(h for h, _ in rows), sum(k for _, k in rows), len(rows),
+                     sum(h for h, _ in rows) / sum(k for _, k in rows) if sum(k for _, k in rows) else None)
+        for n, rows in sorted(by_round.items()))
+    main_loss: dict[str, list[float]] = defaultdict(list)
+    for p, e in _training_scored(main, held_out):
+        main_loss[p.category].append(e.loss)
+    crit_loss: dict[str, list[float]] = defaultdict(list)
+    for p, e in crit_rows:
+        crit_loss[p.category].append(e.loss)
+    shared = sorted(set(main_loss) & set(crit_loss))
+    beside = tuple(LossBeside(c, sum(main_loss[c]) / len(main_loss[c]), sum(crit_loss[c]) / len(crit_loss[c]),
+                              len(main_loss[c]), len(crit_loss[c])) for c in shared)
+    mean_main = sum(b.main for b in beside) / len(beside) if beside else None
+    mean_critic = sum(b.critic for b in beside) / len(beside) if beside else None
+
+    def admitted(j: Journal) -> tuple[tuple[str, str], ...]:
+        return tuple((d.id, d.payload) for d in sorted(j.decisions(), key=lambda d: d.id)
+                     if d.status is DecisionStatus.ADMITTED)
+
+    return CriticReadings(
+        rounds, tuple(sorted(unread)), beside, mean_main, mean_critic,
+        None if mean_main is None or mean_critic is None else mean_critic - mean_main,
+        admitted(main_journal), admitted(critic_journal))
+
+
+def critic_lines(r: CriticReadings) -> list[str]:
+    """The critic readings as printed lines."""
+    out = ["Critic run (SPEC § 17), descriptive", "Requests honored per round:"]
+    out += [f"  round {h.round}: {h.honored} of {h.requests} ({_fmt(h.share)}) over {h.passes} passes"
+            for h in r.honored] or ["  unread"]
+    if r.honored_unread:
+        out.append(f"  passes with no record: {', '.join(r.honored_unread)}")
+    out.append(f"Mean loss on {len(r.loss)} shared requests: main {_fmt(r.mean_main)}, critic {_fmt(r.mean_critic)}, "
+               f"critic - main {_fmt(r.mean_diff)}")
+    out += [f"  {b.category}: main {_fmt(b.main)} ({b.main_passes}), critic {_fmt(b.critic)} ({b.critic_passes})"
+            for b in r.loss]
+    out.append(f"Admitted, main run: {', '.join(i for i, _ in r.admitted_main) or 'none'}")
+    out.append(f"Admitted, critic run: {', '.join(i for i, _ in r.admitted_critic) or 'none'}")
+    return out

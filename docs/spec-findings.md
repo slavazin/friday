@@ -55,6 +55,11 @@ The listing carries per-model prices, so cost is computed from it. A live struct
   R2 became non-inferiority with a margin (`readout.r2_margin`, 0.05 loss): "the interval does not lie
   below 0" was earned by any reading too noisy to show harm. R2's token condition left the verdict, since
   § 12 pre-registers tokens as reported. Ruled before round 1, with no readout data in existence.
+- **The critic reads the screenshot, and is never the rubric's model.** The critic is pinned to a vision model
+  (`nvidia/Nemotron-3-Nano-Omni-Reasoning-30B-A3B`, fallback `google/gemma-4-31b-it`) so it reads the 1280×800
+  screenshot. Binding refuses a critic whose model equals the bound rubric model: the critic would steer
+  revisions toward the scorer's taste and bias the critic run's loss comparison. It refuses the judge's and the
+  nominator's model too (SPEC § 17 Independence). `app/pins.py` `check_critic_independence`.
 
 - **A fold needs both lens values read.** In the first live round two baseline lenses folded at ρ 0.99 and 1.0
   over about 12 answered passes, and the keeper was arbitrary because neither value was read below
