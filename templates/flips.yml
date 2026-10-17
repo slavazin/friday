@@ -15,3 +15,8 @@ lens:
   lens.floor: "{id} {old} → retired: AUC {value:.2f} below floor {floor:.2f} at {strikes} consecutive closes"
   lens.fold: "{id} {old} → superseded by {superseded_by}: Spearman rho {rho:.2f} > {fold_rho:g}"
   lens.cap: "{id} {old} → retired: lowest value {value:.2f} over the cap of {cap}"
+# Pings to the human (SPEC § 11), rendered by the round close from the stores and run.yml.
+ping:
+  suspect_contradicted: "{id} admitted → suspect while the judge marks it contradicted on {contradicted} of its last {n} disposed passes"
+  transport: "round {round}: {failed} of {units} passes failed for transport after re-runs, above the share {share:.2f}"
+  halt: "run halts after round {round}: {reason}"
