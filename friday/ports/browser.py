@@ -48,6 +48,13 @@ class Page(Protocol):
         """Selects the next option of a <select> (wrapping), or toggles a checkbox or radio."""
         ...
 
+    def run_script(self, source: str) -> object:
+        """Evaluates trusted eval-side JavaScript (e.g. axe-core) in the page; returns its JSON-able result.
+
+        Never used for artifact code: the artifact runs only as loaded.
+        """
+        ...
+
 
 class Browser(Protocol):
     def page(self, artifact_path: str, viewport: Viewport) -> AbstractContextManager[Page]:

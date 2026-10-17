@@ -46,6 +46,7 @@ class FakeDom:
     focus: str | None = None
     kinds: dict[str, ControlKind] = field(default_factory=dict)  # selector -> kind, for controls()
     on_choose: dict[str, Callable[[FakeDom], None]] = field(default_factory=dict)
+    scripts: dict[str, object] = field(default_factory=dict)      # source -> scripted result
 
 
 class FakePage:
@@ -103,6 +104,9 @@ class FakePage:
 
     def snapshot(self) -> str:
         return repr((sorted(self.dom.texts.items()), sorted(self.dom.canvas.items()), sorted(self.dom.visible)))
+
+    def run_script(self, source: str) -> object:
+        return self.dom.scripts.get(source)
 
     def choose(self, selector: str) -> None:
         if selector not in self.dom.kinds:
