@@ -111,7 +111,10 @@ def curate(
                 gone.add(lens.id)
 
     rhos: list[tuple[float, str, str]] = []
-    for a, b in combinations([x for x in live if x.id not in gone], 2):
+    # A fold keeps the higher-value lens, so both values must be read (>= lens.n_min answered passes); a
+    # correlation over a handful of passes would retire a baseline angle on noise (docs/spec-findings.md).
+    valued = [x for x in live if x.id not in gone and values.get(x.id) is not None]
+    for a, b in combinations(valued, 2):
         both = [w for w in window if a.id in w.p and b.id in w.p]
         rho = correlation.corr([w.p[a.id] for w in both], [w.p[b.id] for w in both]) if len(both) >= 2 else None
         if rho is not None and rho > params.fold_rho:

@@ -745,8 +745,8 @@ Window: the last `lens.window` journal-arm passes (64, about two rounds).
 2. **Floor.** The 95th percentile of the same AUC over 200 shuffles of the
    window's losses. A lens below its floor at two consecutive round closes is
    retired with a tombstone.
-3. **Fold.** For each pair of active lenses with both `p` vectors non-constant
-   over the window, the Spearman correlation of their `p` (average ranks for
+3. **Fold.** For each pair of active lenses whose values are both read (step 1)
+   and whose `p` vectors are both non-constant over the window, the Spearman correlation of their `p` (average ranks for
    ties). Above `lens.fold_rho` (0.85), keep the higher-value lens and
    supersede the other.
 4. **Mint.** Every `lens.mint_every` (2) round closes, build the residual

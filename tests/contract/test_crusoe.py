@@ -120,3 +120,30 @@ def test_live_models_list_serves_every_role():
 
     served = Live(SPEC.models, SPEC.transport, MemorySpendLog()).list_models()
     resolve(SPEC.models.roles, served)
+
+
+def test_a_reply_that_never_completes_is_cut_at_the_total_deadline_and_retried(monkeypatch):
+    import threading
+    import time as _time
+
+    from friday.adapters.crusoe import CrusoeClient as _C
+
+    calls = []
+    release = threading.Event()
+
+    def handler(request):
+        calls.append(1)
+        if len(calls) == 1:
+            release.wait(5)                      # the first attempt hangs past the deadline
+        return reply()
+
+    transport = dataclasses.replace(SPEC.transport, request_timeout_s=0.3)
+    monkeypatch.setenv(SPEC.models.endpoint.api_key_env, "test-key")
+    http = httpx.Client(base_url="https://x/v1", transport=httpx.MockTransport(handler))
+    models = dataclasses.replace(SPEC.models, price_overrides={"m": {"prompt": 0.1, "completion": 0.2}})
+    c = _C(models, transport, MemorySpendLog(), http=http, sleep=lambda s: None, telemetry=TEL)
+    c.bind({"worker": "m"})
+    t0 = _time.monotonic()
+    out = c.chat("worker", [Message("user", "x")])
+    release.set()
+    assert out.text == "<!doctype html>" and len(calls) == 2 and _time.monotonic() - t0 < 2.0

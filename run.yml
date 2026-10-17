@@ -144,7 +144,7 @@ transport:
   backoff_base_s: 1.0
   backoff_cap_s: 30.0
   retry_status: [429, 500, 502, 503, 504, 520, 522, 524]   # 52x: the proxy in front of the endpoint timed out
-  request_timeout_s: 180
+  request_timeout_s: 150      # total per attempt (connect to last byte), enforced by a deadline thread
 
 json:
   reasks: 1

@@ -84,3 +84,9 @@ def test_cap_evicts_lowest_value_past_n_min_or_refuses():
     evict, added = cap_evictions(live, values, {"L-01": 5, "L-02": 5}, proposals=1, cap=3, n_min=32)
     assert evict == [] and added == 0
     assert cap_evictions(live, values, {}, proposals=1, cap=5, n_min=32) == ([], 1)
+
+
+def test_near_copies_with_unread_values_never_fold():
+    # 12 answered passes (a first round): rho is ~1, but neither value is read below lens.n_min.
+    res = run([lens("L-01"), lens("L-03")], window(n=12))
+    assert res.values["L-01"] is None and not [f for f in res.flips if f.cause is FlipCause.LENS_FOLD]

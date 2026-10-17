@@ -20,6 +20,7 @@ import base64
 import json
 import os
 import random
+import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
@@ -31,6 +32,10 @@ from friday.config import ModelsSection, RolePin, TransportSection
 from friday.ports.models import ChatResult, Message, ModelInfo, ResponseCache
 from friday.ports.stores import SpendLog
 from friday.ports.telemetry import SpanHandle, Telemetry
+
+
+class CallDeadline(RuntimeError):
+    """One attempt that did not complete within `transport.request_timeout_s` in total; retried like a 5xx."""
 
 
 class TransportFailure(RuntimeError):
@@ -217,6 +222,31 @@ class CrusoeClient:
             return None
         return (t_in * p_in + t_out * p_out) / 1e6
 
+    def _deadline_request(self, method: str, path: str, body: dict[str, Any] | None,
+                          deadline_s: float) -> httpx.Response:
+        """One HTTP attempt that returns within `deadline_s` in total, or raises CallDeadline.
+
+        httpx's timeout bounds each read, not the call: a reply the server keeps open without finishing hung
+        judge calls for ten minutes. The attempt runs on a daemon thread; past the deadline it is abandoned
+        (its connection closes when the thread's read times out) and the call counts as a retriable attempt.
+        """
+        box: dict[str, Any] = {}
+
+        def go() -> None:
+            try:
+                box["r"] = self._http.request(method, path, json=body)
+            except BaseException as e:  # noqa: BLE001 - re-raised in the caller's thread below
+                box["e"] = e
+
+        th = threading.Thread(target=go, daemon=True, name=f"crusoe-{path}")
+        th.start()
+        th.join(deadline_s)
+        if th.is_alive():
+            raise CallDeadline(f"no complete reply within {deadline_s:g} s (transport.request_timeout_s)")
+        if "e" in box:
+            raise box["e"]
+        return box["r"]
+
     def _request(self, method: str, path: str, body: dict[str, Any] | None,
                  span: SpanHandle | None = None) -> dict[str, Any]:
         """The JSON reply, after retries; with `span`, records `attempts`, `retry_statuses` and `backoff_s` on it
@@ -238,8 +268,8 @@ class CrusoeClient:
         for attempt in range(t.max_tries):
             note(attempt)
             try:
-                r = self._http.request(method, path, json=body)
-            except httpx.TransportError as e:
+                r = self._deadline_request(method, path, body, t.request_timeout_s)
+            except (httpx.TransportError, CallDeadline) as e:
                 last = f"{type(e).__name__}: {e}"
                 statuses.append(type(e).__name__)
             else:

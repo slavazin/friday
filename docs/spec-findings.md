@@ -56,6 +56,14 @@ The listing carries per-model prices, so cost is computed from it. A live struct
   below 0" was earned by any reading too noisy to show harm. R2's token condition left the verdict, since
   § 12 pre-registers tokens as reported. Ruled before round 1, with no readout data in existence.
 
+- **A fold needs both lens values read.** In the first live round two baseline lenses folded at ρ 0.99 and 1.0
+  over about 12 answered passes, and the keeper was arbitrary because neither value was read below
+  `lens.n_min`. A fold now runs only between lenses whose values are read, which "keep the higher-value lens"
+  already assumed.
+- **Model calls have a total deadline.** A judge lens call held its connection open with no reply for up to
+  580 s: httpx bounds each read, not the call. Each attempt now ends at `transport.request_timeout_s` (150 s)
+  in total and is retried like a 5xx.
+
 ## Open questions
 
 1. **Coordinator tool calling.** `/v1/models` does not tag `openai/gpt-oss-120b` with tool calling. Verify
