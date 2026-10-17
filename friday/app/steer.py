@@ -26,7 +26,7 @@ FlipStep = Callable[[Decision, DecisionStatus, FlipCause, int, dict[str, str]], 
 @dataclass(frozen=True)
 class SteerResult:
     flipped: tuple[Decision, ...]
-    notes: tuple[Steer, ...]           # applied notes: recorded, no status change, no commit
+    notes: tuple[Steer, ...]           # applied notes: marked applied, no status change; no commit yet (seam request)
 
 
 SteerPlan = tuple[Steer, DecisionStatus | None, FlipCause | None]
@@ -53,6 +53,15 @@ def plan_steers(steers: Sequence[Steer], journal: Journal) -> list[SteerPlan]:
     return out
 
 
+def _flip_landed(events: EventLog, steer: Steer, round_: int) -> bool:
+    """True when the event log already holds this steer's flip at the close of `round_`."""
+    if steer.action not in STEER_FLIPS:
+        return False
+    new, cause = STEER_FLIPS[steer.action]
+    return any(f.cause is cause and f.new == new.value and f.round == round_
+               and f.evidence.get("reason") == steer.reason for f in events.flips(steer.decision_id))
+
+
 def apply_steers(events: EventLog, journal: Journal, flip: FlipStep, round_: int,
                  on_refused: Callable[[Decision], None]) -> SteerResult:
     """Applies every pending steer at the close of `round_`; returns the flipped decisions and the notes.
@@ -60,7 +69,13 @@ def apply_steers(events: EventLog, journal: Journal, flip: FlipStep, round_: int
     Writes, per steer: the flip (event log, then Journal file and commit) and the steer's applied round.
     `on_refused` runs after a veto (the refused-pool block).
     """
-    plan = plan_steers(events.pending_steers(), journal)
+    pending = list(events.pending_steers())
+    landed = [s for s in pending if _flip_landed(events, s, round_)]
+    for steer in landed:            # a close re-run after a failure between the flip and its applied mark
+        if STEER_FLIPS[steer.action][0] is DecisionStatus.REFUSED:
+            on_refused(journal.get(steer.decision_id))       # idempotent: the pool is marked refused at round_
+        events.mark_steer_applied(steer, round_)
+    plan = plan_steers([s for s in pending if s not in landed], journal)
     flipped: list[Decision] = []
     notes: list[Steer] = []
     for steer, new, cause in plan:

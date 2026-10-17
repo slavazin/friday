@@ -1,6 +1,7 @@
 """The whole round close over in-memory stores (SPEC § 11): steers, lens curation, observation writes and expiry,
 pooling, nomination, gate, detector and pings, in order, every flip a rendered commit."""
 
+import dataclasses
 import shutil
 from dataclasses import replace
 from pathlib import Path
@@ -48,6 +49,7 @@ from friday.domain.types import (
 )
 from friday.ports.models import Citation
 from friday.roles.judge import DraftObservation
+from friday.roles.lens_minter import LensMinter
 from friday.roles.nominator import Draft, NoDecision, Nominator
 from friday.roles.pooling import Assignment, NewPool, PoolingCall, PoolingResult
 from friday.roles.prompts import PromptBook
@@ -91,6 +93,13 @@ def by_shape_pooling(lens_id, pools, new):
     return PoolingResult(tuple(out), tuple(fresh.values()), ())
 
 
+def stand_in_nominator(book):
+    """A Nominator whose `draft` the test replaces; built from its declared fields, so it survives a field added
+    with no default (the scripted `draft` reads none of them)."""
+    given = {"client": ScriptedClient([]), "search": None, "book": book, "tag_vocabulary": frozenset()}
+    return Nominator(**{f.name: given.get(f.name, ()) for f in dataclasses.fields(Nominator)})
+
+
 class World:
     def __init__(self, tmp_path, bar=None, minter=None):
         shutil.copytree(ROOT / "lenses", tmp_path / "lenses")
@@ -108,7 +117,7 @@ class World:
             return by_shape_pooling(lens_id, pools, new)
 
         self.pooling.assign = assign
-        self.nominator = Nominator(ScriptedClient([]), None, book, frozenset())
+        self.nominator = stand_in_nominator(book)
         self.drafts: list[object] = []
         self.nominator_calls: list[tuple] = []
 
@@ -254,7 +263,7 @@ def test_illegal_steer_raises_and_writes_nothing(tmp_path):
     assert {d.status for d in w.journal.decisions()} == {DecisionStatus.ADMITTED}
 
 
-def test_steers_apply_as_one_commit_each_and_a_note_changes_no_status(tmp_path):
+def test_retire_and_veto_steers_apply_as_one_commit_each_and_a_note_changes_no_status_and_writes_no_commit(tmp_path):
     w = World(tmp_path)
     seed_status(w.journal, "D-0001", DecisionStatus.ADMITTED)
     w.pools.put_pool(Pool("P-0001", "L-03", SHAPE, (LABEL,), PoolStatus.NOMINATED))
@@ -379,3 +388,99 @@ def test_nominator_sources_land_in_the_warrant(tmp_path):
                       (Citation("https://example.org/focus", "t", "s"),))]
     w.close.close(1, obs_drafts(w.add_passes(1, 3)))
     assert w.journal.get("D-0001").warrant["sources"] == ["https://example.org/focus"]
+
+
+def test_merged_pool_takes_both_pools_labels_so_the_nominator_gets_a_label_of_its_pool(tmp_path):
+    w = World(tmp_path, bar=RecurrenceBar(SPEC.pool.recurrence_min_observations, SPEC.pool.recurrence_min_rounds))
+    w.pools.put_pool(Pool("P-0001", "L-03", "a", ("x",)))
+    w.pools.put_pool(Pool("P-0002", "L-03", "b", ("y",)))
+    w.obs.add_observations([Observation(f"O-000{i}", f"p{i}", r, "L-03", "c", "b", "y", "q", pool_id="P-0002",
+                                        direction_label="y") for i, r in ((1, 1), (2, 2))])
+
+    def merge(lens_id, pools, new):
+        return PoolingResult((Assignment(new[0].id, "P-0002", "y"),), (), (("P-0001", "P-0002"),))
+
+    w.pooling.assign = merge
+    s = w.close.close(3, obs_drafts(w.add_passes(3, 1), shape="b", label="y"))
+    keep = next(p for p in w.pools.pools() if p.id == "P-0001")
+    assert keep.direction_labels == ("x", "y")
+    pool, label, _ = w.nominator_calls[0]
+    assert pool.id == "P-0001" and label in pool.direction_labels and s.nominations == ("D-0001",)
+    assert all(o.direction_label in keep.direction_labels for o in w.obs.observations() if o.pool_id == "P-0001")
+
+
+def test_merge_whose_label_union_exceeds_max_direction_labels_is_rejected_before_any_write(tmp_path):
+    w = World(tmp_path)
+    n = SPEC.pool.max_direction_labels
+    w.pools.put_pool(Pool("P-0001", "L-03", "a", tuple(f"a{i}" for i in range(n))))
+    w.pools.put_pool(Pool("P-0002", "L-03", "b", ("b0",)))
+
+    def merge(lens_id, pools, new):
+        return PoolingResult((Assignment(new[0].id, "P-0001", "a0"),), (), (("P-0001", "P-0002"),))
+
+    w.pooling.assign = merge
+    with pytest.raises(ValueError, match="max_direction_labels"):
+        w.close.close(1, obs_drafts(w.add_passes(1, 1)))
+    assert {p.id: p.status for p in w.pools.pools()} == {"P-0001": PoolStatus.OPEN, "P-0002": PoolStatus.OPEN}
+    assert all(o.pool_id is None for o in w.obs.observations())
+
+
+def test_successor_from_a_pool_opened_since_suspicion_with_a_disjoint_hook_supersedes_nothing(tmp_path):
+    w = World(tmp_path)
+    w.journal.draft(dec("D-0001", DecisionStatus.CANDIDATE))                  # hook fires on "canvas"
+    w.deltas("D-0001", DeltaKind.EXPOSURE, 1, [0.3, 0.25, 0.35, 0.3, 0.3, 0.3])
+    w.close.close(1, {})
+    w.deltas("D-0001", DeltaKind.ABLATION, 2, [-0.2, -0.25, -0.2, -0.3])
+    w.close.close(2, {})
+    assert w.journal.get("D-0001").status is DecisionStatus.SUSPECT
+    w.drafts = [Draft(Hook(frozenset({"form"})), "Keep every control on-screen at 375 px.", ())]
+    s3 = w.close.close(3, obs_drafts(w.add_passes(3, 3), lens_id="L-08", shape="control off-screen at 375 px"))
+    assert s3.nominations == ("D-0002",) and w.journal.get("D-0002").supersedes == ()
+
+
+def test_rerunning_a_close_after_a_mid_close_failure_writes_no_duplicate_observations(tmp_path):
+    w = World(tmp_path)
+    calls = {"n": 0}
+
+    def flaky(lens_id, pools, new):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("pooling call failed after its re-ask")
+        return by_shape_pooling(lens_id, pools, new)
+
+    w.pooling.assign = flaky
+    drafts = obs_drafts(w.add_passes(1, 3))
+    with pytest.raises(RuntimeError):
+        w.close.close(1, drafts)
+    s = w.close.close(1, drafts)
+    assert sorted(o.id for o in w.obs.observations()) == ["O-0001", "O-0002", "O-0003"]
+    assert s.observations == () and s.pools == ("P-0001",) and s.nominations == ("D-0001",)
+    assert {o.pool_id for o in w.obs.observations()} == {"P-0001"}
+
+
+def test_rerunning_a_close_after_a_steer_flip_landed_unmarked_applies_it_once(tmp_path):
+    w = World(tmp_path)
+    seed_status(w.journal, "D-0001", DecisionStatus.ADMITTED)
+    w.events.append_steer(Steer("D-0001", "retire", "demo retire", 2))
+    real = w.events.mark_steer_applied
+
+    def fail_once(steer, round_):
+        w.events.mark_steer_applied = real
+        raise RuntimeError("event log write failed")
+
+    w.events.mark_steer_applied = fail_once
+    with pytest.raises(RuntimeError):
+        w.close.close(2, {})
+    w.close.close(2, {})
+    assert w.events.pending_steers() == [] and len(w.journal.commits) == 1
+    assert w.journal.get("D-0001").status is DecisionStatus.RETIRED
+
+
+def test_build_round_close_with_a_minter_and_no_residual_source_raises(tmp_path):
+    w = World(tmp_path)
+    minter = LensMinter(ScriptedClient([]), PromptBook(ROOT / "prompts"))
+    with pytest.raises(ValueError, match="residual source"):
+        build_round_close(
+            SPEC, journal=w.journal, ledger=w.ledger, events=w.events, judge_store=w.judge, pools=w.pools,
+            passes=w.passes, observations=w.obs, lens_set=w.lens_set, spend=w.spend, pooling=w.pooling,
+            nominator=w.nominator, minter=minter, renderer=RENDERER)

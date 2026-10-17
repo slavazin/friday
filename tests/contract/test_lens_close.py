@@ -110,7 +110,17 @@ def test_values_are_read_per_judge_model(tmp_path):
     later = w.add(2, 32, PREDICTIVE, model="judge/b", seed=4)
     window, model = w.lens_close().window_at(2)
     assert model == "judge/b"
-    assert [x.pass_id for x in window if x.p] == later and len(window) == 64
+    assert [x.pass_id for x in window] == later          # judge/a's passes are left out, not read as unanswered
+
+
+def test_passes_another_judge_model_answered_never_enter_the_residual_after_a_model_switch(tmp_path):
+    w = World(tmp_path)
+    flag_all = {"L-01": lambda loss, rng: 0.5 + 0.5 * loss}        # L-01 flags every pass, under either model
+    w.add(1, 32, flag_all, model="judge/a")
+    w.add(2, 32, flag_all, model="judge/b", seed=4)
+    res = w.lens_close().close(2)                                   # a minting close
+    assert res.window_model == "judge/b"
+    assert res.curation.residual == () and w.minter_calls == []
 
 
 def test_folded_lens_is_superseded_by_the_higher_value_one(tmp_path):

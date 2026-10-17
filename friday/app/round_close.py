@@ -179,6 +179,11 @@ class DecisionClose:
 NEW_POOL = "new:"
 
 
+def _label_union(first: Sequence[str], second: Sequence[str]) -> tuple[str, ...]:
+    """`first`'s labels, then `second`'s not already in it, in order."""
+    return tuple(dict.fromkeys([*first, *second]))
+
+
 @dataclass(frozen=True)
 class CloseParams:
     """run.yml figures the close reads beyond the ones its algorithms already hold."""
@@ -268,7 +273,8 @@ class RoundClose:
                               lambda d: self.decisions.refuse_pool(d.pool_id, round_))
         lens = self.lenses.close(round_)
         kept = sorted(x.id for x in self.lenses.lens_set.lenses() if x.status is LensStatus.ACTIVE)
-        new_obs = self._write_observations(round_, drafts)
+        minted_obs, rerun_obs = self._write_observations(round_, drafts)
+        new_obs = [*rerun_obs, *minted_obs]
         gone = self._expire(round_)
         minted_pools = self._pool(kept, new_obs)
         nominated, no_dec = self._nominate(round_, kept, since=None)
@@ -285,7 +291,7 @@ class RoundClose:
         pings = self._pings(round_, invited, halt)
         return CloseSummary(
             round=round_, flips=tuple(self.events.flips()[start:]), steers=steers, lens=lens,
-            observations=tuple(o.id for o in new_obs), expired=tuple(gone), pools=tuple(minted_pools),
+            observations=tuple(o.id for o in minted_obs), expired=tuple(gone), pools=tuple(minted_pools),
             nominations=tuple(nominated), no_decisions=tuple(no_dec), invitations=invited, pings=tuple(pings),
             summary=summary, halt=halt,
         )
@@ -293,25 +299,36 @@ class RoundClose:
     # -- (3) observations ------------------------------------------------------------------------------
 
     def _write_observations(self, round_: int, drafts: Mapping[str, Sequence[DraftObservation]],
-                            ) -> list[Observation]:
-        """Mints O- ids (pass id order, then report order) and writes the round's observations, open."""
+                            ) -> tuple[list[Observation], list[Observation]]:
+        """Mints O- ids (pass id order, then report order) and writes the round's observations, open.
+
+        Returns (the observations minted now, the stored observations of drafted passes already written). A pass
+        whose observations are already stored (a close re-run after a mid-close failure) is not written again."""
         by_id = {p.id: p for p in self.passes.passes(round_)}
         lens_ids = {x.id for x in self.lenses.lens_set.lenses()} | {FREE_LENS}
-        minter = IdMinter.resume("observation", [o.id for o in self.observations.observations()])
+        stored = list(self.observations.observations())
+        written: dict[str, list[Observation]] = {}
+        for o in stored:
+            written.setdefault(o.pass_id, []).append(o)
+        minter = IdMinter.resume("observation", [o.id for o in stored])
         out: list[Observation] = []
+        again: list[Observation] = []
         for pass_id in sorted(drafts):
             p = by_id.get(pass_id)
             if p is None:
                 raise LookupError(f"observations name pass {pass_id}, which is not a pass of round {round_}")
             if p.arm is not Arm.JOURNAL:
                 raise ValueError(f"pass {pass_id} is a {p.arm.value}-arm pass; only journal-arm passes are judged")
+            if pass_id in written:
+                again += written[pass_id]
+                continue
             for d in drafts[pass_id]:
                 if d.lens_id not in lens_ids:
                     raise ValueError(f"observation on pass {pass_id} names unknown lens {d.lens_id!r}")
                 out.append(Observation(minter.next(), pass_id, round_, d.lens_id, p.category, d.shape,
                                        d.direction, d.quote))
         self.observations.add_observations(out)
-        return out
+        return out, sorted(again, key=lambda o: o.id)
 
     def _expire(self, round_: int) -> list[str]:
         ids = expired(self.observations.observations(), round_, self.params.expiry_rounds)
@@ -328,7 +345,7 @@ class RoundClose:
         A hidden lens is not kept: its observations are written but never reach a pool."""
         minted: list[str] = []
         for lens_id in [*kept, FREE_LENS]:
-            mine = [o for o in new_obs if o.lens_id == lens_id]
+            mine = [o for o in new_obs if o.lens_id == lens_id and o.pool_id is None]
             if not mine:
                 continue
             pools = [p for p in self.pool_store.pools() if p.lens_id == lens_id and p.status is not PoolStatus.MERGED]
@@ -373,6 +390,10 @@ class RoundClose:
                 seen.add(pid)
             if not keep < gone:
                 raise ValueError(f"pooling for {lens_id}: the lower id survives a merge ({keep}, {gone})")
+            union = _label_union(by_id[keep].direction_labels, by_id[gone].direction_labels)
+            if len(union) > self.params.max_direction_labels:
+                raise ValueError(f"pooling for {lens_id}: merging {gone} into {keep} gives {len(union)} direction "
+                                 f"labels, above pool.max_direction_labels {self.params.max_direction_labels}")
 
         referenced = {a.pool_ref[len(NEW_POOL):] for a in result.assignments if a.pool_ref.startswith(NEW_POOL)}
         minter = IdMinter.resume("pool", [p.id for p in self.pool_store.pools()])
@@ -389,6 +410,10 @@ class RoundClose:
             self.observations.put_observation(replace(obs[a.observation_id], pool_id=pid,
                                                       direction_label=a.direction_label))
         for keep, gone in result.merges:
+            # The surviving pool takes the union of both pools' labels, so every moved observation keeps a label
+            # of its pool (SPEC § 7).
+            self.pool_store.put_pool(replace(by_id[keep], direction_labels=_label_union(
+                by_id[keep].direction_labels, by_id[gone].direction_labels)))
             self.pool_store.put_pool(replace(by_id[gone], status=PoolStatus.MERGED, merged_into=keep))
             for o in self.observations.observations():
                 if o.pool_id == gone and o.status is ObservationStatus.OPEN:
@@ -416,7 +441,8 @@ class RoundClose:
         """Nominates pools of kept lenses and `free` while `gate.in_flight` has room; drafts each.
 
         With `since`, only pools opened at or after round `since` are read (a successor invitation). A draft
-        from a pool opened at or after a suspect decision's suspicion lists that decision in `supersedes`.
+        from a pool opened at or after a suspect decision's suspicion, whose hook shares a `fires_when` tag with
+        that decision's hook, lists that decision in `supersedes`.
         """
         room = self._room()
         if room == 0:
@@ -426,7 +452,7 @@ class RoundClose:
         eligible = [p for p in self.pool_store.pools() if p.lens_id in lens_ok]
         if since is not None:
             eligible = [p for p in eligible if (self._opened_round(p.id, observations) or -1) >= since]
-        suspects = [(d.id, self.decisions._last_flip_round(d.id, DecisionStatus.SUSPECT))
+        suspects = [(d, self.decisions._last_flip_round(d.id, DecisionStatus.SUSPECT))
                     for d in self.journal.decisions() if d.status is DecisionStatus.SUSPECT]
         drafted: list[str] = []
         none: list[NoDecisionRecord] = []
@@ -439,7 +465,12 @@ class RoundClose:
             if not isinstance(result, Draft):
                 raise TypeError(f"nominator returned {type(result).__name__}, not a Draft or NoDecision")
             opened = self._opened_round(pool.id, observations)
-            supersedes = tuple(sorted(i for i, r in suspects if r is not None and opened is not None and opened >= r))
+            # A draft supersedes a suspect decision only when it comes from a pool opened since the suspicion and
+            # its hook reaches the same requests (a shared `fires_when` tag); the nominator never sees which.
+            supersedes = tuple(sorted(
+                d.id for d, r in suspects
+                if r is not None and opened is not None and opened >= r
+                and d.hook.fires_when & result.hook.fires_when))
             drafted.append(self._draft(round_, pool, warrant, result, supersedes))
         return drafted, none
 
@@ -505,7 +536,11 @@ def build_round_close(
     pooling: PoolingCall, nominator: Nominator, minter: LensMinter | None, renderer: FlipRenderer,
     residual_source: ResidualSource | None = None, bar: RecurrenceBar | None = None,
 ) -> RoundClose:
-    """A RoundClose over the given stores and roles, every constant read from `spec`."""
+    """A RoundClose over the given stores and roles, every constant read from `spec`.
+
+    Raises ValueError when a lens minter is given without the residual source its residual view reads."""
+    if minter is not None and residual_source is None:
+        raise ValueError("a lens minter needs a residual source (pass -> request text, artifact source excerpt)")
     m = build_mechanics(spec)
     constants = flip_constants(spec)
     ln = spec.lens

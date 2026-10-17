@@ -63,8 +63,9 @@ class LensClose:
         """The last `window` journal-arm passes with a loss at the close of `round_`, and the judge model read.
 
         Lens values are read per judge model: when the window's answers come from several judge models, only
-        the answers of the model that answered the latest answered pass are read; the other passes keep their
-        loss (labels) and read as unanswered.
+        the answers of the model that answered the latest answered pass are read, and a pass answered only by
+        another model is left out of the returned window. Kept as unanswered, it would enter the residual view
+        (SPEC § 6 step 4) as a pass no kept lens flagged, though another model's lenses may have flagged it.
         """
         rows = []
         for p in self.passes.passes():
@@ -81,10 +82,14 @@ class LensClose:
         if answers:
             model = max(answers, key=lambda a: order[a.pass_id]).judge_model
         by_pass: dict[str, dict[str, float]] = {p.id: {} for p, _ in rows}
+        other = set()
         for a in answers:
             if a.judge_model == model:
                 by_pass[a.pass_id][a.lens_id] = a.p
-        return [WindowPass(p.id, loss, by_pass[p.id]) for p, loss in rows], model
+            else:
+                other.add(a.pass_id)
+        return [WindowPass(p.id, loss, by_pass[p.id]) for p, loss in rows
+                if by_pass[p.id] or p.id not in other], model
 
     def _curate(self, lenses: Sequence[Lens], round_: int, strikes: Mapping[str, int]) -> CurationResult:
         window, _ = self.window_at(round_)
