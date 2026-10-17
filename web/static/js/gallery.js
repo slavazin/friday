@@ -96,17 +96,26 @@ export class GalleryPage {
     const loss = h("span", { class: "loss-chip" }, `loss ${fmt.loss(p.loss)}`);
     loss.style.setProperty("--loss-color", lossColor(p.loss));
     return h("figure", { class: "app-card", "data-pass": p.id },
-      h("div", { class: "frame-wrap" }, appFrame(p.id, `app built by pass ${p.id}`)),
+      h("div", { class: "frame-wrap" }, appFrame(p.id, `app built by pass ${p.id}`),
+        h("button", { class: "expand-over", type: "button", title: "open full screen in Stage (←/→ browse)",
+          "aria-label": `expand ${p.category} full screen`, onclick: () => this.expand(p.id) }, "⤢ Expand")),
       h("figcaption", {},
-        h("div", { class: "app-meta" }, h("span", { class: "app-id" }, p.category), armChip(p.arm),
-          p.pair_slot != null ? h("span", { class: "muted", title: "the two journal-arm passes of a pair differ "
-            + "only by the decision under test" }, p.pair_slot === 0 ? "A" : "B") : null,
-          h("span", { class: "muted" }, this._roundLabel(p)), loss,
-          h("button", { class: "btn small expand", type: "button", title: "open full screen in Stage; ←/→ browse",
-            onclick: () => this.expand(p.id) }, "Expand ⤢")),
+        h("div", { class: "app-meta" }, h("span", { class: "app-id" }, p.category), this._arm(p),
+          h("span", { class: "muted" }, this._roundLabel(p)), loss),
         h("div", { class: "muted small" }, this.cells.get(p.id) ?? "cell unread"),
         caption,
         chips.length ? h("div", { class: "chips" }, chips) : h("div", { class: "chips muted small" }, "no decision composed")));
+  }
+
+  // The arm chip; a pair's two journal passes read "journal · A" / "journal · B" (they differ only by the
+  // decision under test).
+  _arm(p) {
+    const chip = armChip(p.arm);
+    if (p.pair_slot != null) {
+      chip.append(` · ${p.pair_slot === 0 ? "A" : "B"}`);
+      chip.title = "the two journal-arm passes of a pair differ only by the decision under test";
+    }
+    return chip;
   }
 
   // Stage, full screen, on pass `id`, with the gallery's current list (from `id` on, then the rest) as the deck.

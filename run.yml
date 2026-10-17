@@ -4,7 +4,7 @@
 
 run:
   seed: 20261017
-  rounds: 7                    # fitted to the 17:00 deadline from the pilot round (docs/spec-findings.md)
+  rounds: 5                    # cut from 7 after round 3 (judge rate limits); docs/spec-findings.md
   spend_cap_usd: 30.0
   max_parallel_passes: 32      # every pass of a round starts at once; the round takes about its slowest pass
   convergence_rounds: 3        # halt: quiet rounds after the drift round (SPEC § 11)
