@@ -11,5 +11,6 @@ readers:
   lens_minter: [regime, drift, arm]
   tagger: [regime, drift, arm, loss]
   critic: [check, checks, loss, eval, judge, regime, drift, candidate, exposure, pair, arm]
+  coordinator: [check, checks, check id, loss, score, scores, regime, R1, R2, drift]
 # Hedge words: recorded on a drafted payload as a reading, never a refusal cause.
 hedges: [consider, try to, where possible, if possible, might, maybe, perhaps, ideally, should probably]

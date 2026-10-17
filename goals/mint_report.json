@@ -1,0 +1,50 @@
+[
+ {
+  "request": "G-049",
+  "check": "c3",
+  "event": "check_passed_on_stub",
+  "detail": "{\"steps\": [{\"goto\": \"?test=1\"}, {\"click\": \"#start\"}, {\"wait\": 3000}], \"expect\": {\"visible\": \"#message\"}}"
+ },
+ {
+  "request": "G-049",
+  "check": "c3",
+  "event": "check_regenerated",
+  "detail": "{\"steps\": [{\"goto\": \"?test=1\"}, {\"click\": \"#start\"}, {\"wait\": 3000}], \"expect\": {\"text_changed\": \"#message\"}}"
+ },
+ {
+  "request": "G-136",
+  "check": "c3",
+  "event": "check_passed_on_stub",
+  "detail": "{\"steps\": [{\"goto\": \"?test=1\"}, {\"click\": \"#start\"}, {\"wait\": 3000}], \"expect\": {\"visible\": \"#gameover\"}}"
+ },
+ {
+  "request": "G-136",
+  "check": "c3",
+  "event": "check_regenerated",
+  "detail": "{\"steps\": [{\"goto\": \"?test=1\"}, {\"click\": \"#start\"}, {\"wait\": 1000}], \"expect\": {\"canvas_changed\": \"#path\"}}"
+ },
+ {
+  "request": "G-054",
+  "check": "c2",
+  "event": "check_passed_on_stub",
+  "detail": "{\"steps\": [{\"goto\": \"?test=1\"}, {\"click\": \"#start\"}, {\"wait\": 2500}], \"expect\": {\"visible\": \"#ready\"}}"
+ },
+ {
+  "request": "G-054",
+  "check": "c2",
+  "event": "check_regenerated",
+  "detail": "{\"steps\": [{\"goto\": \"?test=1\"}, {\"click\": \"#start\"}, {\"wait\": 2500}], \"expect\": {\"text_changed\": \"#ready\"}}"
+ },
+ {
+  "request": "G-068",
+  "check": "c3",
+  "event": "check_passed_on_stub",
+  "detail": "{\"steps\": [{\"goto\": \"\"}, {\"click\": \"#word1\"}, {\"click\": \"#word2\"}, {\"click\": \"#word3\"}], \"expect\": {\"visible\": \"#all-shout-message\"}}"
+ },
+ {
+  "request": "G-068",
+  "check": "c3",
+  "event": "check_regenerated",
+  "detail": "{\"steps\": [{\"goto\": \"\"}, {\"click\": \"#word1\"}, {\"click\": \"#word2\"}, {\"click\": \"#word2\"}], \"expect\": {\"text_matches\": \"#shout-count\", \"regex\": \"\\\\b1\\\\b\"}}"
+ }
+]

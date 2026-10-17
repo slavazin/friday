@@ -3,8 +3,11 @@ implementations; everything else receives its collaborators."""
 
 from __future__ import annotations
 
+import inspect
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from friday.algorithms.detector import Detector
 from friday.algorithms.gate import GateRule
@@ -38,7 +41,8 @@ def build_mechanics(spec: RunSpec) -> Mechanics:
     bound = UPPER_BOUNDS.build(spec.gate.upper_bound)
     g, dt, ln = spec.gate, spec.detect, spec.lens
     return Mechanics(
-        loss=LossModel(spec.eval.w_a, spec.eval.w_r, spec.eval.rubric_scale, spec.eval.rubric_questions),
+        loss=LossModel(spec.eval.w_a, spec.eval.w_r, spec.eval.rubric_scale, spec.eval.rubric_questions,
+                       dict(spec.eval.a_weights)),
         gate=GateRule(g.alpha, g.n_min, g.n_max, g.quality_margin, g.quality_level, betting, bound),
         detector=Detector(dt.window, dt.level, g.alpha, dt.confirm_pairs, dt.contradicted_share, betting, bound),
         bar=RecurrenceBar(
@@ -66,3 +70,24 @@ def flip_constants(spec: RunSpec) -> dict[str, float | int]:
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
+
+
+def evaluator_settings(spec: RunSpec) -> dict[str, Any]:
+    """The Evaluator's run.yml figures (everything but its browser, rubric and quality probe)."""
+    return {
+        "loss_model": build_mechanics(spec).loss,
+        "viewports": {k: tuple(tuple(v) for v in vs) for k, vs in spec.eval.viewports.items()},
+        "test_query": spec.eval.test_query, "probe_max_controls": spec.probe.max_controls,
+        "settle_ms": spec.probe.settle_ms, "sample_text": spec.probe.sample_text,
+        "how_to_max_controls": spec.how_to.max_controls, "repair_penalty": spec.how_to.repair_penalty,
+    }
+
+
+def with_optional(fn: Callable[..., Any], /, *args: Any, **optional: Any) -> Any:
+    """Calls `fn(*args, **kw)` passing each optional keyword only when `fn`'s signature takes it.
+
+    Telemetry parameters land in the steps' signatures one by one (S18); until a step takes one, it is
+    left out instead of raising."""
+    params = inspect.signature(fn).parameters
+    takes_any = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+    return fn(*args, **{k: v for k, v in optional.items() if takes_any or k in params})
