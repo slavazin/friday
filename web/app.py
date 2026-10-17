@@ -129,7 +129,7 @@ def create_app(spec: RunSpec, db_path: str | Path, export_path: str | Path, arti
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
-        if not request.url.path.startswith("/apps/"):
+        if not request.url.path.startswith(("/apps/", "/whatif/apps/")):   # apps carry their own sandbox CSP
             response.headers["Content-Security-Policy"] = PAGE_CSP
         response.headers["Cache-Control"] = "no-store"
         return response

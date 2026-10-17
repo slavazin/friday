@@ -188,3 +188,12 @@ def test_friday_web_forwards_the_spec_when_a_run_path_is_given(monkeypatch):
     cli.main(["--spec", "run.yml", "web", "--root", "runs/x"])
     cli.main(["web"])
     assert seen == [["--spec", "run.yml", "--root", "runs/x"], []]
+
+
+def test_whatif_app_carries_the_app_csp_not_the_page_csp(tmp_path):
+    (tmp_path / "apps" / "H-01-bare").mkdir(parents=True)
+    (tmp_path / "apps" / "H-01-bare" / "index.html").write_text("<html><body>ok</body></html>")
+    c = TestClient(create_app(SPEC, P["db"], P["export"], P["artifacts"], whatif_dir=tmp_path))
+    r = c.get("/whatif/apps/H-01-bare")
+    assert r.status_code == 200
+    assert r.headers["content-security-policy"] == APP_CSP
