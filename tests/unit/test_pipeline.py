@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import os
 import re
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,7 +26,9 @@ from friday.app.pipeline import (
     PassEnv,
     PassSettings,
     PassTask,
+    RoundCrashed,
     eval_report_text,
+    neutral_location,
     plan_round,
     rerun_task,
     round_limits,
@@ -97,6 +100,8 @@ def html_for(messages) -> str:
     ids = "" if "DROP-IDS" in user else '<button id="start">go</button><p id="status">x</p>'
     if "HARDCRASH" in user:
         os._exit(3)
+    if "HANG" in user:
+        time.sleep(120)
     if "SOFTCRASH" in user:
         raise RuntimeError("a programming error inside the pass")
     return f"```html\n<!doctype html><html><body>{ids}<p>{body}</p></body></html>\n```"
@@ -576,3 +581,161 @@ def test_pipeline_module_reads_its_knobs_from_the_spec():
     assert round_limits(SPEC) == (SPEC.run.max_parallel_passes, SPEC.run.transport_reruns)
     with pytest.raises(ValueError, match="rank_by"):
         pipeline.composition_rank([], MemoryLedger(), spec_with(composition={"rank_by": "mean_d"}))
+
+
+# --- review fixes: blinding of the repair turn, crashed passes, hung passes, re-entry ---------------------
+
+
+class UrlErrorBrowser(FileBrowser):
+    """A Browser whose page logs a stack that names the artifact's file URL and path, as Chromium does."""
+
+    @contextmanager
+    def page(self, artifact_path, viewport):
+        self.loads.append((artifact_path, viewport))
+        f = Path(artifact_path)
+        errors = [f"bad Error: boom\n    at {f.resolve().as_uri()}:1:57",
+                  f"ReferenceError at {f.absolute()}:3", f"see artifacts/{f.parent.name}/index.html"]
+        yield FakePage(FakeDom(texts={"#start": "", "#status": ""}, errors=errors))
+
+
+class FailingLoadBrowser(FileBrowser):
+    """A Browser whose page load times out with a message naming the artifact's file URL."""
+
+    @contextmanager
+    def page(self, artifact_path, viewport):
+        self.loads.append((artifact_path, viewport))
+        raise TimeoutError(f'Page.goto: Timeout 15000ms exceeded navigating to "{Path(artifact_path).as_uri()}"')
+        yield  # pragma: no cover
+
+
+def _repair_prompts(tmp_path, browser, ids):
+    req = request("Q-0001", "canvas")
+    out = []
+    for pid, rerun_of in ids:
+        client = ScriptedClient(replies())
+        task = PassTask(pid, 1, Regime.R1, req, req.text, Arm.JOURNAL, int(pid.split("-")[4]), Composition(req.id, ()),
+                        (), (), rerun_of=rerun_of)
+        run_pass(task, env(tmp_path, client, browser=browser))
+        out.append([c for c in client.calls if c[0] == "worker"][1][1][-1].content)
+    return out
+
+
+def test_repair_turn_console_error_urls_do_not_leak_the_pass_id_so_a_pairs_repair_prompts_match(tmp_path, monkeypatch):
+    scripted_judge(monkeypatch, JudgeLog([], []))
+    a, b = _repair_prompts(tmp_path, UrlErrorBrowser(),
+                           [("r01-Q-0001-journal-0", None), ("r01-Q-0001-journal-1-rr", "r01-Q-0001-journal-1")])
+    assert a == b
+    for leak in ("journal", "r01", "-rr", "artifacts", str(tmp_path), str(tmp_path.resolve())):
+        assert leak not in a, leak
+    assert "boom" in a and "index.html:1:57" in a
+
+
+def test_load_failure_text_does_not_leak_the_pass_id_and_reports_no_missing_ids(tmp_path, monkeypatch):
+    scripted_judge(monkeypatch, JudgeLog([], []))
+    a, b = _repair_prompts(tmp_path, FailingLoadBrowser(),
+                           [("r01-Q-0001-journal-0", None), ("r01-Q-0001-journal-1", None)])
+    assert a == b and "the page did not load: TimeoutError" in a and 'navigating to "index.html"' in a
+    assert "missing element id" not in a and "journal" not in a and str(tmp_path) not in a
+
+
+def test_neutral_location_replaces_every_form_of_the_artifact_location(tmp_path):
+    f = tmp_path / "artifacts" / "r03-Q-0009-notes-0-rr" / "index.html"
+    text = f"{f.resolve().as_uri()} {f} artifacts/r03-Q-0009-notes-0-rr/ r03-Q-0009-notes-0-rr"
+    out = neutral_location(text, f, ["r03-Q-0009-notes-0-rr"])
+    assert "r03" not in out and "notes" not in out and str(tmp_path) not in out
+
+
+def test_a_rubric_failure_leaves_a_pass_row_with_no_eval_and_no_delta(tmp_path, monkeypatch):
+    log = JudgeLog([], [])
+    scripted_judge(monkeypatch, log)
+    _, _, _, store, _, tasks = two_request_round(tmp_path)
+
+    def evaluate(pass_, request_, regime, text):
+        if pass_.id == "r01-Q-0001-journal-0":
+            raise RuntimeError("rubric answer unread after the re-ask")
+        return scripted_eval(pass_, request_, regime, text)
+
+    e = env(tmp_path, ScriptedClient(replies()), evaluate=evaluate)
+    result = run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True)
+    assert list(result.crashed) == ["r01-Q-0001-journal-0"] and "rubric" in result.crashed["r01-Q-0001-journal-0"]
+    rows = {p.id: p for p in e.passes.passes(1)}
+    assert set(rows) == {t.pass_id for t in tasks}            # the store keeps the whole population
+    assert e.passes.eval_of("r01-Q-0001-journal-0") is None and not rows["r01-Q-0001-journal-0"].transport_failed
+    assert [d for d in result.deltas if d.category == "Q-0001"] == []
+    meta = (tmp_path / "artifacts" / "r01-Q-0001-journal-0" / "pass.json").read_text()
+    assert "rubric answer unread" in meta
+
+
+def test_a_report_call_breaking_its_contract_leaves_no_orphan_eval_answers_or_fires(tmp_path, monkeypatch):
+    scripted_judge(monkeypatch, JudgeLog([], []))
+    monkeypatch.setattr(Judge, "report_call", lambda self, *a: ([], {}))
+    spec = spec_with(detect={"ablate_p": 1.0})
+    _, _, _, store, _, tasks = two_request_round(tmp_path, spec)
+    e = env(tmp_path, ScriptedClient(replies()), spec=spec)
+    result = run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True)
+    lost = {t.pass_id for t in tasks if t.composition.decision_ids}
+    assert lost and set(result.crashed) == lost and result.deltas == ()
+    assert all(e.passes.eval_of(i) is None for i in lost)
+    assert not {a.pass_id for a in e.judge_store._answers} & lost
+    assert not {f.pass_id for f in e.judge_store._fires} & lost
+    assert {p.id for p in e.passes.passes(1)} == {t.pass_id for t in tasks}
+
+
+def test_a_round_where_every_pass_crashes_raises(tmp_path, monkeypatch):
+    scripted_judge(monkeypatch, JudgeLog([], []))
+    _, _, _, store, _, tasks = two_request_round(tmp_path)
+
+    def evaluate(*a):
+        raise RuntimeError("the evaluator is broken")
+
+    e = env(tmp_path, ScriptedClient(replies()), evaluate=evaluate)
+    with pytest.raises(RoundCrashed, match="every pass crashed"):
+        run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True)
+    assert {p.id for p in e.passes.passes(1)} == {t.pass_id for t in tasks}
+
+
+def test_a_crashed_rerun_is_counted_as_still_failed(tmp_path, monkeypatch):
+    scripted_judge(monkeypatch, JudgeLog([], []))
+    _, _, _, store, _, tasks = two_request_round(tmp_path)
+    seen = []
+
+    def flaky_then_crash(messages):
+        if HELP in messages[1].content:
+            seen.append(1)
+            if len(seen) == 1:
+                raise TransportFailure("5 tries: 503")
+            raise RuntimeError("the re-run crashed")
+        return html_for(messages)
+
+    e = env(tmp_path, ScriptedClient(replies(fn=flaky_then_crash)))
+    result = run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True)
+    (rr,) = result.transport_failed
+    assert rr.endswith("-rr") and rr in result.crashed
+    assert [d for d in result.deltas if d.category == "Q-0001"] == []
+
+
+def test_re_entering_a_round_raises_before_any_pass_runs(tmp_path, monkeypatch):
+    scripted_judge(monkeypatch, JudgeLog([], []))
+    _, _, _, store, _, tasks = two_request_round(tmp_path)
+    e = env(tmp_path, ScriptedClient(replies()))
+    run_round(1, store.plans(1), tasks, factory(e), parallel=1, reruns=1, in_process=True)
+    client = ScriptedClient(replies())
+    again = env(tmp_path, client)
+    with pytest.raises(ValueError, match="entered before"):
+        run_round(1, store.plans(1), tasks, factory(again), parallel=1, reruns=1, in_process=True)
+    assert client.calls == [] and again.passes.passes(1) == []
+
+
+def test_a_hung_pass_process_is_terminated_after_pass_timeout_s(tmp_path):
+    reqs = [request("Q-0001", "canvas"), request("Q-0002", "timer", text="Build it. HANG")]
+    j = journal(decision("D-0001", DecisionStatus.CANDIDATE, "canvas"))
+    plan = plan_round(1, reqs, j, MemoryLedger(), SPEC.run.seed, SPEC, MemoryExposureStore())
+    tasks = round_tasks(plan, reqs, Regime.R1, SPEC.drift.constraint, {d.id: d for d in j.decisions()},
+                        [lens("L-01")], None)
+    t0 = time.monotonic()
+    result = run_round(1, plan.plans, tasks, ProcessEnvFactory(str(tmp_path / "artifacts")), parallel=6, reruns=1,
+                       pass_timeout_s=8)
+    assert time.monotonic() - t0 < 60
+    assert sorted(result.crashed) == [t.pass_id for t in tasks if t.request.id == "Q-0002"]
+    assert all("timed out" in tb for tb in result.crashed.values())
+    assert [(d.decision_id, d.d) for d in result.deltas] == [("D-0001", pytest.approx(0.4))]

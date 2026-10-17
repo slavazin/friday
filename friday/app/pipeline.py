@@ -13,6 +13,8 @@ from __future__ import annotations
 import dataclasses
 import json
 import multiprocessing
+import re
+import time
 import traceback
 from collections.abc import Callable, Collection, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack
@@ -299,6 +301,29 @@ class PassOutcome:
     transport_error: str = ""
 
 
+_ARTIFACT_FILE = re.compile(r"""[^\s"'()<>]*artifacts/[^/\s"'()<>]+/index\.html""")
+_ARTIFACT_DIR = re.compile(r"""[^\s"'()<>]*artifacts/[^/\s"'()<>]+/?""")
+
+
+def neutral_location(text: str, artifact: Path, ids: Sequence[str]) -> str:
+    """`text` with every trace of where the artifact lives replaced by `index.html`.
+
+    A console error's stack and a load failure name the file's URL or path, and the path carries the pass id
+    (round, request, arm, pair slot, re-run marker) and the home directory. The repair turn must read the same
+    for both workers of a pair (SPEC § 2 Blinding), so the file URL, the path, any `artifacts/<pass_id>/`
+    fragment and the pass ids in `ids` all read as the page's file name.
+    """
+    forms = {str(artifact), str(artifact.absolute()), str(artifact.resolve()),
+             artifact.absolute().as_uri(), artifact.resolve().as_uri()}
+    for form in sorted(forms, key=len, reverse=True):
+        text = text.replace(form, "index.html")
+    text = _ARTIFACT_FILE.sub("index.html", text)
+    text = _ARTIFACT_DIR.sub("", text)
+    for i in sorted(ids, key=len, reverse=True):
+        text = text.replace(i, "index.html")
+    return text
+
+
 def _turns(env: PassEnv, task: PassTask, messages: list[Message], artifact: Path, results: list[ChatResult],
            ) -> tuple[str, bool, bool]:
     """Builds the artifact: the first turn, then up to `repair_turns` self-repair turns.
@@ -320,6 +345,8 @@ def _turns(env: PassEnv, task: PassTask, messages: list[Message], artifact: Path
         errors, missing = _repair_reading(env, artifact, viewport, task.request.contract)
         if not errors and not missing:
             break
+        ids = [i for i in (task.pass_id, task.rerun_of) if i]
+        errors = [neutral_location(e, artifact, ids) for e in errors]
         msg = repair_message(env.book, errors, [i.lstrip("#") for i in missing])
         reply = env.worker.repair_turn(convo, last, msg, tag=f"{task.pass_id}:{turn + 1}")
         results.append(reply)
@@ -335,12 +362,15 @@ def _turns(env: PassEnv, task: PassTask, messages: list[Message], artifact: Path
 
 def _repair_reading(env: PassEnv, artifact: Path, viewport: Viewport, contract: Collection[str],
                     ) -> tuple[list[str], list[str]]:
-    """The loaded page's console errors and missing contract ids: what the self-repair turn shows."""
+    """The loaded page's console errors and missing contract ids: what the self-repair turn shows.
+
+    A page that does not load gives the load error alone: its ids were never read, so none is reported missing.
+    """
     with ExitStack() as stack:
         try:
             page = stack.enter_context(env.browser.page(str(artifact), viewport))
         except Exception as e:  # noqa: BLE001 - a page that does not load is the worker's defect; it earns the turn
-            return [f"the page did not load: {type(e).__name__}: {e}"], sorted(contract)
+            return [f"the page did not load: {type(e).__name__}: {e}"], []
         return list(page.console_errors()), list(env.missing_ids(page, contract))
 
 
@@ -365,6 +395,12 @@ def run_pass(task: PassTask, env: PassEnv) -> PassOutcome:
     A transport failure in a worker turn or the eval records the pass `transport_failed`, with no eval: it
     gives no delta and is offered for one re-run. A transport failure in a judge call drops that call, like a
     call dropped after its re-ask: the eval stands and the fires stay `undisposed`.
+
+    The store rows (pass, eval, lens answers, fires) are written together once the pass's outcome is final.
+    Any other failure (a rubric answer unread after its re-ask, a judge reply that breaks its contract, a
+    programming error) writes no store row, records the reason in `pass.json` and raises: `run_round` records
+    the pass as crashed and writes its pass row with no eval, so the store never holds an eval of a pass
+    the round lost.
     """
     out_dir = env.artifacts / task.pass_id
     out_dir.mkdir(parents=True, exist_ok=False)
@@ -375,38 +411,58 @@ def run_pass(task: PassTask, env: PassEnv) -> PassOutcome:
     base = Pass(task.pass_id, task.round_, task.request.id, task.arm, "", task.composition, task.regime,
                 pair_slot=task.slot)
     try:
-        html, repaired, extracted = _turns(env, task, messages, artifact, results)
-        size = len(html.encode())
-        oversize = size > env.settings.max_artifact_bytes
-        pass_ = dataclasses.replace(base, worker=results[0].model, artifact_path=str(artifact), repaired=repaired)
-        report = env.evaluate(pass_, task.request, task.regime, task.request_text)
-    except env.transport_errors as e:
-        failed = dataclasses.replace(
-            base, worker=results[0].model if results else "",
-            artifact_path=str(artifact) if artifact.exists() else None, transport_failed=True,
-        )
-        env.passes.add_pass(failed)
-        (out_dir / "pass.json").write_text(json.dumps(_meta(task, results, transport_error=str(e)), indent=1))
-        return PassOutcome(failed, None, transport_error=f"{type(e).__name__}: {e}")
-    if report.pass_id != pass_.id:
-        raise ValueError(f"eval of {report.pass_id} returned for {pass_.id}")
+        try:
+            html, repaired, extracted = _turns(env, task, messages, artifact, results)
+            size = len(html.encode())
+            oversize = size > env.settings.max_artifact_bytes
+            pass_ = dataclasses.replace(base, worker=results[0].model, artifact_path=str(artifact),
+                                        repaired=repaired)
+            report = env.evaluate(pass_, task.request, task.regime, task.request_text)
+        except env.transport_errors as e:
+            failed = dataclasses.replace(
+                base, worker=results[0].model if results else "",
+                artifact_path=str(artifact) if artifact.exists() else None, transport_failed=True,
+            )
+            env.passes.add_pass(failed)
+            (out_dir / "pass.json").write_text(json.dumps(_meta(task, results, transport_error=str(e)), indent=1))
+            return PassOutcome(failed, None, transport_error=f"{type(e).__name__}: {e}")
+        if report.pass_id != pass_.id:
+            raise ValueError(f"eval of {report.pass_id} returned for {pass_.id}")
+        verdict = _judge(env, task, pass_, html, report) if task.arm is Arm.JOURNAL else _Judged((), None, (), [])
+    except Exception as e:  # noqa: BLE001 - records the reason in pass.json and re-raises; nothing is defaulted
+        (out_dir / "pass.json").write_text(json.dumps(_meta(task, results, failed=f"{type(e).__name__}: {e}"),
+                                                      indent=1))
+        raise
     env.passes.add_pass(pass_)
     env.passes.add_eval(report)
+    if verdict.answers is not None:
+        env.judge_store.add_lens_answers(verdict.answers)
+    if verdict.fires:
+        env.judge_store.add_fires(verdict.fires)
     (out_dir / "eval.json").write_text(json.dumps(dataclasses.asdict(report), indent=1, default=str))
-    observations: tuple[PendingObservation, ...] = ()
-    dropped: list[str] = []
-    if task.arm is Arm.JOURNAL:
-        observations, dropped = _judge(env, task, pass_, html, report)
     (out_dir / "pass.json").write_text(json.dumps(_meta(
         task, results, bytes=size, oversize=oversize, extracted=extracted, repaired=repaired,
-        dropped_calls=dropped,
+        dropped_calls=verdict.dropped,
     ), indent=1))
-    return PassOutcome(pass_, report, observations, size, oversize, tuple(dropped))
+    return PassOutcome(pass_, report, verdict.observations, size, oversize, tuple(verdict.dropped))
 
 
-def _judge(env: PassEnv, task: PassTask, pass_: Pass, html: str, report: EvalReport,
-           ) -> tuple[tuple[PendingObservation, ...], list[str]]:
-    """The lens call (artifact only), then the report call (adds the eval report); writes answers and fires."""
+@dataclass(frozen=True)
+class _Judged:
+    """The two judge calls' results, held until the pass writes its rows."""
+
+    observations: tuple[PendingObservation, ...]
+    answers: Sequence[Any] | None          # LensAnswers; None when the lens call was dropped
+    fires: Sequence[Fire]
+    dropped: list[str]
+
+
+def _judge(env: PassEnv, task: PassTask, pass_: Pass, html: str, report: EvalReport) -> _Judged:
+    """The lens call (artifact only), then the report call (adds the eval report); returns answers and fires.
+
+    Raises when the report call breaks its contract (a composed decision with no disposition, or one
+    returned `undisposed`). Writes nothing: the pass writes every row once its outcome is final.
+    """
     composed = {d.id: d.payload for d in sorted(task.decisions, key=lambda d: d.id)}
     lens_ids = [x.id for x in task.lenses]
     dropped: list[str] = []
@@ -416,8 +472,6 @@ def _judge(env: PassEnv, task: PassTask, pass_: Pass, html: str, report: EvalRep
         answers = None
     if answers is None:
         dropped.append("lens")
-    else:
-        env.judge_store.add_lens_answers(answers)
     try:
         result = env.judge.report_call(task.pass_id, task.request_text, composed, html, answers or [],
                                        eval_report_text(report), lens_ids)
@@ -425,9 +479,7 @@ def _judge(env: PassEnv, task: PassTask, pass_: Pass, html: str, report: EvalRep
         result = None
     if result is None:
         dropped.append("report")
-        fires = [Fire(pass_.id, i, task.round_) for i in composed]
-        env.judge_store.add_fires(fires)
-        return (), dropped
+        return _Judged((), answers, [Fire(pass_.id, i, task.round_) for i in composed], dropped)
     drafts, dispositions = result
     missing = set(composed) - set(dispositions)
     if missing:
@@ -435,8 +487,8 @@ def _judge(env: PassEnv, task: PassTask, pass_: Pass, html: str, report: EvalRep
     fires = [Fire(pass_.id, i, task.round_, dispositions[i][0], dispositions[i][1]) for i in composed]
     if any(f.disposition is Disposition.UNDISPOSED for f in fires):
         raise ValueError(f"{pass_.id}: a returned disposition is undisposed")
-    env.judge_store.add_fires(fires)
-    return tuple(PendingObservation(pass_.id, task.round_, task.request.id, d) for d in drafts), dropped
+    observations = tuple(PendingObservation(pass_.id, task.round_, task.request.id, d) for d in drafts)
+    return _Judged(observations, answers, fires, dropped)
 
 
 def eval_report_text(report: EvalReport) -> str:
@@ -478,7 +530,12 @@ class RoundResult:
     deltas: tuple[LedgerDelta, ...]
     observations: tuple[PendingObservation, ...]
     crashed: Mapping[str, str] = field(default_factory=dict)       # pass id -> traceback; never re-run
-    transport_failed: tuple[str, ...] = ()                         # slots still failed after their re-runs
+    transport_failed: tuple[str, ...] = ()   # last attempt of each transport-failed slot that never evaluated:
+                                             # failed for transport again, or its re-run crashed
+
+
+class RoundCrashed(RuntimeError):
+    """Every pass of a round crashed: the round gives no population, which is a fault, not an outcome."""
 
 
 EnvFactory = Callable[[], AbstractContextManager[PassEnv]]
@@ -497,11 +554,12 @@ def _child(env_factory: EnvFactory, task: PassTask, conn: Any) -> None:
         conn.close()
 
 
-def _run_processes(tasks: Sequence[PassTask], env_factory: EnvFactory, parallel: int,
+def _run_processes(tasks: Sequence[PassTask], env_factory: EnvFactory, parallel: int, timeout_s: float | None,
                    ) -> tuple[list[PassOutcome], dict[str, str]]:
+    """Runs `tasks` at most `parallel` at a time, one process each; a pass past `timeout_s` is terminated."""
     ctx = multiprocessing.get_context("spawn")       # no browser or connection is inherited by a child
     pending = list(tasks)
-    running: dict[Any, tuple[Any, PassTask]] = {}
+    running: dict[Any, tuple[Any, PassTask, float]] = {}
     outcomes: list[PassOutcome] = []
     crashed: dict[str, str] = {}
     while pending or running:
@@ -511,9 +569,12 @@ def _run_processes(tasks: Sequence[PassTask], env_factory: EnvFactory, parallel:
             proc = ctx.Process(target=_child, args=(env_factory, task, send), name=task.pass_id)
             proc.start()
             send.close()
-            running[recv] = (proc, task)
-        for conn in wait(list(running)):
-            proc, task = running.pop(conn)
+            running[recv] = (proc, task, time.monotonic())
+        timeout = None
+        if timeout_s is not None:
+            timeout = max(0.0, min(t0 for _, _, t0 in running.values()) + timeout_s - time.monotonic())
+        for conn in wait(list(running), timeout):
+            proc, task, _ = running.pop(conn)
             try:
                 status, value = conn.recv()
             except EOFError:
@@ -524,56 +585,99 @@ def _run_processes(tasks: Sequence[PassTask], env_factory: EnvFactory, parallel:
                 outcomes.append(value)
             else:
                 crashed[task.pass_id] = f"{value}\nexit code {proc.exitcode}"
+        if timeout_s is not None:
+            now = time.monotonic()
+            for conn in [c for c, (_, _, t0) in running.items() if now - t0 >= timeout_s]:
+                proc, task, _ = running.pop(conn)
+                proc.terminate()
+                proc.join()
+                conn.close()
+                crashed[task.pass_id] = f"timed out after {timeout_s} s (run.pass_timeout_s); terminated"
     return outcomes, crashed
 
 
-def _run_in_process(tasks: Sequence[PassTask], env_factory: EnvFactory) -> tuple[list[PassOutcome], dict[str, str]]:
+def _run_in_process(tasks: Sequence[PassTask], env: PassEnv) -> tuple[list[PassOutcome], dict[str, str]]:
     outcomes: list[PassOutcome] = []
     crashed: dict[str, str] = {}
-    with env_factory() as env:
-        for task in tasks:
-            try:
-                outcomes.append(run_pass(task, env))
-            except Exception:  # noqa: BLE001 - same rule as a pass's process: a crash loses only that pass
-                crashed[task.pass_id] = traceback.format_exc()
+    for task in tasks:
+        try:
+            outcomes.append(run_pass(task, env))
+        except Exception:  # noqa: BLE001 - same rule as a pass's process: a crash loses only that pass
+            crashed[task.pass_id] = traceback.format_exc()
     return outcomes, crashed
+
+
+def _record_crashed(env: PassEnv, round_: int, tasks: Mapping[str, PassTask], crashed: Collection[str]) -> None:
+    """Writes the pass row, with no eval, of each crashed pass that has none: the store keeps the population.
+
+    The row reads as a pass that never evaluated (its eval is unread); the reason is in `RoundResult.crashed`
+    and, when the pass got that far, in its `pass.json`.
+    """
+    have = {p.id for p in env.passes.passes(round_)}
+    for pid in sorted(crashed):
+        if pid in have:
+            continue
+        t = tasks[pid]
+        artifact = env.artifacts / pid / "index.html"
+        env.passes.add_pass(Pass(pid, t.round_, t.request.id, t.arm, "", t.composition, t.regime,
+                                 artifact_path=str(artifact) if artifact.exists() else None, pair_slot=t.slot))
 
 
 def run_round(
     round_: int, plans: Sequence[PairPlan], tasks: Sequence[PassTask], env_factory: EnvFactory, *,
-    parallel: int, reruns: int, in_process: bool = False,
+    parallel: int, reruns: int, in_process: bool = False, pass_timeout_s: float | None = None,
 ) -> RoundResult:
     """Runs every pass, re-runs each transport failure up to `reruns` times, and computes the paired deltas.
 
     `parallel` is `run.max_parallel_passes`: at most that many passes run at once, each in its own process
-    with its own browser and store connections (`env_factory` opens them in the child). `in_process` runs
-    the passes one after another in this process with one environment (tests and dry runs). A crashed pass
-    is reported in `crashed`, gives no delta and is not re-run. Writes no Ledger row: the round close does.
+    with its own browser and store connections (`env_factory` opens them in the child). `pass_timeout_s`
+    bounds each pass process; a pass past it is terminated and recorded as crashed (`None`: no bound; not
+    enforced with `in_process`). `in_process` runs the passes one after another in this process with one
+    environment (tests and dry runs).
+
+    A crashed pass is reported in `crashed`, gives no delta, is not re-run, and gets a pass row with no
+    eval. Raises `RoundCrashed` when every first-attempt pass crashed. Raises before any pass runs when an
+    `artifacts/<pass_id>/` of the round already exists: a round is entered once, and a restarted runner
+    resumes at the round close, never by re-running passes over their own rows. Writes no Ledger row.
     """
     if parallel < 1:
         raise ValueError("run.max_parallel_passes must be at least 1")
+    if pass_timeout_s is not None and pass_timeout_s <= 0:
+        raise ValueError("run.pass_timeout_s must be positive")
     if any(t.round_ != round_ for t in tasks):
         raise ValueError("a task belongs to another round")
     if len({t.pass_id for t in tasks}) != len(tasks):
         raise ValueError("pass ids repeat within the round")
 
-    def run(batch: Sequence[PassTask]) -> tuple[list[PassOutcome], dict[str, str]]:
-        return _run_in_process(batch, env_factory) if in_process else _run_processes(batch, env_factory, parallel)
+    with env_factory() as home:
+        entered = sorted(t.pass_id for t in tasks if (home.artifacts / t.pass_id).exists())
+        if entered:
+            raise ValueError(f"round {round_} was entered before: artifacts of {entered} exist")
 
-    outcomes, crashed = run(tasks)
-    task_of = {t.pass_id: t for t in tasks}
-    failed = [o.pass_.id for o in outcomes if o.pass_.transport_failed]
-    for attempt in range(1, reruns + 1):
-        if not failed:
-            break
-        retry = [rerun_task(task_of[i], attempt) for i in failed]
-        task_of.update((t.pass_id, t) for t in retry)
-        more, more_crashed = run(retry)
-        outcomes += more
-        crashed.update(more_crashed)
-        failed = [o.pass_.id for o in more if o.pass_.transport_failed]
+        def run(batch: Sequence[PassTask]) -> tuple[list[PassOutcome], dict[str, str]]:
+            if in_process:
+                return _run_in_process(batch, home)
+            return _run_processes(batch, env_factory, parallel, pass_timeout_s)
+
+        outcomes, crashed = run(tasks)
+        task_of = {t.pass_id: t for t in tasks}
+        failed = [o.pass_.id for o in outcomes if o.pass_.transport_failed]
+        lost: list[str] = []                 # re-runs that crashed: their slot is still without an eval
+        for attempt in range(1, reruns + 1):
+            if not failed:
+                break
+            retry = [rerun_task(task_of[i], attempt) for i in failed]
+            task_of.update((t.pass_id, t) for t in retry)
+            more, more_crashed = run(retry)
+            outcomes += more
+            crashed.update(more_crashed)
+            lost += [t.pass_id for t in retry if t.pass_id in more_crashed]
+            failed = [o.pass_.id for o in more if o.pass_.transport_failed]
+        _record_crashed(home, round_, task_of, crashed)
+    if tasks and all(t.pass_id in crashed for t in tasks):
+        raise RoundCrashed(f"round {round_}: every pass crashed; first: {crashed[tasks[0].pass_id]}")
     passes = [o.pass_ for o in outcomes]
     evals = {o.pass_.id: o.report for o in outcomes if o.report is not None}
     deltas = pair_deltas(round_, plans, passes, evals)
     observations = tuple(ob for o in sorted(outcomes, key=lambda o: o.pass_.id) for ob in o.observations)
-    return RoundResult(tuple(outcomes), tuple(deltas), observations, crashed, tuple(failed))
+    return RoundResult(tuple(outcomes), tuple(deltas), observations, crashed, tuple(sorted(failed + lost)))
