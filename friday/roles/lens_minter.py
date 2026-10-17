@@ -31,9 +31,12 @@ NEAR_COPY_JACCARD = 0.6
 EVAL_WORDS = ("eval",)
 
 _OPENERS = ("which", "where", "what", "when", "how")
+# A vacuous counterfactual asks the plain negation; each pattern is anchored to the question's end (or, for
+# "no defect" / "nothing wrong", to the whole answer), so "disabled or not rendered" is not refused.
 _VACUOUS = re.compile(
-    r"\b(or is it fine|is it fine|or not|is (it|everything) (ok|okay|correct|fine)|"
-    r"no (defect|problem|issue|bug)s?|nothing (is )?wrong)\b", re.IGNORECASE)
+    r"(\b(or is it fine|is it fine|or not|is (it|everything) (ok|okay|correct|fine))\s*\?$)|"
+    r"(\b(is there|are there) (no|any) (defects?|problems?|issues?|bugs?)\s*\?$)|"
+    r"(\bnothing (is )?wrong\b)", re.IGNORECASE)
 
 SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -117,17 +120,32 @@ def render_residual(residual: Sequence[ResidualItem]) -> str:
 
 @dataclass
 class LensMinter:
+    """The lens minter. Constructible as `LensMinter(client, book)` (the declared seam); `propose` raises
+    until `reasks` (run.yml json.reasks) and `families` (run.yml stream.families, blinded for this reader per
+    SPEC § 2) are given, so neither the re-ask nor the family blinding can be skipped by omission."""
+
     client: ModelClient
     book: PromptBook
-    reasks: int                             # run.yml json.reasks
-    families: tuple[str, ...] = ()          # goal family names, blinded for this reader (run.yml stream.families)
+    reasks: int | None = field(default=None, kw_only=True)
+    families: tuple[str, ...] | None = field(default=None, kw_only=True)
     results: list[ChatResult] = field(default_factory=list)
     failures: list[str] = field(default_factory=list)
 
+    def _require_config(self) -> tuple[int, tuple[str, ...]]:
+        if self.reasks is None or self.families is None:
+            raise ValueError("LensMinter needs reasks (run.yml json.reasks) and families (run.yml "
+                             "stream.families) before it mints")
+        if not self.families:
+            raise ValueError("LensMinter given no goal families to blind")
+        return self.reasks, self.families
+
     def blinded(self) -> tuple[str, ...]:
-        """Words a minted lens may not name: the minter's row, the lens call's row, the eval, the families."""
+        """Words a minted lens may not name: the minter's row, the lens call's row, the eval, the families.
+
+        Raises ValueError when reasks or families were not given."""
+        _, families = self._require_config()
         rows = self.book.blinding
-        return (*rows["lens_minter"], *rows["judge_lens"], *EVAL_WORDS, *self.families)
+        return (*rows["lens_minter"], *rows["judge_lens"], *EVAL_WORDS, *families)
 
     def messages(self, residual: Sequence[ResidualItem], lenses: Sequence[Lens], limit: int) -> list[Message]:
         system = fill(self.book.text("lens_minter/system.md").strip(), limit=limit)
@@ -140,12 +158,13 @@ class LensMinter:
 
         Each refusal reason is appended to `failures`, each reply to `results`.
         """
+        reasks, _ = self._require_config()
         if limit <= 0:
             return []
         blinded, hedges = self.blinded(), self.book.hedges
         kept: list[LensProposal] = []
         convo = self.messages(residual, lenses, limit)
-        for attempt in range(self.reasks + 1):
+        for attempt in range(reasks + 1):
             res = self.client.chat(ROLE, convo, json_schema=SCHEMA,
                                    tag="lens_minter" if attempt == 0 else f"lens_minter:reask{attempt}")
             self.results.append(res)

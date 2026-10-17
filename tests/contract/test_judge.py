@@ -22,6 +22,7 @@ from friday.domain.types import (
     Regime,
 )
 from friday.roles import eval_text
+from friday.roles.ask import Rejected
 from friday.roles.judge import Judge, fill, fires_for, validate_report
 from friday.roles.lens_minter import LensMinter, LensProposal, ResidualItem, lens_form_problem
 from friday.roles.prompts import PromptBook
@@ -38,9 +39,13 @@ COMPOSED = {"D-0002": "Drive countdowns from `Date.now()` differences.", "D-0001
 RESET_LINE = "document.getElementById('reset').addEventListener('click', () => {"
 
 
-def judge(script, model="judge/served"):
+def judge(script, model="judge/served", given=None):
+    """A Judge on a scripted client; `given` seeds the lenses pass x1's lens call was given."""
     client = ScriptedClient(list(script), model=model)
-    return Judge(client, BOOK, SPEC.lens.flag_p, SPEC.judge.max_observations, SPEC.judge.quote_reasks), client
+    j = Judge(client, BOOK, SPEC.lens.flag_p, SPEC.judge.max_observations, SPEC.judge.quote_reasks)
+    if given is not None:
+        j.lenses_by_pass["x1"] = tuple(given)
+    return j, client
 
 
 def marked_report(regime=Regime.R1) -> EvalReport:
@@ -99,7 +104,7 @@ def test_lens_call_templates_name_no_judge_lens_blinded_word():
 
 
 def test_report_call_templates_and_eval_text_labels_name_no_judge_report_blinded_word():
-    rendered = Judge(ScriptedClient([]), BOOK, 0.5, 3, 1).report_messages("", {}, "", [], "")
+    rendered = Judge(ScriptedClient([]), BOOK, 0.5, 3, 1).report_messages("", {}, "", [], "", LENSES)
     neutral = EvalReport("x", Regime.R2, (CheckResult("c", False, "s"),), ("e",), 0, 0, (1,), 0, 1.0,
                          probes=marked_report().probes, how_to=marked_report().how_to)
     labels = eval_text.render(neutral)
@@ -150,9 +155,21 @@ def test_eval_text_is_deterministic_and_never_names_the_regime():
     assert a == b == eval_text.render(marked_report(Regime.R1))
 
 
-def test_eval_text_reads_absent_readings_as_not_read_never_zero():
+def test_eval_text_reads_absent_readings_as_not_read_never_zero_or_none():
     text = eval_text.render(EvalReport("x", Regime.R1, (), (), 0, 0, (), 0, 1.0))
-    assert "Probe results: not read" in text and "How-to controls: not read" in text
+    for line in ("Acceptance checks: not read", "Probe results: not read", "How-to controls: not read",
+                 "Silent controls (responsive, not declared in the how-to): not read", "Console errors: not read",
+                 "Rubric scores: not read"):
+        assert line in text
+    unread = [x for x in text.splitlines() if not x.startswith("Quality reading Q")]
+    assert [x for x in unread if x.rstrip().endswith((": 0", ": none"))] == []
+
+
+def test_eval_text_with_probes_read_and_no_console_error_says_none():
+    report = EvalReport("x", Regime.R1, (), (), 0, 0, (), 0, 1.0, probes=marked_report().probes,
+                        silent_controls=0)
+    text = eval_text.render(report)
+    assert "Console errors: none" in text and "how-to): 0" in text
 
 
 # --- lens call ---------------------------------------------------------------------------------------------
@@ -197,8 +214,32 @@ def test_fill_never_rescans_inserted_text():
 
 # --- report call -------------------------------------------------------------------------------------------
 
+def test_report_call_input_carries_each_lens_angle_and_counterfactual_the_lens_call_had():
+    lenses = [lens("L-04"), lens("L-09", LensStatus.HIDDEN)]
+    j, client = judge([lens_reply(), report_reply()])
+    answers = j.lens_call("x1", REQUEST, COMPOSED, SOURCE, lenses)
+    j.report_call("x1", REQUEST, COMPOSED, SOURCE, answers, "", ["L-04", "L-09"])
+    report_text = "\n".join(m.content for m in client.calls[1][1])
+    for x in lenses:
+        assert x.angle.strip() in report_text and x.counterfactual.strip() in report_text
+
+
+def test_report_call_renders_the_lenses_even_when_the_lens_call_was_dropped():
+    j, client = judge([lens_reply(quote="not in source")] * 2 + [report_reply()])
+    assert j.lens_call("x1", REQUEST, COMPOSED, SOURCE, LENSES) is None
+    j.report_call("x1", REQUEST, COMPOSED, SOURCE, [], "", ["L-04", "L-09"])
+    assert LENSES[0].angle.strip() in client.calls[2][1][1].content
+
+
+def test_report_call_refuses_a_lens_id_its_lens_call_was_not_given():
+    j, client = judge([], given=[lens("L-04")])
+    with pytest.raises(ValueError, match="was not given"):
+        j.report_call("x1", REQUEST, COMPOSED, SOURCE, [], "", ["L-04", "L-77"])
+    assert client.calls == []
+
+
 def test_report_call_disposes_every_composed_decision():
-    j, _ = judge([report_reply()])
+    j, _ = judge([report_reply()], given=LENSES)
     obs, disp = j.report_call("x1", REQUEST, COMPOSED, SOURCE, [], "text", ["L-04"])
     assert obs[0].lens_id == "L-04"
     assert disp == {"D-0001": (Disposition.NOT_APPLICABLE, ""), "D-0002": (Disposition.CONTRADICTED, "left -= 1")}
@@ -210,34 +251,34 @@ def test_report_call_disposes_every_composed_decision():
 def test_quote_taken_from_the_eval_text_is_refused_and_the_dropped_call_leaves_fires_undisposed():
     report_text = eval_text.render(marked_report())
     bad_obs = [{"lens_id": "free", "shape": "s", "direction": "d", "quote": "zz-failing-step: click #reset"}]
-    j, _ = judge([report_reply(observations=bad_obs)] * 2)
+    j, _ = judge([report_reply(observations=bad_obs)] * 2, given=LENSES)
     got = j.report_call("x1", REQUEST, COMPOSED, SOURCE, [], report_text, ["L-04"])
     assert got is None and not j.calls[-1].ok
     fires = fires_for("x1", 3, sorted(COMPOSED), None)
     assert {f.disposition for f in fires} == {Disposition.UNDISPOSED} and len(fires) == len(COMPOSED)
 
 
-def test_report_rejects_an_uncomposed_decision_id_and_an_unquoted_contradiction():
+def test_report_rejects_an_uncomposed_decision_id_and_an_unquoted_contradiction_as_rejected_not_bare_exception():
     good = json.loads(report_reply())
     extra = {**good, "dispositions": {**good["dispositions"], "D-0099": "applied"}}
-    with pytest.raises(Exception, match="not composed"):
+    with pytest.raises(Rejected, match="not composed"):
         validate_report(extra, ["L-04"], ["D-0001", "D-0002"], SOURCE, 3)
     unquoted = {**good, "dispositions": {**good["dispositions"], "D-0002": {"disposition": "contradicted"}}}
-    with pytest.raises(Exception, match="contradicted needs"):
+    with pytest.raises(Rejected, match="contradicted needs"):
         validate_report(unquoted, ["L-04"], ["D-0001", "D-0002"], SOURCE, 3)
     undisposed = {**good, "dispositions": {**good["dispositions"], "D-0001": "undisposed"}}
-    with pytest.raises(Exception, match="must be applied"):
+    with pytest.raises(Rejected, match="must be applied"):
         validate_report(undisposed, ["L-04"], ["D-0001", "D-0002"], SOURCE, 3)
 
 
 def test_report_caps_observations_at_max_observations():
     many = [json.loads(report_reply())["observations"][0]] * (SPEC.judge.max_observations + 1)
-    j, _ = judge([report_reply(observations=many)] * 2)
+    j, _ = judge([report_reply(observations=many)] * 2, given=LENSES)
     assert j.report_call("x1", REQUEST, COMPOSED, SOURCE, [], "", ["L-04"]) is None
 
 
 def test_report_call_renders_the_lens_answers_it_is_given():
-    j, client = judge([report_reply()])
+    j, client = judge([report_reply()], given=LENSES)
     answers = [LensAnswer("x1", "L-04", 0.8, RESET_LINE, "m")]
     j.report_call("x1", REQUEST, COMPOSED, SOURCE, answers, "", ["L-04"])
     assert f"- L-04: p 0.80, quote: {RESET_LINE}" in client.calls[0][1][1].content
@@ -304,6 +345,20 @@ def test_minter_returns_at_most_limit_and_refuses_near_copies_within_one_reply()
     m, _ = minter([reply, "not json"])
     assert m.propose([], [], 2) == [LensProposal(GOOD["angle"], GOOD["counterfactual"])]
     assert any("near-copy" in f for f in m.failures) and any("invalid JSON" in f for f in m.failures)
+
+
+def test_lens_minter_keeps_the_declared_constructor_and_refuses_to_mint_without_reasks_or_families():
+    m = LensMinter(ScriptedClient([]), BOOK)                    # the seam stub's constructor still builds
+    with pytest.raises(ValueError, match="families"):
+        m.propose([], [], 2)
+    with pytest.raises(ValueError, match="no goal families"):
+        LensMinter(ScriptedClient([]), BOOK, reasks=1, families=()).propose([], [], 2)
+
+
+def test_vacuous_counterfactual_check_does_not_refuse_a_counterfactual_containing_or_not():
+    angle = "Where does a requested control fail to appear in the markup?"
+    assert lens_form_problem(angle, "Which control is disabled or not rendered by design?", [], [], []) is None
+    assert "vacuous" in lens_form_problem(angle, "Which control fails to appear, or not?", [], [], [])
 
 
 def test_minter_with_no_valid_proposal_returns_none_after_its_reask():

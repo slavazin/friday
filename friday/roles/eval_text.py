@@ -26,7 +26,7 @@ def _viewport(v: tuple[int, int]) -> str:
 
 def _checks(checks: Sequence[CheckResult]) -> list[str]:
     if not checks:
-        return ["Acceptance checks: none"]
+        return ["Acceptance checks: not read"]
     passed = sum(c.passed for c in checks)
     return [f"Acceptance checks ({passed} of {len(checks)} pass):", *(_result(c) for c in checks)]
 
@@ -58,17 +58,24 @@ def _how_to(readings: Sequence[HowToReading]) -> list[str]:
 
 
 def render(report: EvalReport) -> str:
-    """The report call's eval-report text for `report`, deterministic in its input."""
+    """The report call's eval-report text for `report`, deterministic in its input.
+
+    A reading the eval did not take renders "not read", never 0 or "none": the silent controls and console
+    errors come from the probes, so with no probe reading they are not read; empty checks or rubric are
+    not read.
+    """
     lines = [*_checks(report.checks), "", *_probes(report.probes), "", *_how_to(report.how_to), ""]
-    lines.append(f"Silent controls (responsive, not declared in the how-to): {report.silent_controls}")
+    probed = bool(report.probes)
+    silent = report.silent_controls if probed else "not read"
+    lines.append(f"Silent controls (responsive, not declared in the how-to): {silent}")
     lines.append("")
     if report.console_errors:
         lines += ["Console errors:", *(f"- {e}" for e in report.console_errors)]
     else:
-        lines.append("Console errors: none")
+        lines.append("Console errors: none" if probed else "Console errors: not read")
     lines.append("")
     lines.append(f"Quality reading Q: {report.Q} (ESLint errors {report.eslint_errors}, "
                  f"axe violations {report.axe_violations})")
-    scores = ", ".join(str(s) for s in report.rubric) or "none"
+    scores = ", ".join(str(s) for s in report.rubric) or "not read"
     lines.append(f"Rubric scores: {scores}")
     return "\n".join(lines)

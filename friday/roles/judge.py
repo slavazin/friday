@@ -222,6 +222,10 @@ class Judge:
     max_observations: int
     quote_reasks: int
     calls: list[JudgeCall] = field(default_factory=list)
+    # The lenses each pass's lens call was given, recorded before the model call so that the report call
+    # renders them even when the lens call was dropped (SPEC § 6: the report call has everything the lens
+    # call had).
+    lenses_by_pass: dict[str, tuple[Lens, ...]] = field(default_factory=dict)
 
     def lens_messages(self, request_text: str, composed: Mapping[str, str], source: str,
                       lenses: Sequence[Lens]) -> list[Message]:
@@ -232,11 +236,14 @@ class Judge:
         return [Message("system", system), Message("user", user)]
 
     def report_messages(self, request_text: str, composed: Mapping[str, str], source: str,
-                        answers: Sequence[LensAnswer], eval_report_text: str) -> list[Message]:
-        """The report call's messages: the lens call's inputs, its answers and the eval report text."""
+                        answers: Sequence[LensAnswer], eval_report_text: str,
+                        lenses: Sequence[Lens] = ()) -> list[Message]:
+        """The report call's messages: the lens call's inputs (lenses included), its answers and the eval
+        report text."""
         system = fill(self.book.text("judge/report_system.md").strip(), max_observations=self.max_observations)
         user = fill(self.book.text("judge/report_user.md").strip(), request=request_text.strip(),
-                    decisions=render_decisions(composed), source=source, answers=render_answers(answers),
+                    decisions=render_decisions(composed), source=source,
+                    lenses=render_lenses(lenses) if lenses else "(none)", answers=render_answers(answers),
                     eval_report=eval_report_text.strip())
         return [Message("system", system), Message("user", user)]
 
@@ -254,6 +261,7 @@ class Judge:
         stale = [x.id for x in lenses if x.status not in ANSWERABLE]
         if stale:
             raise ValueError(f"lens call given lenses that are not active or hidden: {stale}")
+        self.lenses_by_pass[pass_id] = tuple(lenses)
         if not lenses:
             return []
         asked = ask_json(
@@ -270,9 +278,19 @@ class Judge:
     def report_call(self, pass_id: str, request_text: str, composed: Mapping[str, str], source: str,
                     answers: Sequence[LensAnswer], eval_report_text: str, lens_ids: Sequence[str],
                     ) -> tuple[list[DraftObservation], dict[str, tuple[Disposition, str]]] | None:
-        """Observations and dispositions; None when the call is dropped (its fires stay undisposed)."""
+        """Observations and dispositions; None when the call is dropped (its fires stay undisposed).
+
+        Renders the lenses this pass's lens call was given (those named in `lens_ids`). Raises ValueError when
+        `lens_ids` names a lens the pass's lens call was not given: the report call would pool blind.
+        """
+        given = {x.id: x for x in self.lenses_by_pass.get(pass_id, ())}
+        missing = [i for i in lens_ids if i not in given]
+        if missing:
+            raise ValueError(f"report call names lenses the lens call of {pass_id} was not given: {missing}")
+        lenses = [given[i] for i in lens_ids]
         asked = ask_json(
-            self.client, ROLE, self.report_messages(request_text, composed, source, answers, eval_report_text),
+            self.client, ROLE,
+            self.report_messages(request_text, composed, source, answers, eval_report_text, lenses),
             lambda raw: validate_report(raw, lens_ids, sorted(composed), source, self.max_observations),
             reasks=self.quote_reasks, tag=f"judge:report:{pass_id}", schema=REPORT_SCHEMA,
         )
