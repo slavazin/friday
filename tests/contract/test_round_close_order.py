@@ -109,7 +109,7 @@ class World:
         self.obs, self.spend = MemoryObservationStore(), MemorySpendLog()
         self.lens_set = MarkdownLensSet(tmp_path / "lenses", self.vcs)
         book = PromptBook(ROOT / "prompts")
-        self.pooling = PoolingCall(ScriptedClient([]), book)
+        self.pooling = PoolingCall(ScriptedClient([]), book, SPEC.pool.max_direction_labels, SPEC.json.reasks)
         self.pool_calls: list[tuple[str, list[str]]] = []
 
         def assign(lens_id, pools, new):
