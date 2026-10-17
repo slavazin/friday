@@ -10,6 +10,46 @@ function appFrame(passId, title, cls = "app-frame") {
     loading: "lazy", referrerpolicy: "no-referrer", title });
 }
 
+const PLAY_AFTER_MS = 1000;    // hover this long and the frozen poster becomes the live app
+const FREEZE_AFTER_MS = 5000;  // this long after the pointer leaves, the app is unloaded and the poster returns
+
+// A built app shown frozen: its poster still (rendered once by the server), with a hint. Hovering starts the
+// live app in its sandboxed iframe; leaving freezes it again. Only hovered apps run, so the page stays light.
+function frozenApp(passId, title, cls = "app-frame") {
+  const img = h("img", { class: "poster", alt: title, loading: "lazy", decoding: "async" });
+  const hint = h("div", { class: "play-hint" }, "▶ hover to play");
+  const wrap = h("div", { class: "frozen" }, img, hint);
+  let tries = 0;
+  img.onerror = () => {            // not rendered yet: show the placeholder and look again shortly
+    wrap.classList.add("no-poster");
+    if (++tries <= 60) setTimeout(() => { img.src = `/posters/${encodeURIComponent(passId)}?t=${tries}`; }, 5000);
+  };
+  img.onload = () => wrap.classList.remove("no-poster");
+  img.dataset.src = `/posters/${encodeURIComponent(passId)}`;
+  let playT = null, freezeT = null, frame = null;
+  const play = () => {
+    if (frame) return;
+    frame = h("iframe", { class: `${cls} live`, src: `/apps/${encodeURIComponent(passId)}`, sandbox: "allow-scripts",
+      referrerpolicy: "no-referrer", title });
+    wrap.append(frame);
+    wrap.classList.add("playing");
+  };
+  const freeze = () => {
+    frame?.remove();
+    frame = null;
+    wrap.classList.remove("playing");
+  };
+  wrap.addEventListener("mouseenter", () => {
+    clearTimeout(freezeT);
+    if (!frame) playT = setTimeout(play, PLAY_AFTER_MS);
+  });
+  wrap.addEventListener("mouseleave", () => {
+    clearTimeout(playT);
+    if (frame) freezeT = setTimeout(freeze, FREEZE_AFTER_MS);
+  });
+  return wrap;
+}
+
 function lazyLoad(root, scroller) {
   const io = new IntersectionObserver((entries) => {
     for (const e of entries) {
@@ -19,7 +59,7 @@ function lazyLoad(root, scroller) {
       io.unobserve(f);
     }
   }, { root: scroller, rootMargin: "300px" });
-  for (const f of root.querySelectorAll("iframe[data-src]")) io.observe(f);
+  for (const f of root.querySelectorAll("iframe[data-src], img[data-src]")) io.observe(f);
   return io;
 }
 
@@ -96,7 +136,7 @@ export class GalleryPage {
     const loss = h("span", { class: "loss-chip" }, `loss ${fmt.loss(p.loss)}`);
     loss.style.setProperty("--loss-color", lossColor(p.loss));
     return h("figure", { class: "app-card", "data-pass": p.id },
-      h("div", { class: "frame-wrap" }, appFrame(p.id, `app built by pass ${p.id}`),
+      h("div", { class: "frame-wrap" }, frozenApp(p.id, `app built by pass ${p.id}`),
         h("button", { class: "expand-over", type: "button", title: "open full screen in Stage (←/→ browse)",
           "aria-label": `expand ${p.category} full screen`, onclick: () => this.expand(p.id) }, "⤢ Expand")),
       h("figcaption", {},
@@ -143,7 +183,7 @@ export class GalleryPage {
     }
     const side = (p, label) => p
       ? h("div", { class: "pair-side" }, h("div", { class: "pair-label" }, label),
-        h("div", { class: "frame-wrap small" }, appFrame(p.id, `app built by pass ${p.id}`, "app-frame mini")),
+        h("div", { class: "frame-wrap small" }, frozenApp(p.id, `app built by pass ${p.id}`, "app-frame mini")),
         h("div", { class: "pair-loss" }, "loss ", h("b", {}, fmt.loss(p.loss))), h("div", { class: "muted small" }, p.id))
       : h("div", { class: "pair-side muted" }, label, ": not recorded");
     const body = pairs.length

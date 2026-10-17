@@ -33,6 +33,7 @@ from friday.adapters.telemetry import SqliteTelemetry, connect_telemetry
 from friday.app.telemetry_report import step_times
 from friday.config import RunSpec, load_spec
 from friday.ports.telemetry import Scope, TelemetryRow
+from web.posters import Posters
 
 WEB = Path(__file__).resolve().parent
 STATIC = WEB / "static"
@@ -104,12 +105,22 @@ def with_esc_relay(html: bytes) -> bytes:
     return html[:at] + ESC_RELAY + html[at:]
 
 
-def create_app(spec: RunSpec, db_path: str | Path, export_path: str | Path, artifacts_dir: str | Path) -> FastAPI:
-    """The demo app over one run's telemetry log, export file and artifacts folder."""
+def create_app(spec: RunSpec, db_path: str | Path, export_path: str | Path, artifacts_dir: str | Path,
+               *, render_posters: bool = False) -> FastAPI:
+    """The demo app over one run's telemetry log, export file and artifacts folder. With `render_posters`, a
+    background thread renders a still poster per built app (`web/posters.py`) for the gallery's frozen cards."""
     export = _ExportFile(Path(export_path))
     log = _Log(Path(db_path), spec.telemetry.busy_timeout_ms)
     artifacts = Path(artifacts_dir).resolve()
     app = FastAPI(title="Friday", docs_url=None, redoc_url=None, openapi_url=None)
+
+    def built_ids() -> list[str]:
+        return [p["id"] for p in export.doc()["passes"] if p.get("artifact_path")]
+
+    # newest passes first: the gallery leads with the latest round
+    posters = Posters(Path(export_path).parent / "posters", artifacts, lambda: built_ids()[::-1])
+    if render_posters:
+        posters.start()
 
     @app.middleware("http")
     async def headers(request: Request, call_next):  # noqa: ANN001, ANN202 - FastAPI middleware signature
@@ -191,6 +202,17 @@ def create_app(spec: RunSpec, db_path: str | Path, export_path: str | Path, arti
         return Response(with_esc_relay(path.read_bytes()), media_type="text/html; charset=utf-8",
                         headers={"Content-Security-Policy": APP_CSP, "Cross-Origin-Resource-Policy": "same-origin"})
 
+    @app.get("/posters/{pass_id}")
+    def get_poster(pass_id: str) -> Response:
+        if not PASS_ID.match(pass_id) or pass_id in (".", ".."):
+            raise HTTPException(404, "unknown pass")
+        if pass_id not in set(built_ids()):
+            raise HTTPException(404, "unknown pass")
+        path = posters.path(pass_id)
+        if not path.is_file():
+            raise HTTPException(404, "no poster yet")
+        return FileResponse(path, media_type="image/jpeg")
+
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
     return app
 
@@ -234,7 +256,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--port", type=int, default=8765)
     args = ap.parse_args(argv)
     spec, db, export, artifacts = resolve_paths(args)
-    app = create_app(load_spec(spec), db, export, artifacts)
+    app = create_app(load_spec(spec), db, export, artifacts, render_posters=True)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 
 if __name__ == "__main__":

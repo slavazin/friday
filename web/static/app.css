@@ -330,3 +330,13 @@ ul.flips { margin: 0; padding-left: 18px; font-size: 14.5px; }
 #page-stage .picker-item .loss-chip { margin-left: 0; }
 #page-stage .picker-n { font-weight: 800; color: var(--accent); width: 22px; }
 #page-stage .picker-id { font-weight: 700; }
+
+/* frozen apps: a poster still until hovered for a second */
+.frozen { position: absolute; inset: 0; }
+.frozen .poster { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top left; border: 0; display: block; }
+.frozen.no-poster .poster { visibility: hidden; }
+.frozen.no-poster { background: repeating-linear-gradient(135deg, #12151c 0 12px, #161a22 12px 24px); }
+.frozen .live { position: absolute; left: 0; top: 0; background: #fff; }
+.play-hint { position: absolute; left: 8px; bottom: 8px; padding: 4px 9px; border-radius: 999px; font: 600 12px/1 inherit;
+  color: #fff; background: #0b0d12b3; opacity: .8; pointer-events: none; transition: opacity .2s; }
+.frozen.playing .play-hint, .frame-wrap:hover .play-hint { opacity: 0; }
