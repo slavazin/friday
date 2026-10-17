@@ -161,8 +161,8 @@ type-gce) by section.
 | **disposition**           | The judge's verdict on each composed decision for one pass: `applied`, `not-applicable`, `contradicted`; `undisposed` when the report call was dropped, never defaulted | GCE § 7.6 (use-time dispositions)               |
 | **pool**                  | A stable group `P-NNNN` of observations under one lens id sharing one shape, with at most two direction labels                                                                                                             | § 7; GCE § 7.4 (piles grouped by shape)         |
 | **direction label**       | A short phrase naming what would lower loss, assigned by the pooling call, one of at most two per pool                                                                                                                     | § 7                                             |
-| **recurrence bar**        | When a pool may be nominated: at least 3 open observations from at least 2 rounds, all under one direction label                                                                                                           | GCE § 7.4 (counts nominate)                     |
-| **fast-track**            | A pool whose open observations number at least 3 and whose leading direction label holds at least `pool.fast_track_share` (2/3) of them. It is nominated without the two-round requirement, ahead of the queue. It changes when a candidate is tested, never the bar it must clear | § 7                                             |
+| **recurrence bar**        | When a pool may be nominated: at least 3 open observations, all under one direction label, from at least `pool.recurrence_min_requests` (2) distinct requests and at least 2 rounds | GCE § 7.4 (counts nominate)                     |
+| **fast-track**            | A pool whose open observations come from at least `pool.fast_track_min_requests` (3) distinct requests and whose leading direction label holds at least `pool.fast_track_share` (2/3) of them. It is nominated without the two-round requirement, ahead of the queue. It changes when a candidate is tested, never the bar it must clear | § 7                                             |
 | **nominator**             | The strong model that drafts a candidate decision from one pool, grounded by one You.com call                                                                                                                              | GCE § 6 I2 (the machine proposes)               |
 | **decision**              | One Journal entry `D-NNNN`: hook, payload, warrant, enforcement, lifecycle. Its id is minted at drafting; its text is frozen from drafting; only its status flips                                                          | GCE § 6 (the entry contract)                    |
 | **hook**                  | A decision's activation: it fires on a request iff the request carries at least one `fires_when` tag and no `not_this` tag                                                                                                 | GCE § 9                                         |
@@ -766,9 +766,14 @@ At each round close:
    recurrence bar or fast-tracked, goes to the nominator while
    `gate.in_flight` has room: fast-tracked pools first, then the rest, oldest
    pool first within each. A pool is fast-tracked when it holds at least
-   `pool.recurrence_min_observations` (3) open observations and its leading
+   `pool.recurrence_min_observations` (3) open observations from at least
+   `pool.fast_track_min_requests` (3) distinct requests and its leading
    direction label holds at least `pool.fast_track_share` (2/3) of them; it
-   needs no second round. On nomination, the pool's open observations close
+   needs no second round.
+   **Counting:** every count toward the bar or the fast-track is over
+   distinct requests, not passes. The two passes of a pair build the same
+   request, so their observations are correlated; counted per pass, one
+   request's quirk would read as recurrence. On nomination, the pool's open observations close
    (they are the candidate's warrant).
    **Why:** a run that ends at 17:00 cannot wait two rounds for a shape every
    observation already agrees on. **Don't:** let agreement lower the gate.
@@ -1238,9 +1243,13 @@ each pass mimics a developer working under a manager: build, critic, revision.
 **Readings** (descriptive; the pre-registered R1–R4 belong to the main run):
 requests honored per round; mean loss against the main run's on the same
 requests; the decisions admitted in each run, side by side.
-**Don't:** start the critic run before the main run's readout is written, or
-let it compete with the main run for the spend cap: it has its own
-`critic.spend_cap_usd`.
+**Concurrency.** The critic run may overlap the main run once the main run's
+round 1 has closed cleanly. While both run, the critic run takes
+`critic.max_parallel_passes` (6) of the machine's pass slots, and the main
+run takes `run.max_parallel_passes` minus that.
+**Don't:** let the critic run share the main run's stores or spend cap: it has
+its own `paths.*` and `critic.spend_cap_usd`. And don't start it before the
+main run's round 1 closes: a defect found there would void both.
 
 ---
 

@@ -131,7 +131,9 @@ class PoolSection:
     expiry_rounds: int
     recurrence_min_observations: int
     recurrence_min_rounds: int
+    recurrence_min_requests: int
     fast_track_share: float
+    fast_track_min_requests: int
     max_direction_labels: int
 
 
@@ -197,6 +199,7 @@ class JsonSection:
 class CriticSection:
     max_requests: int
     spend_cap_usd: float
+    max_parallel_passes: int
 
 
 @dataclass(frozen=True)

@@ -239,6 +239,8 @@ itself is artifact source and may be read.
 - a scripted nominator run drafts `journal/D-0001.md` as a candidate.
 
 **Don't:** let fast-track touch the gate. It changes when a candidate is tested, never the bar it clears.
+**Don't:** count passes toward the bar: count distinct requests (`pool.recurrence_min_requests`,
+`pool.fast_track_min_requests`; SPEC § 7 Counting). A pair's two passes share one request.
 
 ### S10. Round-close orchestrator
 
