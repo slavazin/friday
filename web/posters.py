@@ -7,6 +7,7 @@ read by the run: posters sit in their own folder beside the export.
 
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
 from collections.abc import Callable
@@ -41,15 +42,21 @@ class Posters:
 
         self.folder.mkdir(parents=True, exist_ok=True)
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True, args=[*_REFUSING_PROXY, *_NO_UDP])
+            launch = lambda: pw.chromium.launch(headless=True, args=[*_REFUSING_PROXY, *_NO_UDP])  # noqa: E731
+            browser = launch()
             while True:
                 try:
                     todo = [i for i in self.wanted() if i not in self.failed and not self.path(i).exists()]
                 except Exception:  # noqa: BLE001 - no export yet: try again on the next scan
                     todo = []
                 for pass_id in todo:
-                    self._render(browser, pass_id)
-                time.sleep(RESCAN_S)
+                    if not browser.is_connected():      # an app took the browser down: start a fresh one
+                        browser = launch()
+                    try:
+                        self._render(browser, pass_id)
+                    except Exception:  # noqa: BLE001 - the browser died under this app: skip it, relaunch next
+                        self.failed.add(pass_id)
+                time.sleep(RESCAN_S if not todo else 0.5)
 
     def _render(self, browser, pass_id: str) -> None:  # noqa: ANN001 - a Playwright Browser
         src = self.artifacts / pass_id / "index.html"
@@ -69,4 +76,5 @@ class Posters:
         except Exception:  # noqa: BLE001 - a page that hangs or crashes gets no poster; the card shows its placeholder
             self.failed.add(pass_id)
         finally:
-            ctx.close()
+            with contextlib.suppress(Exception):   # a context the app crashed is already gone
+                ctx.close()
