@@ -68,6 +68,11 @@ The listing carries per-model prices, so cost is computed from it. A live struct
 - **Model calls have a total deadline.** A judge lens call held its connection open with no reply for up to
   580 s: httpx bounds each read, not the call. Each attempt now ends at `transport.request_timeout_s` (150 s)
   in total and is retried like a 5xx.
+- **The critic run carries a planted taste.** Six quirks (`critic/taste.yml`) join the critic run's acceptance
+  checks for the requests in their scope, and the critic voices them as its own habits. The loop reads them
+  only as failing checks in the eval report, so the run reads whether it learns a rare domain's quirk on the
+  same evidence as a common one's. Each pass also records `loss_base` (no taste checks), which the comparison
+  with the main run reads.
 
 ## Open questions
 

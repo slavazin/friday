@@ -98,11 +98,15 @@ class Critic:
     max_requests: int            # critic.max_requests
     reasks: int                  # json.reasks
 
-    def messages(self, request_text: str, html: str, screenshot: bytes | None) -> list[Message]:
-        """The critic call's messages: the instructions, then the request, the source and its how-to, with the
-        screenshot attached."""
+    def messages(self, request_text: str, html: str, screenshot: bytes | None,
+                 habits: Sequence[str] = ()) -> list[Message]:
+        """The critic call's messages: the instructions (with the manager's `habits` in scope for this request,
+        when any), then the request, the source and its how-to, with the screenshot attached."""
         system = self.book.text("critic/system.md").strip().replace("{max_requests}", str(self.max_requests))
         system = system.replace("{max_words}", str(CRITICISM_MAX_WORDS))
+        if habits:
+            listed = "\n".join(f"- {h}" for h in habits)
+            system += "\n\n" + self.book.text("critic/habits.md").strip().replace("{habits}", listed)
         user = self.book.text("critic/user.md").strip()
         user = (user.replace("{request}", request_text.strip()).replace("{how_to}", how_to_text(html) or "(none)")
                 .replace("{source}", html))
@@ -111,10 +115,12 @@ class Critic:
                     Message("user", user + "\n\n" + self.book.text("critic/no_screenshot.md").strip())]
         return [Message("system", system), Message("user", user, images=(screenshot,))]
 
-    def criticise(self, request_text: str, html: str, screenshot: bytes | None, tag: str) -> CriticReply:
-        """The critic's reaction to one artifact (`screenshot` None: the page did not load); raises CriticUnread
-        when no usable reply came after the re-ask."""
-        asked = ask_json(self.client, ROLE, self.messages(request_text, html, screenshot),
+    def criticise(self, request_text: str, html: str, screenshot: bytes | None, tag: str,
+                  habits: Sequence[str] = ()) -> CriticReply:
+        """The critic's reaction to one artifact (`screenshot` None: the page did not load; `habits`: the
+        manager's habits in scope for this request); raises CriticUnread when no usable reply came after the
+        re-ask."""
+        asked = ask_json(self.client, ROLE, self.messages(request_text, html, screenshot, habits),
                          lambda v: validate_reply(v, self.max_requests), reasks=self.reasks, tag=tag)
         if asked.value is None:
             raise CriticUnread(f"critic reply unusable after {asked.attempts} tries: {'; '.join(asked.failures)}")

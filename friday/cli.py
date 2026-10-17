@@ -217,7 +217,8 @@ class PassEnvFactory:
         from friday.adapters.telemetry import open_run_telemetry
         from friday.app.pipeline import PassEnv, PassSettings
         from friday.app.runner import DraftRecordingJudge
-        from friday.app.wiring import evaluator_settings, with_optional
+        from friday.app.taste import build_taste
+        from friday.app.wiring import build_mechanics, evaluator_settings, with_optional
         from friday.eval.evaluate import Evaluator
         from friday.roles.ask import Rejected, ask_json
         from friday.roles.critic import Critic
@@ -255,6 +256,7 @@ class PassEnvFactory:
                 transport_errors=(TransportFailure,), telemetry=tel,
                 critic=Critic(client, book, spec.critic.max_requests, spec.json.reasks)
                 if self.scope == CRITIC_RUN else None,
+                taste=build_taste(repo, spec, build_mechanics(spec).loss) if self.scope == CRITIC_RUN else None,
             )
         finally:
             if browser is not None:
@@ -379,6 +381,13 @@ def build_runner(args: argparse.Namespace, *, live: bool = True):
     vocab = JsonTagVocabulary(tags_p)
     goals = JsonGoalSource(stream_p, held_p, vocab)
     book = PromptBook(repo / spec.paths.prompts)
+    if critic_run:                                   # the taste reads every request's cell: refuse a gap up front
+        from friday.app.taste import build_taste
+
+        taste = build_taste(repo, spec, build_mechanics(spec).loss)
+        for n in range(1, spec.run.rounds + 1):
+            for r in goals.round(n):
+                taste.in_scope(r.id)
 
     client = with_optional(CrusoeClient, spec.models, spec.transport, stores.spend,
                            cache=FileResponseCache(root / CACHE_DIR / "responses"), telemetry=tel)
@@ -539,9 +548,11 @@ def _critic_readout(args: argparse.Namespace) -> int:
     import dataclasses
     import shutil
 
+    from friday.adapters.goals_json import JsonGoalSource
     from friday.adapters.sqlite.process import open_run_stores
-    from friday.app.pipeline import HONORED_FILE
-    from friday.app.readout import critic_lines, critic_readings
+    from friday.app.pipeline import HONORED_FILE, TASTE_FILE
+    from friday.app.readout import critic_lines, critic_readings, taste_lines, taste_readings
+    from friday.app.taste import TASTE_PATH, load_cells, load_quirks
 
     main_spec, critic_spec = load_spec(args.main_spec), load_spec(args.critic_spec)
     main_root, critic_root = Path(args.main_root).resolve(), Path(args.critic_root).resolve()
@@ -565,19 +576,34 @@ def _critic_readout(args: argparse.Namespace) -> int:
         held = frozenset(r["id"] for r in json.loads((Path.cwd() / critic_spec.stream.held_out_path).read_text()))
     else:
         held = frozenset(args.held_out.split(","))
-    honored = {}
+    honored, taste = {}, {}
     for p in critic_stores.passes.passes():
-        f = critic_root / critic_spec.paths.artifacts / p.id / HONORED_FILE
-        if f.exists():
-            honored[p.id] = json.loads(f.read_text())
+        d = critic_root / critic_spec.paths.artifacts / p.id
+        if (d / HONORED_FILE).exists():
+            honored[p.id] = json.loads((d / HONORED_FILE).read_text())
+        if (d / TASTE_FILE).exists():
+            taste[p.id] = json.loads((d / TASTE_FILE).read_text())
+    loss_base = {pid: float(rec["loss_base"]) for pid, rec in taste.items()} if taste else None
     r = critic_readings(main_stores.passes, critic_stores.passes, honored, _journal_of(main_root, main_spec),
-                        _journal_of(critic_root, critic_spec), held)
+                        _journal_of(critic_root, critic_spec), held, loss_base)
     for line in critic_lines(r):
         print(line)
+    t = None
+    if taste:
+        s = critic_spec.stream
+        stream_p = Path.cwd() / s.path
+        source = JsonGoalSource(stream_p, Path.cwd() / s.held_out_path)
+        rounds = {q.id: n for n in range(1, critic_spec.run.rounds + 1) for q in source.round(n)}
+        quirks = load_quirks(Path.cwd() / TASTE_PATH, s.families, s.modes, critic_spec.eval.max_wait_ms)
+        t = taste_readings(quirks, load_cells(stream_p), rounds, critic_stores.passes, taste, critic_stores.events,
+                           critic_stores.ledger, held)
+        for line in taste_lines(t):
+            print(line)
     out = critic_root / CRITIC_EXPORT
     out.write_text(json.dumps({"main_root": str(main_root), "critic_root": str(critic_root),
                                "main_spec_hash": main_spec.spec_hash, "critic_spec_hash": critic_spec.spec_hash,
-                               **dataclasses.asdict(r)}, indent=1) + "\n")
+                               **dataclasses.asdict(r),
+                               "taste": None if t is None else dataclasses.asdict(t)}, indent=1) + "\n")
     print(f"wrote {out}")
     return 0
 

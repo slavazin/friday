@@ -1273,6 +1273,23 @@ each pass mimics a developer working under a manager: build, critic, revision.
 **Readings** (descriptive; the pre-registered R1–R4 belong to the main run):
 requests honored per round; mean loss against the main run's on the same
 requests; the decisions admitted in each run, side by side.
+**Taste.** The manager has habits the loop is never told: six quirks in `critic/taste.yml`, each a scope (a
+goal family, an interaction mode, or any request), a preference in a user's words that names the ids it
+wants, and one acceptance check in the check DSL that fails on every in-scope contract stub. On the critic
+run each in-scope quirk's check joins the pass's acceptance checks (C) under the regime, and the critic is
+shown the in-scope preferences as its own habits and voices at most one per pass when the artifact lacks
+it. No other reader sees a preference: the worker's build prompt, the judge, the pooling call, the
+nominator, the lens minter and the tagger read the quirk only as a failing check in the eval report, as
+they read any check, so the loop must learn it through observation, pool, nominator and paired exposure.
+The scopes span density on purpose (a family dense in every round, one dense only from the drift, two
+sparse families, one mode, one control in scope everywhere). The claim is invariance in evidence, not in
+calendar time: the gate admits on in-scope exposure pairs, so a sparse quirk needs as many pairs as a dense
+one and reaches them in more rounds. The taste reading reports, per quirk, the stream share in scope, the
+in-scope passes, the admitted decisions whose exposed slots pass the quirk check more often than their
+partners, `n` at admission (all and in scope), rounds to admission and the check's pass rate before and
+after; a quirk with no such decision reads "not learned". The critic's voicing is part of each pass, in both
+slots of a pair, so it narrows the exposure's effect on a quirk rather than creating one. Each pass records
+`loss_base`, its loss with the taste checks left out of C, and the comparison with the main run reads it.
 **Concurrency.** The critic run may overlap the main run once the main run's
 round 1 has closed cleanly. While both run, the critic run takes
 `critic.max_parallel_passes` (6) of the machine's pass slots, and the main
